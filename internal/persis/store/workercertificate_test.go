@@ -247,7 +247,7 @@ func TestWorkerCertificateStore_GetDuringRemovalKeepsBothWorkerIDs(t *testing.T)
 	s, _ := newWorkerCertificateStore(t)
 	createCertificate(t, s, workerCertificate("cert-1"))
 	removingAt := enrolledAt.Add(time.Hour)
-	_, err := s.MarkRemoving(t.Context(), "cert-1", "worker-a", clockAt(removingAt))
+	_, err := s.MarkRemoving(t.Context(), "cert-1", "worker-a", clockAt(removingAt), false)
 	require.NoError(t, err)
 	beat := workerCertificate("cert-1")
 	beat.WorkerID = "worker-b"
@@ -269,7 +269,7 @@ func TestWorkerCertificateStore_RevokeIfIdleKeepsHeartbeatDuringCheck(t *testing
 	s, col := newWorkerCertificateStore(t)
 	createCertificate(t, s, workerCertificate("cert-1"))
 	removingAt := enrolledAt.Add(time.Hour)
-	_, err := s.MarkRemoving(ctx, "cert-1", "worker-a", clockAt(removingAt))
+	_, err := s.MarkRemoving(ctx, "cert-1", "worker-a", clockAt(removingAt), false)
 	require.NoError(t, err)
 
 	_, revoked, err := s.RevokeIfIdle(ctx, "cert-1", func(context.Context, persis.WorkerCertificate) (bool, error) {
@@ -317,9 +317,9 @@ func TestWorkerCertificateStore_RevocationKeepsBothRecordsIDs(t *testing.T) {
 
 // A certificate in removal ran under eight IDs, and its worker restarted
 // under eight new ones, which push the earlier IDs out of the certificate
-// record. The certificate names all sixteen, before and after its
-// revocation, as the removal record keeps the earlier eight (Spec 108
-// §Removal).
+// record. The certificate names all sixteen, also after the removal moves
+// to stop and after its revocation, as the removal record keeps the
+// earlier eight (Spec 108 §Removal).
 func TestWorkerCertificateStore_RemovalKeepsIDsAtHistoryLimit(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -338,12 +338,16 @@ func TestWorkerCertificateStore_RemovalKeepsIDsAtHistoryLimit(t *testing.T) {
 	}
 	want = append([]string{"worker-cert-1"}, want...)
 	removingAt := enrolledAt.Add(time.Hour)
-	_, err := s.MarkRemoving(ctx, "cert-1", "before-6", clockAt(removingAt))
+	_, err := s.MarkRemoving(ctx, "cert-1", "before-6", clockAt(removingAt), false)
 	require.NoError(t, err)
 	for i := range 8 {
 		sight(fmt.Sprintf("restarted-%d", i), removingAt.Add(time.Duration(i+1)*time.Minute))
 	}
 
+	assert.Equal(t, want, seenIDs(getCertificate(t, s, "cert-1")))
+	stop, err := s.MarkRemoving(ctx, "cert-1", "before-6", clockAt(removingAt.Add(time.Hour)), true)
+	require.NoError(t, err)
+	require.True(t, stop.StopRequested)
 	assert.Equal(t, want, seenIDs(getCertificate(t, s, "cert-1")))
 	assert.Equal(t, want, seenIDs(setState(t, s, "cert-1", persis.WorkerCertificateRevoked)))
 	assert.Equal(t, want, seenIDs(getCertificate(t, s, "cert-1")))
