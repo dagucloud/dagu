@@ -409,7 +409,7 @@ conformance test confirms them.
 - The effort select offers the levels that both the CLI and the model
   accept. A level that the CLI does not accept fails validation with
   `effort_unsupported`. A level that the model's catalog lacks gets an
-  amber marker, since validation reads no catalog.
+  editor warning, since validation reads no catalog.
 - An adapter lists the aliases of its CLI, such as `sonnet` and `opus` for
   `claude`. The editor offers them, and they pass the editor's model
   warning. Dagu passes an alias to the CLI unchanged.
@@ -464,30 +464,23 @@ conformance test confirms them.
 ### Connections Page
 
 - Add offers the kind Model API beside the providers of Spec 107. The
-  preset select fills the protocols, base URLs, and auth forms. The
-  credential choice is Key, Sign in, or No key for a local-model preset.
-  An admin also sees Shared key, with Share: all projects or chosen ones.
-- The key field is a password field. It is empty when the dialog opens,
-  Dagu clears it after each request, and its value is kept in no state,
-  URL, storage, or error text.
-- A row shows the name, the preset, the protocols, the credential (prefix
-  and fingerprint, the shared key's name, or the signed-in account), the
-  status, the models (count, date of the last good read, Reload, and the
-  last error), and the DAGs that name the connection.
-- A row also shows Works with: `chat.completion` and each CLI whose
+  preset fills the protocols, base URLs, and auth forms. The choices are
+  Own key, Sign in, and No key for a local-model preset. An admin also
+  sees Shared key, with Share.
+- The key field is a password field. Dagu clears it after each request,
+  and keeps its value in no state, URL, storage, or error text.
+- A row shows the key's prefix and fingerprint, the shared key's name, or
+  the signed-in account, never the key. It also shows the status, the
+  catalog's count, date, and last error, the DAGs that name the
+  connection, and Works with: `chat.completion` and each CLI whose
   adapter accepts one of the connection's protocols.
-- After a create, a rotation, or a change, the row shows a busy state
-  until the read ends. The page learns the result from its event stream.
-  With no stream, it asks again at most every 5 seconds, at most 12 times,
-  and only while the tab is visible.
-- Rotate key, Reload, Test, and Remove are actions of the row. Remove
-  shows where the connection is used, as Spec 107 states. Test reads the
-  models list.
+- Rotate key, Reload, Test, and Remove are actions of a row. Test reads
+  the models. Remove shows where the connection is used, as Spec 107
+  states.
 
 ### Step Forms
 
-The Model section of `chat.completion`, `agent.run`, and `harness.run`
-has these controls:
+The Model section of `chat.completion`, `agent.run`, and `harness.run`:
 
 ```text
 Agent CLI   [codex           v]   agent.run and harness.run only
@@ -496,39 +489,23 @@ Model       [<display name>  v]   free text and ${...} accepted
 Effort      [high            v]   levels both the CLI and the model accept
 ```
 
-- The Connection select lists the project's model connections. A
-  connection that the step cannot use is listed disabled, with the reason,
-  for example "serves anthropic-messages only; codex needs
-  openai-responses".
-- The first item is "Project default (`<name>`)" when the base config
-  sets `llm.connection`. On a trusted CLI step, an item "The CLI's own
-  sign-in" follows, unless `ai.require_connections` is true.
-- The Model field suggests the catalog's models by display name and the
-  adapter's aliases. A pick writes the model ID. A free text value and a
-  reference are always accepted.
+- The Connection select reads `GET /model-choices`. A connection that the
+  step cannot use is listed disabled, with the reason. The first items
+  are "Project default (`<name>`)" when the base config sets
+  `llm.connection`, and, on a trusted CLI step without
+  `ai.require_connections`, "The CLI's own sign-in".
+- The Model field suggests the catalog's models by display name, and the
+  adapter's aliases. A pick writes the model ID.
 - A pick of a connection on a `chat.completion` step on the old keys
   removes `provider`, `base_url`, and `api_key_name`, and keeps `model`
-  and `thinking`. One undo reverts the edit.
-- The form never removes a model by itself. A model that the new
-  connection's catalog lacks stays, with a marker.
-
-### Markers
-
-A red marker shows an error that stops validation or admission:
-
-- a connection that the project lacks, or that the step cannot use
-- a step with `connection` and no model
-- an effort level that the CLI does not accept
-- `connection` on a CLI with no adapter
-
-An amber marker shows a likely failure, and never blocks a save or a run:
-
-- a literal model that the catalog lacks, with the closest catalog ID as a
-  suggestion. A reference, an adapter's alias, a catalog with `truncated`
-  true, and a connection with no catalog get no marker.
-- an effort level that the model's catalog lacks
-- a model that `allowed_models` lacks
-- a connection whose status is `needs_reconnect`
+  and `thinking`. The form never removes a model by itself.
+- The editor shows each error of [Errors](#errors) that validation or
+  admission finds. It also warns, and blocks neither a save nor a run, on
+  a literal model that the catalog lacks, with the closest catalog ID; on
+  an effort level that the model lacks; on a model that `allowed_models`
+  lacks; and on a connection that is `needs_reconnect`. A reference, an
+  adapter's alias, and a catalog with `truncated` true get no model
+  warning.
 
 ## REST API
 
