@@ -104,6 +104,10 @@ const IncidentProvidersPage = React.lazy(
 );
 const IncidentsPage = React.lazy(() => import('./pages/incidents'));
 const IntegrationsPage = React.lazy(() => import('./pages/integrations'));
+const ConnectionsPage = React.lazy(() => import('./pages/connections'));
+const ConnectionPage = React.lazy(
+  () => import('./pages/connections/ConnectionPage')
+);
 const NotFoundPage = React.lazy(() => import('./pages/not-found'));
 const NotificationChannelsPage = React.lazy(
   () => import('./pages/notification-channels')
@@ -1004,6 +1008,14 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                         <Route
                                           path="/integrations"
                                           element={<IntegrationsPage />}
+                                        />
+                                        <Route
+                                          path="/connections"
+                                          element={<ConnectionsPage />}
+                                        />
+                                        <Route
+                                          path="/connections/:name"
+                                          element={<ConnectionPage />}
                                         />
                                         <Route
                                           path="/notifications"

@@ -16,6 +16,7 @@ import {
   Layers,
   Network,
   Package,
+  Plug,
   ScrollText,
   Server,
   Settings,
@@ -153,6 +154,11 @@ export function useNavigationSections(): {
           to: '/profiles',
           text: t('navigation.profilesSecrets'),
           icon: <SlidersHorizontal size={16} />,
+        },
+        {
+          to: '/connections',
+          text: t('navigation.connections'),
+          icon: <Plug size={16} />,
         },
         canWrite && {
           to: '/base-config',

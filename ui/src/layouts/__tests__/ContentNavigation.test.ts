@@ -57,6 +57,22 @@ describe('getBreadcrumbItems', () => {
     ]);
   });
 
+  // A connection's name is unique only in its workspace, so both crumbs
+  // keep it.
+  it('shows a connection by its name and workspace', () => {
+    expect(
+      getBreadcrumbItems(
+        '/connections/work-google',
+        undefined,
+        '?workspace=ops'
+      )
+    ).toEqual([
+      { label: 'Home', to: '/home' },
+      { label: 'Connections', to: '/connections?workspace=ops' },
+      { label: 'work-google', to: '/connections/work-google?workspace=ops' },
+    ]);
+  });
+
   it('keeps an unknown segment as its path name', () => {
     const items = getBreadcrumbItems('/dags/etl/some-page');
     expect(last(items.map((item) => item.label))).toBe('Some Page');

@@ -308,6 +308,7 @@ describe('sidebar menu', () => {
     ]);
     expectLinks(screen.getByRole('group', { name: 'Configure' }), [
       ['Profiles & Secrets', '/profiles'],
+      ['Connections', '/connections'],
       ['Base Config', '/base-config'],
       ['Nodes', '/nodes'],
       ['Webhooks', '/webhooks'],

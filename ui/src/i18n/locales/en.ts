@@ -3,6 +3,7 @@
 
 import { backfillMessages } from '@/features/backfills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
+import { connectionMessages } from '@/pages/connections/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
 import { nodeTestMessages, workerNodeMessages } from '@/pages/nodes/messages';
 
@@ -3373,6 +3374,7 @@ export const english = {
   ...nodeTestMessages.en,
   ...workerNodeMessages.en,
   ...inventoryMessages.en,
+  ...connectionMessages.en,
   ...baseEnglish,
 } as const;
 
