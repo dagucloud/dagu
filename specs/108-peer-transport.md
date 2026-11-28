@@ -904,8 +904,9 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
 - A coordinator that does not answer within the dial timeout gets that
   message, not a transport error.
 - It never enrolls, never consumes an invite, registers no worker, takes no
-  task, opens or ends no h2c window, and changes no state on the
-  coordinator.
+  task, and opens or ends no h2c window. Over h2c, the coordinator lists the
+  host among its [h2c callers](#h2c-callers), as for any call that is not a
+  worker's.
 - It exits with code 0 when every coordinator passes, and with code 1
   otherwise.
 

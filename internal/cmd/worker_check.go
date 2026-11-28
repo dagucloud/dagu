@@ -136,11 +136,7 @@ func printWorkerCheck(w io.Writer, result coordinator.CheckResult) {
 	}
 
 	_, _ = fmt.Fprintf(w, "  Credential: %s\n", credentialText(result.Credential))
-	switch {
-	case errors.Is(result.AnswerErr, coordinator.ErrRequireTLS):
-		_, _ = fmt.Fprintf(w, "  Coordinator answered: %s\n", coordinator.RequireTLSClientMessage)
-		return
-	case result.AnswerErr != nil:
+	if result.AnswerErr != nil {
 		_, _ = fmt.Fprintf(w, "  Coordinator answered: %v\n", result.AnswerErr)
 		return
 	}

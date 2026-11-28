@@ -127,10 +127,16 @@ const (
 // client on h2c.
 var errServesTLS = errors.New("it serves only TLS on this port: set peer.insecure: false with a TLS setting")
 
-// ErrRequireTLS is the answer of a coordinator whose coordinator.require_tls
-// refused the client's call over h2c. RequireTLSClientMessage says it to a
-// person.
-var ErrRequireTLS = errors.New("the coordinator requires TLS")
+// errRequireTLS is the answer of a coordinator whose coordinator.require_tls
+// refused the client's call over h2c.
+var errRequireTLS error = requireTLSError{}
+
+// requireTLSError reads as the message the client logs for the refusal.
+type requireTLSError struct{}
+
+func (requireTLSError) Error() string {
+	return requireTLSClientMessage
+}
 
 // Passed reports whether the client has a transport for the coordinator, the
 // coordinator accepted a connection, the TLS handshake completed or the
@@ -142,8 +148,9 @@ func (r CheckResult) Passed() bool {
 
 // Check dials the coordinator that member names with config, as a worker
 // does: it picks the transport as the worker's client does, and calls with
-// the worker's credential. It registers no worker, takes no task, opens or
-// ends no h2c window, and changes no state on the coordinator.
+// the worker's credential. It never enrolls, registers no worker, takes no
+// task, and opens or ends no h2c window. Over h2c, the coordinator lists the
+// host among its h2c callers, as for any call that is not a worker's.
 func Check(ctx context.Context, config *Config, member serviceregistry.HostInfo) CheckResult {
 	result := CheckResult{
 		Address:    coordinatorAddress(member),
@@ -253,7 +260,7 @@ func checkAnswer(ctx context.Context, config *Config, plan connectionPlan, host,
 	// The health service takes no credential; the worker list does.
 	if _, err := coordinatorv1.NewCoordinatorServiceClient(conn).GetWorkers(ctx, &coordinatorv1.GetWorkersRequest{}); err != nil {
 		if isRequireTLSRefusal(err) {
-			return ErrRequireTLS
+			return errRequireTLS
 		}
 		return fmt.Errorf("serving, but %w", callError(config, err))
 	}
