@@ -945,7 +945,7 @@ paths:
   /workers/removals:
     post:
       summary: "Remove a worker"
-      description: "Revokes the named certificate of a worker that joined with an invite, and no other certificate of that worker, so it stays out across restarts until it gets a new invite. The request names the certificate the workers list shows, so a worker that joined again with a new certificate is not removed by mistake. A worker that is not connected is removed at once. A connected one gets no new runs and is removed once the runs it holds end. Admin only, and not forwarded to a remote node."
+      description: "Revokes the named certificate of a worker that joined with an invite, and no other certificate of that worker. A restart with that certificate is refused, but the invites stay as they are: a reusable invite that has not expired still lets the worker join again. Delete the invite to stop that. The request names the certificate the workers list shows, so a worker that joined again with a new certificate is not removed by mistake. A worker that is not connected is removed at once. A connected one gets no new runs and is removed once the runs it holds end. Admin only, and not forwarded to a remote node."
       operationId: "removeWorker"
       tags:
         - "system"
