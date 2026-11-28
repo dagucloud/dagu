@@ -89,22 +89,29 @@ func TestUnpublishCertificate(t *testing.T) {
 
 // A coordinator whose publication failed at start replaces, on its next
 // registry refresh, the certificate another CA left in the file, but not one
-// that another coordinator published after the failure.
+// that another coordinator published after the failure. When it could not
+// read the file at the failure either, it replaces what it finds.
 func TestRepublishAfterFailedStart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "peer-ca.crt")
 	previous, current, newer := newTestCA(t), newTestCA(t), newTestCA(t)
 
 	for name, tc := range map[string]struct {
-		since *PeerCA
-		want  *PeerCA
+		unknown bool
+		since   *PeerCA
+		want    *PeerCA
 	}{
 		"StaleCertificate": {want: current},
 		"NewerPublication": {since: newer, want: newer},
+		"UnknownSnapshot":  {unknown: true, want: current},
 	} {
 		t.Run(name, func(t *testing.T) {
 			publish(t, previous, path)
+			failed := SnapshotFailedPublication(path)
+			if tc.unknown {
+				failed = &FailedPublication{Unknown: true}
+			}
 			srv := &Service{}
-			srv.ServeBuiltinTLS(current, path, false, readPublished(t, path))
+			srv.ServeBuiltinTLS(current, path, failed)
 			if tc.since != nil {
 				publish(t, tc.since, path)
 			}

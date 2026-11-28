@@ -63,19 +63,44 @@ func (ca *PeerCA) republishCertificate(path string) error {
 	return nil
 }
 
-// retryCertificate retries a write of the CA certificate to path that
-// failed at start, when path held previous, nil for no file. It writes only
-// over previous or a missing file, so it never replaces a certificate that
-// another coordinator published since, and reports whether no retry is left:
-// path holds this certificate, or another coordinator's.
-func (ca *PeerCA) retryCertificate(path string, previous []byte) (bool, error) {
+// FailedPublication is a write of the published CA certificate that failed
+// at start, with what the file held then.
+type FailedPublication struct {
+	// Previous is what the file held, nil for no file.
+	Previous []byte
+	// Unknown reports that the file could not be read either.
+	Unknown bool
+}
+
+// SnapshotFailedPublication returns the failed publication of the
+// certificate at path, with what path holds now.
+func SnapshotFailedPublication(path string) *FailedPublication {
+	previous, err := fileutil.ReadFile(path)
+	switch {
+	case err == nil:
+		return &FailedPublication{Previous: previous}
+	case errors.Is(err, fs.ErrNotExist):
+		return &FailedPublication{}
+	}
+	return &FailedPublication{Unknown: true}
+}
+
+// retryCertificate retries the write of the CA certificate to path that
+// failed. It writes only over what path held at the failure or over a
+// missing file, so it never replaces a certificate that another coordinator
+// published since, and reports whether no retry is left: path holds this
+// certificate, or another coordinator's. When what path held is unknown, it
+// writes over any other certificate, since it cannot tell a newer one.
+func (ca *PeerCA) retryCertificate(path string, failed *FailedPublication) (bool, error) {
 	current, err := fileutil.ReadFile(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		return true, ca.republishCertificate(path)
 	case err != nil:
 		return false, err
-	case !bytes.Equal(current, previous):
+	case bytes.Equal(current, ca.certificatePEM()):
+		return true, nil
+	case !failed.Unknown && !bytes.Equal(current, failed.Previous):
 		return true, nil
 	}
 	if err := fileutil.WriteFileAtomic(path, ca.certificatePEM(), publishedCAFileMode); err != nil {

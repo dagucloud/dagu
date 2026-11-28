@@ -39,12 +39,12 @@ type Service struct {
 	disableHealthServer bool
 	// peerCA, when set, makes the registry entry report built-in TLS, and
 	// its certificate stays published in publishedCAFile. caPublished
-	// reports that no retry of the write at start is left, and previousCA is
-	// what the file held when that write failed.
+	// reports that no retry of the write at start is left, and failedCA is
+	// that write when it failed.
 	peerCA          *PeerCA
 	publishedCAFile string
 	caPublished     atomic.Bool
-	previousCA      []byte
+	failedCA        *FailedPublication
 
 	// For graceful shutdown
 	mu         sync.Mutex
@@ -83,15 +83,15 @@ func (srv *Service) DisableHealthServer() {
 
 // ServeBuiltinTLS makes the registry entry report built-in TLS with ca.
 // Whenever the entry is refreshed, the certificate of ca is written to
-// publishedCAFile when the file is missing. When published is false, as
-// after a failed write at start while the file held previous, each refresh
-// first retries that write over previous, until it succeeds or another
-// coordinator publishes. Call it before Start.
-func (srv *Service) ServeBuiltinTLS(ca *PeerCA, publishedCAFile string, published bool, previous []byte) {
+// publishedCAFile when the file is missing. After failed, a write at start
+// that failed, each refresh first retries that write over what the file held
+// then, until it succeeds or another coordinator publishes. Call it before
+// Start.
+func (srv *Service) ServeBuiltinTLS(ca *PeerCA, publishedCAFile string, failed *FailedPublication) {
 	srv.peerCA = ca
 	srv.publishedCAFile = publishedCAFile
-	srv.caPublished.Store(published)
-	srv.previousCA = previous
+	srv.caPublished.Store(failed == nil)
+	srv.failedCA = failed
 }
 
 func (srv *Service) republishCA(ctx context.Context) {
@@ -100,7 +100,7 @@ func (srv *Service) republishCA(ctx context.Context) {
 		err = srv.peerCA.republishCertificate(srv.publishedCAFile)
 	} else {
 		var done bool
-		done, err = srv.peerCA.retryCertificate(srv.publishedCAFile, srv.previousCA)
+		done, err = srv.peerCA.retryCertificate(srv.publishedCAFile, srv.failedCA)
 		srv.caPublished.Store(done)
 	}
 	if err != nil {

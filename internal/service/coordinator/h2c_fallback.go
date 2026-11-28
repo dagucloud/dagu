@@ -39,10 +39,12 @@ type h2cWindows struct {
 	// records are the host's open windows: those of the record as last read,
 	// and those this process opened.
 	records map[string]h2cWindow
-	// own are the windows this process opened that no write has saved yet.
-	// A save writes them over the record, which keeps every other change, so
-	// a window another process ended after it was saved stays ended.
-	own map[string]h2cWindow
+	// own are the windows this process opened that no write has saved yet,
+	// and ended the ones it ended. A save applies both over the record, which
+	// keeps every other change, so a window another process ended after it
+	// was saved stays ended.
+	own   map[string]h2cWindow
+	ended map[string]bool
 }
 
 // h2cWindow is an h2c window for an address: until when it holds, what
@@ -83,6 +85,7 @@ func newH2CWindows(file, host string) *h2cWindows {
 		host:    host,
 		records: make(map[string]h2cWindow),
 		own:     make(map[string]h2cWindow),
+		ended:   make(map[string]bool),
 	}
 }
 
@@ -108,7 +111,8 @@ func (w *h2cWindows) open(address string, window h2cWindow, now time.Time) bool 
 		return false
 	}
 	w.own[address] = window
-	w.saveLocked(address, now)
+	delete(w.ended, address)
+	w.saveLocked(now)
 	return true
 }
 
@@ -119,7 +123,8 @@ func (w *h2cWindows) end(address string, now time.Time) {
 	w.loadLocked(now)
 	if _, ok := w.records[address]; ok {
 		delete(w.own, address)
-		w.saveLocked(address, now)
+		w.ended[address] = true
+		w.saveLocked(now)
 	}
 }
 
@@ -133,13 +138,12 @@ func (w *h2cWindows) loadLocked(now time.Time) {
 	}
 }
 
-// saveLocked writes the host's windows after a change to address: the
-// windows in the record, which other processes may have changed, with the
-// ones this process opened over them, so a window another process ended
-// stays ended. Without a readable record, the windows in memory stand in
-// for it. It keeps the open ones, at most maxH2CWindows, in memory and in
-// the record.
-func (w *h2cWindows) saveLocked(address string, now time.Time) {
+// saveLocked writes the host's windows: the windows in the record, which
+// other processes may have changed, with this process's unsaved openings and
+// endings over them, so a window another process ended stays ended. Without
+// a readable record, the windows in memory stand in for it. It keeps the
+// open ones, at most maxH2CWindows, in memory and in the record.
+func (w *h2cWindows) saveLocked(now time.Time) {
 	record, ok := w.read()
 	base := w.records
 	if ok {
@@ -147,10 +151,10 @@ func (w *h2cWindows) saveLocked(address string, now time.Time) {
 	} else {
 		record = make(h2cRecord)
 	}
-	if _, opened := w.own[address]; !opened {
-		delete(base, address)
-	}
 	windows := maps.Clone(base)
+	for address := range w.ended {
+		delete(windows, address)
+	}
 	maps.Copy(windows, w.own)
 	for address, window := range windows {
 		if !now.Before(window.Until) {
@@ -180,6 +184,7 @@ func (w *h2cWindows) saveLocked(address string, now time.Time) {
 	}
 	if fileutil.WriteJSONAtomic(w.file, record, h2cRecordFileMode) == nil {
 		clear(w.own)
+		clear(w.ended)
 	}
 }
 

@@ -387,7 +387,9 @@ A coordinator logs one line at start for what it serves:
   published CA certificate, at start when it is missing or differs, and
   again whenever it refreshes its registry entry and finds it missing.
   After a failed write at start, each refresh retries it over what the
-  file held then, until it succeeds or another coordinator publishes.
+  file held then, until it succeeds or another coordinator publishes. When
+  the file could not be read then either, the retry writes over what it
+  finds.
   Publishing never changes the generated CA.
 - A coordinator that fails to start after it wrote the file removes it
   while it still holds its certificate. A running coordinator then writes

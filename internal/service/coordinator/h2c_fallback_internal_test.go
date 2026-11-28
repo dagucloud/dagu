@@ -36,6 +36,14 @@ func TestH2CWindowsKeepUnwrittenWindows(t *testing.T) {
 	require.True(t, windows.open("c:1", windowUntil(now), now))
 	assertOpen(t, windows, now, "a:1", "b:1", "c:1")
 
+	// A window ended while the record cannot be written stays ended, though
+	// the record still holds it.
+	windows.end("a:1", now)
+	require.True(t, windows.open("e:1", windowUntil(now), now))
+	_, open := windows.active("a:1", now)
+	assert.False(t, open, "ended window")
+	require.True(t, windows.open("a:1", windowUntil(now), now), "an opening after the end")
+
 	later := now.Add(h2cWindowLength)
 	require.True(t, windows.open("a:1", windowUntil(later), later))
 	require.True(t, windows.open("d:1", windowUntil(later), later))
