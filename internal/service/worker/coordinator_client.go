@@ -32,26 +32,36 @@ func newCoordinatorClient(ctx context.Context, cfg *config.Config, clientConfig 
 	return coordinator.New(registry, clientConfig), nil
 }
 
-// CoordinatorClientConfig returns the configuration the worker's
-// coordinator client dials with at start, for dagu worker --check: with the
-// worker certificate it keeps, also one a coordinator refused as revoked,
-// or else with its worker.invite. It refuses the settings that the start
-// refuses. removed is the failure the worker exits with at start because the
-// certificate it keeps records a refusal as revoked, and nil otherwise.
-// refused is the failure the start ends with when a coordinator refuses
-// that certificate as revoked, and nil when the worker then enrolls again
-// with worker.invite or presents no certificate. It takes no lock and never
-// enrolls. localRegistry is the service registry in the worker's data
-// directory.
-func CoordinatorClientConfig(cfg *config.Config, localRegistry serviceregistry.ServiceRegistry) (clientConfig *coordinator.Config, removed, refused error, err error) {
+// StartClient is how the worker's coordinator client starts, for dagu
+// worker --check.
+type StartClient struct {
+	// Config is the configuration the client dials with: with the worker
+	// certificate the worker keeps, also one a coordinator refused as
+	// revoked, or else with its worker.invite.
+	Config *coordinator.Config
+	// Removed is the failure the worker exits with at start because the
+	// certificate it keeps records a refusal as revoked, and nil otherwise.
+	Removed error
+	// Refused is the failure the start ends with when a coordinator refuses
+	// that certificate as revoked, and nil when the worker then enrolls
+	// again with worker.invite or presents no certificate.
+	Refused error
+}
+
+// CoordinatorClientConfig returns how the worker's coordinator client
+// starts. It refuses the settings that the start refuses, takes no lock,
+// and never enrolls. localRegistry is the service registry in the worker's
+// data directory.
+func CoordinatorClientConfig(cfg *config.Config, localRegistry serviceregistry.ServiceRegistry) (StartClient, error) {
 	if _, err := workerLabels(cfg.Worker.Labels); err != nil {
-		return nil, nil, nil, err
+		return StartClient{}, err
 	}
 	invite, cred, err := startCredential(cfg)
 	if err != nil {
-		return nil, nil, nil, err
+		return StartClient{}, err
 	}
-	clientConfig = clientConfigOf(cfg, localRegistry)
+	var removed, refused error
+	clientConfig := clientConfigOf(cfg, localRegistry)
 	if invite != nil {
 		clientConfig = clientConfig.WithInvite(*invite)
 	}
@@ -62,7 +72,7 @@ func CoordinatorClientConfig(cfg *config.Config, localRegistry serviceregistry.S
 		// The start enrolls in place of the kept certificate only when it
 		// can keep the new one.
 		if cred != nil && !writable() {
-			return nil, nil, nil, errCannotReplace(cfg.Paths.DataDir)
+			return StartClient{}, errCannotReplace(cfg.Paths.DataDir)
 		}
 	case keptRemoved:
 		// The check still dials with it, to show what coordinators answer.
@@ -82,9 +92,9 @@ func CoordinatorClientConfig(cfg *config.Config, localRegistry serviceregistry.S
 		clientConfig = clientConfig.WithWorkerCertificate(cred.cert, cred.ca)
 	}
 	if err := clientConfig.Validate(); err != nil {
-		return nil, nil, nil, fmt.Errorf("invalid coordinator client configuration: %w", err)
+		return StartClient{}, fmt.Errorf("invalid coordinator client configuration: %w", err)
 	}
-	return clientConfig, removed, refused, nil
+	return StartClient{Config: clientConfig, Removed: removed, Refused: refused}, nil
 }
 
 // startCredential returns worker.invite, nil without one, and the credential

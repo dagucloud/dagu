@@ -31,12 +31,12 @@ func isWorkerCheck(cmd *cobra.Command) bool {
 // worker.coordinators it checks the coordinators in the service registry,
 // and fails since the worker does not start without them.
 func runWorkerCheck(ctx *Context) error {
-	clientConfig, removed, refused, err := worker.CoordinatorClientConfig(ctx.Config, ctx.serverStores.ServiceRegistry)
+	start, err := worker.CoordinatorClientConfig(ctx.Config, ctx.serverStores.ServiceRegistry)
 	if err != nil {
 		return err
 	}
 	out := ctx.Command.OutOrStdout()
-	line, ignored := peerTransport(ctx.Config, clientConfig.StartTransport)
+	line, ignored := peerTransport(ctx.Config, start.Config.StartTransport)
 	for _, setting := range ignored {
 		_, _ = fmt.Fprintln(out, ignoredSettingWarning(setting))
 	}
@@ -49,15 +49,15 @@ func runWorkerCheck(ctx *Context) error {
 
 	failed := 0
 	for _, member := range members {
-		result := coordinator.Check(ctx, clientConfig, member)
-		printWorkerCheck(out, result, ctx.Config.Worker.Invite != "", refused)
+		result := coordinator.Check(ctx, start.Config, member)
+		printWorkerCheck(out, result, ctx.Config.Worker.Invite != "", start.Refused)
 		// A refusal after which the start enrolls with worker.invite
 		// passes, as an invite the worker has not used yet does.
-		if !result.Passed() && (!result.Removed() || refused != nil) {
+		if !result.Passed() && (!result.Removed() || start.Refused != nil) {
 			failed++
 		}
 	}
-	return workerCheckVerdict(out, removed, failed, len(members), len(ctx.Config.Worker.Coordinators) == 0)
+	return workerCheckVerdict(out, start.Removed, failed, len(members), len(ctx.Config.Worker.Coordinators) == 0)
 }
 
 // workerCheckVerdict returns how the check ends after failed of total
