@@ -177,7 +177,8 @@ This spec adds these transitions to Spec 107, for the grants `api_key` and
   it back to `ok`. Every connection on the app shows the status.
 - The change records the event `connection.needs_attention` of Spec 107,
   once, however many runs see the 401. The UI calls this status "Key
-  rejected".
+  rejected". The event points to Rotate on the Connections page, not to
+  a reconnect.
 
 ### Shared Keys
 
@@ -405,6 +406,8 @@ admission with `protocol_mismatch`.
   CLI's own sign-in, and a `chat.completion` step on the old keys, fail
   admission with `connection_required`. The rule applies to each model
   entry of a chat step and to each `fallback` attempt of `harness.run`.
+  It also fails an attempt of a custom harness, which no adapter can
+  point at the gateway.
 - A step that runs as the Dagu user can read `<data_dir>`, which holds
   `auth/encryption_key` by default. That is every trusted step, and an
   untrusted step under `untrusted.isolation: off`, which Spec 092 needs
@@ -487,6 +490,9 @@ conformance test confirms them.
   and a 401 to `key_rejected`.
 - For a step on an agent worker, it runs in the coordinator, as Specs 092
   and 094 state. See [Status](#status).
+- Every worker that serves the relay announces `ai_relay.v1` of Spec 092,
+  general workers too. A run with a model connection goes only to such a
+  worker.
 
 ## Runs
 
@@ -611,8 +617,8 @@ No entry holds a key or a value derived from it.
   `chat.completion` step or model entry
 - `connection` with no model, when `llm` gives none for that connection
 - `connection` on a built-in CLI with no adapter: `adapter_missing`. A
-  custom harness keeps `connection` as a flag, and no rule of this spec
-  applies to it
+  custom harness keeps `connection` as a flag, and only
+  [Policy](#policy) applies to it
 - an effort level that the CLI does not accept: `effort_unsupported`
 
 Admission, at the start of a run and in the editor, fails with:

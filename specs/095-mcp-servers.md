@@ -118,7 +118,8 @@ fixed headers.
   the rejected values are still the stored ones.
 - The change to `needs_reconnect` records the event
   `connection.needs_attention` of Spec 107, once. The UI calls this
-  status "Credential rejected".
+  status "Credential rejected". The event points to Rotate credentials on
+  the Connections page, not to a reconnect.
 - A step that uses a connection that is not `connected` fails with
   `reconnect_required`, as Spec 107 states.
 

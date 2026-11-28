@@ -1001,7 +1001,8 @@ connection. Mail accounts and `smtp` are not checked here; see
 - A run checks every declared connection and reports every failed check
   together.
 - Admission reads a connection's metadata, and its app only for the agent
-  check. It reads no token state, so a `pending` or `needs_reconnect`
+  check and for the protocols of a `model` connection on a shared key
+  (Spec 093). It reads no token state, so a `pending` or `needs_reconnect`
   connection passes, as [Checks at Use](#checks-at-use) states.
 - A DAG that declares no connection reads no connection record.
 - A DAG whose `workspace` labels are malformed or name two workspaces fails
