@@ -392,7 +392,7 @@ type PeerDef struct {
 	KeyFile       string `mapstructure:"key_file"`
 	ClientCaFile  string `mapstructure:"client_ca_file"`
 	SkipTLSVerify bool   `mapstructure:"skip_tls_verify"`
-	Insecure      bool   `mapstructure:"insecure"`       // Use h2c instead of TLS
+	Insecure      bool   `mapstructure:"insecure"`       // Unset is not false; see Peer.InsecureUnset
 	MaxRetries    int    `mapstructure:"max_retries"`    // Default: 10
 	RetryInterval string `mapstructure:"retry_interval"` // Default: 1s
 	// Token is the shared token that peers send to the coordinator. When
