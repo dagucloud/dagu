@@ -98,6 +98,8 @@ func TestTrustedHome(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(xdgHome, ".config"), 0o700))
 	require.NoError(t, os.Chmod(filepath.Join(xdgHome, ".config"), 0o777)) //nolint:gosec // a config folder that any user can write
 	assert.NotNil(t, trustedHome(t, testUID, xdgHome, none), "a default config folder that the restricted user can write is replaced")
+	relative := func(name string) (string, bool) { return "config", name == "XDG_CONFIG_HOME" }
+	assert.NotNil(t, trustedHomeIn(t, testUID, "", safe, xdgHome, relative), "a program that ignores a relative XDG value reads the default config folder")
 
 	// The owner of a folder can give itself write access. The test process
 	// stands in for the restricted user, so this needs no root either.

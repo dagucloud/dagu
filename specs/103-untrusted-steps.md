@@ -514,9 +514,10 @@ An untrusted step can leave files behind that a later trusted step reads. Dagu c
   folder or a link on the way. A folder with an access ACL counts as one it can write. So does a
   folder in the work directory of the run, or one that a link in it leads to: the restricted user
   owns it during an untrusted step, and the restore keeps what it wrote there. A relative path
-  counts from the working directory of the step. Then each trusted step of the run gets a new
-  private `HOME`, with the mode `0700`, owned by the worker user, and `XDG_` variables that name
-  folders below it. Dagu does not make these folders; a command makes them as it needs them.
+  counts from the working directory of the step. For a relative `XDG_` value, Dagu checks that
+  path and also the default below `HOME`, which a program that follows the XDG Base Directory
+  Specification reads instead. Then each trusted step of the run gets a new private `HOME`, with
+  the mode `0700`, owned by the worker user, and `XDG_` variables that name folders below it. Dagu does not make these folders; a command makes them as it needs them.
   Dagu removes the private `HOME` when the step ends. A temp folder of the worker that would let
   the restricted user replace the private `HOME` fails the step. The steps of a child run that an
   untrusted step started get them too, and the git setting below. The agent cannot plant a file

@@ -28,10 +28,11 @@ var homeFolders = []struct{ name, dir string }{
 // TrustedHome returns the variables that give a trusted process a new private
 // HOME, and the function that removes that HOME, when the restricted user uid
 // or its group gid can write or replace the folder home, or a folder of the XDG
-// variables: the one that lookup gives, or its default below home. A folder
-// in workDir, the work directory of the run, counts as one it can write. A
-// relative path counts from workingDir, the working directory of the process.
-// It returns nil when the folders are safe.
+// variables: the one that lookup gives, and its default below home when the
+// value is not set or is relative. A folder in workDir, the work directory of
+// the run, counts as one it can write. A relative path counts from
+// workingDir, the working directory of the process. It returns nil when the
+// folders are safe.
 func TrustedHome(uid, gid uint32, workDir, workingDir, home string, lookup func(string) (string, bool)) (map[string]string, func() error, error) {
 	// Not filepath.Join: a cleaned path drops a ".." after a link.
 	inWorkingDir := func(path string) string {
@@ -45,12 +46,12 @@ func TrustedHome(uid, gid uint32, workDir, workingDir, home string, lookup func(
 	unsafe := home == "" || unsafeDir(home)
 	for _, folder := range homeFolders {
 		dir, ok := lookup(folder.name)
-		if ok && dir != "" {
-			dir = inWorkingDir(dir)
-		} else {
-			dir = home + string(filepath.Separator) + folder.dir
+		if ok && dir != "" && unsafeDir(inWorkingDir(dir)) {
+			unsafe = true
 		}
-		if unsafeDir(dir) {
+		// A program that follows the XDG Base Directory Specification ignores
+		// a relative value and reads the default below HOME.
+		if !filepath.IsAbs(dir) && unsafeDir(home+string(filepath.Separator)+folder.dir) {
 			unsafe = true
 		}
 	}
