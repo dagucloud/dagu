@@ -61,14 +61,14 @@ func TestMembershipRevokeSignalsFirst(t *testing.T) {
 	<-started
 	// While the recording waits, the lock stays held.
 	lockPath := filepath.Join(dataDir, credentialDirName, lockFileName)
-	_, err = fileutil.TryLockFile(lockPath, credentialFileMode)
+	_, err = fileutil.TryLockFile(t.Context(), lockPath, credentialFileMode)
 	require.ErrorIs(t, err, fileutil.ErrLocked)
 
 	data, err := os.ReadFile(log)
 	require.NoError(t, err)
 	assert.Equal(t, removedKubernetesLine, string(data))
 	assert.True(t, <-closed, "Close returned before the removal was recorded")
-	lock, err := fileutil.TryLockFile(lockPath, credentialFileMode)
+	lock, err := fileutil.TryLockFile(t.Context(), lockPath, credentialFileMode)
 	require.NoError(t, err, "Close released the lock once the removal was recorded")
 	require.NoError(t, lock.Unlock())
 }
