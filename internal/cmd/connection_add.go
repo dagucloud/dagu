@@ -383,7 +383,8 @@ func (c *connectionCLI) registerClientFile(ctx context.Context, req *googleAddRe
 // that could not be created, so that no app holds the client's secret
 // without a use. It returns createErr with what became of the app.
 func (c *connectionCLI) unregister(app *api.OAuthApp, createErr error) error {
-	// A fresh context, since an interrupt may have ended the create.
+	// A fresh context, so that the cleanup runs even when the create failed
+	// because ctx ended.
 	ctx, cancel := context.WithTimeout(context.Background(), cancelTimeout)
 	defer cancel()
 	if err := c.client.deleteOAuthApp(ctx, app.Id); err != nil {

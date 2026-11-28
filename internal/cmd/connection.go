@@ -80,6 +80,9 @@ type connectionCLI struct {
 	// remoteContext names the remote context selected, or is empty for the
 	// local context.
 	remoteContext string
+	// sessionLifetime is how long a connect session waits for consent,
+	// measured on this host from before the session starts.
+	sessionLifetime time.Duration
 }
 
 // connectionTerm is the terminal a connection subcommand talks to.
@@ -108,7 +111,7 @@ func connectionCommand(cmd *cobra.Command, flags []commandLineFlag, run func(ctx
 }
 
 func newConnectionCLI(ctx *Context) (*connectionCLI, error) {
-	c := &connectionCLI{term: stdConnectionTerm()}
+	c := &connectionCLI{term: stdConnectionTerm(), sessionLifetime: sessionLifetime}
 	if flag := ctx.Command.Flags().Lookup(connectionWorkspaceFlag.name); flag != nil {
 		c.workspace = strings.TrimSpace(flag.Value.String())
 	}
