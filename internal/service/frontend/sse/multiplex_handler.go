@@ -96,8 +96,14 @@ func (h *MultiplexHandler) HandleTopicMutation(w http.ResponseWriter, r *http.Re
 			writeJSONError(w, http.StatusBadRequest, "invalid_request", "unreadable request body")
 			return
 		}
+		// A body this server cannot read is refused, so that the node never
+		// reads topics that this check did not see.
 		var req TopicMutationRequest
-		if json.Unmarshal(body, &req) == nil && namesLocalOnlyTopic(req.Add) {
+		if err := json.Unmarshal(body, &req); err != nil {
+			writeJSONError(w, http.StatusBadRequest, "invalid_request", "invalid JSON request body")
+			return
+		}
+		if namesLocalOnlyTopic(req.Add) {
 			writeLocalOnlyTopicError(w)
 			return
 		}

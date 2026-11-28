@@ -1032,13 +1032,17 @@ func TestMultiplexHandlerRefusesLocalTopicsForRemoteNode(t *testing.T) {
 	stream := httptest.NewRecorder()
 	handler.HandleStream(stream, httptest.NewRequest(http.MethodGet,
 		"/api/v1/events/stream?remoteNode=remote1&topic=connectionattention%3Aall", nil))
-	mutation := httptest.NewRecorder()
-	handler.HandleTopicMutation(mutation, httptest.NewRequest(http.MethodPost,
-		"/api/v1/events/stream/topics?remoteNode=remote1",
-		strings.NewReader(`{"sessionID":"s1","add":["connectionattention:all"]}`)))
+	mutate := func(body string) int {
+		recorder := httptest.NewRecorder()
+		handler.HandleTopicMutation(recorder, httptest.NewRequest(http.MethodPost,
+			"/api/v1/events/stream/topics?remoteNode=remote1", strings.NewReader(body)))
+		return recorder.Code
+	}
 
 	assert.Equal(t, http.StatusForbidden, stream.Code)
-	assert.Equal(t, http.StatusForbidden, mutation.Code)
+	assert.Equal(t, http.StatusForbidden, mutate(`{"sessionID":"s1","add":["connectionattention:all"]}`))
+	// Trailing data would let the node read an add that this check skipped.
+	assert.Equal(t, http.StatusBadRequest, mutate(`{"sessionID":"s1","add":["connectionattention:all"]} {}`))
 	assert.Zero(t, reached.Load())
 }
 
