@@ -211,6 +211,9 @@ func (a *API) DeleteConnection(ctx context.Context, request api.DeleteConnection
 		return nil, fmt.Errorf("failed to remove connection: %w", err)
 	}
 	a.logAudit(ctx, audit.CategoryConnection, "connection_delete", connectionAuditDetails(conn))
+	if a.connectionRemoved != nil {
+		a.connectionRemoved()
+	}
 	return api.DeleteConnection204Response{}, nil
 }
 

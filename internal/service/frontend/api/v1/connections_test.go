@@ -597,3 +597,33 @@ func auditActions(store *recordingAuditStore) []string {
 	}
 	return actions
 }
+
+// The attention count covers only the workspaces the caller can see, and
+// only the connections that need reconnecting.
+func TestConnectionAttention(t *testing.T) {
+	f := newConnectionsFixture(t)
+	admin := f.admin()
+	require.NoError(t, f.workspaces.Create(t.Context(), workspace.NewWorkspace("dev", "")))
+	app := f.createApp(t, admin)
+	for _, c := range []struct{ ws, name string }{{"ops", "work"}, {"ops", "fine"}, {"dev", "other"}} {
+		f.createConnection(t, admin, c.ws, c.name, app.Id)
+		f.connect(t, c.ws, c.name)
+	}
+	for _, key := range []connection.Key{{Workspace: "ops", Name: "work"}, {Workspace: "dev", Name: "other"}} {
+		conn, err := f.store.Get(t.Context(), key)
+		require.NoError(t, err)
+		_, err = f.store.UpdateTokenState(t.Context(), conn, func(st *connection.TokenState) error {
+			st.Status = connection.TokenStatusNeedsReconnect
+			return nil
+		})
+		require.NoError(t, err)
+	}
+	count := func(ctx context.Context) int {
+		resp, err := f.api.GetConnectionAttention(ctx, apigen.GetConnectionAttentionRequestObject{})
+		require.NoError(t, err)
+		return resp.(apigen.GetConnectionAttention200JSONResponse).NeedsReconnect
+	}
+
+	assert.Equal(t, 2, count(admin))
+	assert.Equal(t, 1, count(viewerIn("ops")))
+}
