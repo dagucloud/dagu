@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -136,7 +137,10 @@ func runWorker(ctx *Context, _ []string) error {
 	// The health check serves from before the worker joins, so a busy port
 	// uses up no invite and a liveness probe sees the worker alive while
 	// it waits for a coordinator to enroll it.
+	// Readiness waits until the worker can take runs.
 	health := healthcheck.NewServer("worker", ctx.Config.Worker.HealthPort)
+	var connected atomic.Bool
+	health.SetReadyFunc(connected.Load)
 	if err := health.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start worker health check server: %w", err)
 	}
@@ -195,6 +199,13 @@ func runWorker(ctx *Context, _ []string) error {
 	go func() {
 		if err := w.Start(ctx); err != nil {
 			errCh <- err
+		}
+	}()
+	go func() {
+		select {
+		case <-w.Connected():
+			connected.Store(true)
+		case <-signalCtx.Done():
 		}
 	}()
 

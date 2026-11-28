@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -67,4 +68,35 @@ func TestServerStartWhileRunning(t *testing.T) {
 	require.NoError(t, resp.Body.Close())
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	require.NoError(t, hs.Stop(t.Context()))
+}
+
+// The readiness endpoint answers 503 while the ready function reports
+// false, and 200 otherwise, while the health endpoint answers 200
+// throughout.
+func TestServerReady(t *testing.T) {
+	var ready atomic.Bool
+	hs := NewServerWithAddr("test-service", "127.0.0.1:0")
+	hs.SetReadyFunc(ready.Load)
+	require.NoError(t, hs.Start(t.Context()))
+	t.Cleanup(func() { _ = hs.Stop(context.Background()) })
+
+	get := func(path string) int {
+		resp, err := http.Get(hs.URL() + path)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		return resp.StatusCode
+	}
+	assert.Equal(t, http.StatusOK, get(Path))
+	assert.Equal(t, http.StatusServiceUnavailable, get(ReadyPath))
+	ready.Store(true)
+	assert.Equal(t, http.StatusOK, get(Path))
+	assert.Equal(t, http.StatusOK, get(ReadyPath))
+
+	plain := NewServerWithAddr("test-service", "127.0.0.1:0")
+	require.NoError(t, plain.Start(t.Context()))
+	t.Cleanup(func() { _ = plain.Stop(context.Background()) })
+	resp, err := http.Get(plain.URL() + ReadyPath)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "a server without a ready function is ready")
 }

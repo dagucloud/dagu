@@ -75,6 +75,10 @@ type Worker struct {
 	openCodeHost *opencodehost.Host
 
 	afterTaskAckHook func(context.Context, *coordinatorv1.Task) bool
+
+	// connected is closed when a heartbeat first reaches a coordinator.
+	connected     chan struct{}
+	connectedOnce sync.Once
 }
 
 type runningTaskState struct {
@@ -110,6 +114,12 @@ const machineCPUWindow = time.Minute
 // SetHandler sets a custom task executor for testing or custom execution logic
 func (w *Worker) SetHandler(executor TaskHandler) {
 	w.handler = executor
+}
+
+// Connected is closed when a heartbeat of the worker first reaches a
+// coordinator, so the worker can take runs.
+func (w *Worker) Connected() <-chan struct{} {
+	return w.connected
 }
 
 // SetHealthServer makes the worker serve its health check on server, such
@@ -171,6 +181,7 @@ func NewWorker(
 		cancelFuncs:    make(map[string]context.CancelFunc),
 		runSignals:     make(map[string]*runSignal),
 		healthServer:   healthcheck.NewServer("worker", healthPort),
+		connected:      make(chan struct{}),
 		openCodeHost:   opencodehost.New(context.Background(), openCodeConfig),
 	}
 }
@@ -759,6 +770,7 @@ func (w *Worker) sendHeartbeats(ctx context.Context) {
 		}
 
 		// Successful heartbeat; reset backoff and schedule healthy interval
+		w.connectedOnce.Do(func() { close(w.connected) })
 		retrier.Reset()
 		nextDelay = healthyInterval
 	}

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
@@ -21,7 +22,9 @@ import (
 // The worker serves its health check while its enrollment is in flight,
 // so a liveness probe sees it alive while it waits for a coordinator, and
 // no other process can take the port and leave the worker unable to start
-// after its single-use invite is used up. It keeps serving once enrolled.
+// after its single-use invite is used up. Its readiness waits until it has
+// enrolled and reached the coordinator, so a rollout does not count it
+// before it can take runs.
 func TestWorkerInviteHoldsHealthPort(t *testing.T) {
 	t.Parallel()
 	dagu := harness.NewRunner(t)
@@ -47,11 +50,13 @@ func TestWorkerInviteHoldsHealthPort(t *testing.T) {
 		_ = other.Close()
 		t.Fatal("another process could bind the health check port while enrollment was in flight")
 	}
-	expectHealthy(t, port)
+	expectStatus(t, port, "/health", http.StatusOK)
+	assert.Equal(t, http.StatusServiceUnavailable, getStatus(t, port, "/ready"), "not ready while enrollment waits")
 
 	release()
 	waitForOutput(t, worker, workerEnrolled)
-	expectHealthy(t, port)
+	expectStatus(t, port, "/ready", http.StatusOK)
+	expectStatus(t, port, "/health", http.StatusOK)
 }
 
 // gatedProxy forwards connections to target once release is called, and
@@ -96,27 +101,41 @@ func forward(conn net.Conn, target string) {
 	_, _ = io.Copy(conn, upstream)
 }
 
-// expectHealthy waits until the health check on port answers 200, within
-// the test's wait budget, each request included.
-func expectHealthy(t *testing.T, port int) {
+// expectStatus waits until path on port answers want, within the test's
+// wait budget, each request included.
+func expectStatus(t *testing.T, port int, path string, want int) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), harness.WaitTimeout(t))
 	defer cancel()
-	url := fmt.Sprintf("http://127.0.0.1:%d/health", port)
+	url := fmt.Sprintf("http://127.0.0.1:%d%s", port, path)
 	for {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		require.NoError(t, err)
 		resp, err := http.DefaultClient.Do(req)
+		got := 0
 		if err == nil {
 			_ = resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
+			if got = resp.StatusCode; got == want {
 				return
 			}
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatalf("the health check on port %d did not answer: %v", port, err)
+			t.Fatalf("%s on port %d did not answer %d (last %d): %v", path, port, want, got, err)
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
+}
+
+// getStatus returns what path on port answers now.
+func getStatus(t *testing.T, port int, path string) int {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), harness.WaitTimeout(t))
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d%s", port, path), nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	return resp.StatusCode
 }

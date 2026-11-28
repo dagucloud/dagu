@@ -577,6 +577,13 @@ func TestWorkerHeartbeatCarriesMachine(t *testing.T) {
 			assert.Equal(t, host, req.Host)
 			assert.Equal(t, config.Version, req.Version)
 			assert.Equal(t, coordinator.ProcessEnvironment(), req.Environment)
+			// A heartbeat that reached the coordinator marks the worker
+			// connected, which its readiness reports.
+			select {
+			case <-w.Connected():
+			case <-time.After(5 * time.Second):
+				t.Fatal("the worker did not report itself connected")
+			}
 			assert.NotEqual(t, coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_UNSPECIFIED, req.Environment)
 			assert.True(t, proto.Equal(tc.want, req.Machine), "machine sample: %v", req.Machine)
 		})
