@@ -76,6 +76,12 @@ func (e *commandExecutor) Run(ctx context.Context) error {
 		defer func() {
 			_ = fileutil.Remove(scriptFile)
 		}()
+		// The restricted user reads the script and cannot write it (Spec 103,
+		// "Isolation", rule 6).
+		if err := untrusted.FromContext(ctx).ShareReadOnly(scriptFile); err != nil {
+			e.mu.Unlock()
+			return err
+		}
 	}
 	// Wrap stderr with a tailing writer so we can include recent
 	// stderr output (rolling, up to limit) in error messages.

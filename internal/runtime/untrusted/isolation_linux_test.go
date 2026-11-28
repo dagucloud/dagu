@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io/fs"
 	"net"
 	"os"
@@ -18,10 +19,12 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -242,6 +245,236 @@ func TestIsolatedStepPlace(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "symbolic link")
 	assert.NoDirExists(t, filepath.Join(outside, "x"))
+}
+
+// runFolders makes root/dag/run as Dagu makes the work directory of a run
+// below paths.dag_run_work_dir (root), in a new folder with the mode 0755: each
+// folder from root down has the mode 0750, which the restricted user cannot
+// pass.
+func runFolders(t *testing.T) (root, dag, run string) {
+	t.Helper()
+	base, err := os.MkdirTemp("", "dagu-untrusted-pass-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	require.NoError(t, os.Chmod(base, 0o755))
+	root = filepath.Join(base, "root")
+	dag = filepath.Join(root, "dag")
+	run = filepath.Join(dag, "run")
+	require.NoError(t, os.MkdirAll(run, 0o750))
+	// The umask must not decide the modes.
+	for _, dir := range []string{root, dag, run} {
+		require.NoError(t, os.Chmod(dir, 0o750))
+	}
+	t.Cleanup(func() { _ = os.Remove(run + handoffSuffix) })
+	return root, dag, run
+}
+
+// Spec 103, "Isolation", rule 2: the folders of a run below
+// paths.dag_run_work_dir let the restricted user pass them during the step and
+// no other user, and they are as before after End.
+func TestIsolatedStepPassesTheRunFolders(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	root, dag, run := runFolders(t)
+	req := testRequest(t, run, run)
+	req.ManagedRoot = root
+	step, err := beginStep(t, ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, "reached\n", runAs(t, WithStep(ctx, step), run, `touch file && echo reached`))
+	cdAs := func(uid, gid uint32) error {
+		probe := exec.Command("/bin/sh", "-c", `cd "$1"`, "sh", run)
+		probe.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uid, Gid: gid}}
+		return probe.Run()
+	}
+	require.NoError(t, cdAs(testUID, testGID), "the restricted user cannot pass the run folders")
+	assert.Error(t, cdAs(testUID+1, testGID+1), "another user passed the run folders")
+	assertRunFolders(t, fs.FileMode(0o750), nil, root, dag)
+
+	require.NoError(t, step.End(ctx))
+	assertRunFolders(t, fs.FileMode(0o750), unix.ENODATA, root, dag)
+
+	// A Begin that fails in the handoff gives the folders back too.
+	require.NoError(t, unix.Mknod(filepath.Join(run, "disk"), unix.S_IFCHR|0o600, int(unix.Mkdev(1, 3)))) // #nosec G115 -- a small device number.
+	_, err = beginStep(t, ctx, req)
+	require.ErrorContains(t, err, "device node")
+	assertRunFolders(t, fs.FileMode(0o750), unix.ENODATA, root, dag)
+}
+
+// An ACL entry that End cannot remove lets the restricted user pass the run
+// folders after the step: End stops the run and keeps the marker, so that no
+// later step uses the work directory. So does a Begin that fails after the
+// entry, before the handoff, here at a working directory outside the work
+// directory.
+func TestIsolatedStepAbortsWhenAnACLStays(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	failRemoval := func(t *testing.T) {
+		removexattr = func(string, string) error { return unix.EIO }
+		t.Cleanup(func() { removexattr = unix.Removexattr })
+	}
+
+	t.Run("End", func(t *testing.T) {
+		root, _, run := runFolders(t)
+		req := testRequest(t, run, run)
+		req.ManagedRoot = root
+		step, err := beginStep(t, ctx, req)
+		require.NoError(t, err)
+		failRemoval(t)
+
+		err = step.End(ctx)
+		require.ErrorIs(t, err, ErrRunAborted)
+		assert.ErrorContains(t, err, "remove the ACL of "+root)
+		assert.FileExists(t, run+handoffSuffix)
+	})
+	t.Run("Begin", func(t *testing.T) {
+		root, _, run := runFolders(t)
+		req := testRequest(t, run, "/srv")
+		req.ManagedRoot = root
+		failRemoval(t)
+
+		_, err := beginStep(t, ctx, req)
+		require.ErrorIs(t, err, ErrRunAborted)
+		assert.ErrorContains(t, err, "remove the ACL of "+root)
+		assert.FileExists(t, run+handoffSuffix)
+	})
+}
+
+// With the ACL, the group bits of a run folder show the mask, which has the
+// bit x. End gives the folder its mode back before it removes the ACL, so the
+// group of a folder with the mode 0700 cannot pass it at any point.
+func TestIsolatedStepRestoresTheModeFirst(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	root, _, run := runFolders(t)
+	require.NoError(t, os.Chmod(root, 0o700))
+	req := testRequest(t, run, run)
+	req.ManagedRoot = root
+	step, err := beginStep(t, ctx, req)
+	require.NoError(t, err)
+	rootInfo, err := os.Stat(root)
+	require.NoError(t, err)
+	var atRemoval fs.FileMode
+	removexattr = func(path, name string) error {
+		if info, err := os.Stat(path); err == nil && os.SameFile(info, rootInfo) {
+			atRemoval = info.Mode().Perm()
+		}
+		return unix.Removexattr(path, name)
+	}
+	t.Cleanup(func() { removexattr = unix.Removexattr })
+
+	require.NoError(t, step.End(ctx))
+	assert.Equal(t, fs.FileMode(0o700), atRemoval, "the group could pass the folder while its ACL went")
+	assertRunFolders(t, fs.FileMode(0o700), unix.ENODATA, root)
+}
+
+// assertRunFolders checks the mode of each folder, and the error of the read
+// of its access ACL: nil while it has one.
+func assertRunFolders(t *testing.T, mode fs.FileMode, aclErr error, dirs ...string) {
+	t.Helper()
+	for _, dir := range dirs {
+		assert.Equal(t, mode, permOf(t, dir), dir)
+		_, err := unix.Getxattr(dir, aclNames[0], nil)
+		if aclErr == nil {
+			assert.NoError(t, err, dir)
+		} else {
+			assert.ErrorIs(t, err, aclErr, dir)
+		}
+	}
+}
+
+// A folder that the restricted user cannot pass fails Begin when it is above
+// paths.dag_run_work_dir or belongs to another user. The folders that got an
+// ACL before it get their modes back.
+func TestIsolatedStepRefusesOtherFolders(t *testing.T) {
+	requireIsolation(t)
+	for name, tc := range map[string]struct {
+		blocked func(t *testing.T, root string) string
+		mode    fs.FileMode
+	}{
+		"above the root": {mode: 0o750, blocked: func(t *testing.T, root string) string {
+			base := filepath.Dir(root)
+			require.NoError(t, os.Chmod(base, 0o750))
+			return base
+		}},
+		"of another user": {mode: 0o750, blocked: func(t *testing.T, root string) string {
+			require.NoError(t, os.Chown(root, testUID+1, testGID+1))
+			return root
+		}},
+		// The entry of the user comes before the bits of others.
+		"denied by an ACL": {mode: 0o755, blocked: func(t *testing.T, root string) string {
+			base := filepath.Dir(root)
+			setACL(t, base, aclNames[0], [3]uint32{0x01, 7, ^uint32(0)}, [3]uint32{0x02, 0, testUID},
+				[3]uint32{0x04, 5, ^uint32(0)}, [3]uint32{0x10, 5, ^uint32(0)}, [3]uint32{0x20, 5, ^uint32(0)})
+			return base
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root, dag, run := runFolders(t)
+			blocked := tc.blocked(t, root)
+			req := testRequest(t, run, run)
+			req.ManagedRoot = root
+			_, err := beginStep(t, context.Background(), req)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), fmt.Sprintf("the folder %s has the mode %04o: the restricted user cannot pass it", blocked, tc.mode))
+			assert.Equal(t, tc.mode, permOf(t, blocked))
+			assertRunFolders(t, fs.FileMode(0o750), unix.ENODATA, dag)
+		})
+	}
+}
+
+// A shared file, such as the script of a step, keeps the worker as owner and
+// gets the group of the restricted user with the mode 0550: the restricted
+// user reads and runs it and cannot write it, and no other user can read it,
+// also one that an entry of an access ACL named, as a default ACL of the
+// folder gives. The nix-shell script form runs the script path itself.
+func TestIsolatedStepSharesAFileReadOnly(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	// The system temp folder holds the script of a step.
+	dir, err := os.MkdirTemp("", "dagu-untrusted-share-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	require.NoError(t, os.Chmod(dir, 0o755))
+	script := filepath.Join(dir, "script.sh")
+	require.NoError(t, os.WriteFile(script, []byte("echo shared\n"), 0o750))
+	setACL(t, script, aclNames[0], [3]uint32{0x01, 7, ^uint32(0)}, [3]uint32{0x02, 4, testUID + 1},
+		[3]uint32{0x04, 0, ^uint32(0)}, [3]uint32{0x10, 0, ^uint32(0)}, [3]uint32{0x20, 0, ^uint32(0)})
+
+	require.NoError(t, step.ShareReadOnly(script))
+	info, err := os.Lstat(script)
+	require.NoError(t, err)
+	assert.Equal(t, fs.FileMode(0o550), info.Mode().Perm())
+	uid, gid := ownerOf(info)
+	assert.Equal(t, []int{os.Geteuid(), testGID}, []int{uid, gid})
+	out := runAs(t, WithStep(ctx, step), workDir, `"$SCRIPT"; (echo x >> "$SCRIPT") 2>/dev/null && echo write:allowed || echo write:denied`, "SCRIPT="+script)
+	assert.Equal(t, "shared\nwrite:denied\n", out)
+	other := exec.Command("/bin/cat", script)
+	other.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: testUID + 1, Gid: testGID + 1}}
+	assert.Error(t, other.Run(), "another user read the script")
+}
+
+// A folder above a shared file that the restricted user cannot pass fails the
+// share, also when others may pass it and the ACL entry of the user denies it.
+func TestIsolatedStepShareChecksTheACL(t *testing.T) {
+	requireIsolation(t)
+	workDir := testWorkDir(t)
+	step, err := beginStep(t, context.Background(), testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	dir, err := os.MkdirTemp("", "dagu-untrusted-share-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	require.NoError(t, os.Chmod(dir, 0o755))
+	setACL(t, dir, aclNames[0], [3]uint32{0x01, 7, ^uint32(0)}, [3]uint32{0x02, 0, testUID},
+		[3]uint32{0x04, 5, ^uint32(0)}, [3]uint32{0x10, 5, ^uint32(0)}, [3]uint32{0x20, 5, ^uint32(0)})
+	script := filepath.Join(dir, "script.sh")
+	require.NoError(t, os.WriteFile(script, []byte("echo shared\n"), 0o750))
+
+	err = step.ShareReadOnly(script)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), fmt.Sprintf("the folder %s has the mode 0755: the restricted user cannot pass it", dir))
 }
 
 // A device node in the work directory, also in .git, fails the step: as its
@@ -851,16 +1084,24 @@ func TestHandoffRefusesALinkedGitFile(t *testing.T) {
 // file system that takes no ACL.
 func setUserACL(t *testing.T, path string, names ...string) {
 	t.Helper()
+	for _, name := range names {
+		setACL(t, path, name, [3]uint32{0x01, 7, ^uint32(0)}, [3]uint32{0x02, 7, testUID},
+			[3]uint32{0x04, 5, ^uint32(0)}, [3]uint32{0x10, 7, ^uint32(0)}, [3]uint32{0x20, 5, ^uint32(0)})
+	}
+}
+
+// setACL gives the entry the ACL name with the entries, each a tag, the
+// permissions and an ID. It skips the test on a file system that takes no ACL.
+func setACL(t *testing.T, path, name string, entries ...[3]uint32) {
+	t.Helper()
 	acl := binary.LittleEndian.AppendUint32(nil, 2)
-	for _, entry := range [][3]uint32{{0x01, 7, ^uint32(0)}, {0x02, 7, testUID}, {0x04, 5, ^uint32(0)}, {0x10, 7, ^uint32(0)}, {0x20, 5, ^uint32(0)}} {
+	for _, entry := range entries {
 		acl = binary.LittleEndian.AppendUint16(acl, uint16(entry[0])) // #nosec G115 -- small tags.
 		acl = binary.LittleEndian.AppendUint16(acl, uint16(entry[1])) // #nosec G115 -- small modes.
 		acl = binary.LittleEndian.AppendUint32(acl, entry[2])
 	}
-	for _, name := range names {
-		if err := unix.Setxattr(path, name, acl, 0); err != nil {
-			t.Skipf("the file system takes no ACL: %v", err)
-		}
+	if err := unix.Setxattr(path, name, acl, 0); err != nil {
+		t.Skipf("the file system takes no ACL: %v", err)
 	}
 }
 
@@ -1151,4 +1392,288 @@ func ownerUID(t *testing.T, path string) int {
 	require.NoError(t, err)
 	uid, _ := ownerOf(info)
 	return uid
+}
+
+// waitEnded waits until the process pid has ended. Its parent has not reaped
+// it yet, so it stays a zombie.
+func waitEnded(t *testing.T, pid int) {
+	t.Helper()
+	require.Eventually(t, func() bool { return isZombie(pid) }, 10*time.Second, 10*time.Millisecond)
+}
+
+// isZombie reports whether the process pid has ended and its parent has not
+// reaped it yet.
+func isZombie(pid int) bool {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return false
+	}
+	// The state follows the command name, which is in parentheses.
+	i := bytes.LastIndexByte(data, ')')
+	return i >= 0 && i+2 < len(data) && data[i+2] == 'Z'
+}
+
+// requireWaitReturns fails when Wait of the process does not return soon,
+// as when a process it left still holds its pipe.
+func requireWaitReturns(t *testing.T, process *cmdutil.ManagedProcess) {
+	t.Helper()
+	waited := make(chan error, 1)
+	go func() { waited <- process.Wait() }()
+	select {
+	case err := <-waited:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the process left by the first one kept its pipe open")
+	}
+}
+
+// The end of a process of the step does not stop another process of the step
+// that runs, whichever of the two was prepared first. Both are prepared before
+// either starts, and the process that ends starts first.
+func TestIsolatedStepKeepsAnotherProcess(t *testing.T) {
+	t.Run("prepared first", func(t *testing.T) { testKeepsAnotherProcess(t, true) })
+	t.Run("prepared last", func(t *testing.T) { testKeepsAnotherProcess(t, false) })
+}
+
+func testKeepsAnotherProcess(t *testing.T, endingPreparedFirst bool) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := Begin(ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = step.End(ctx) })
+
+	command := func(args ...string) *exec.Cmd {
+		cmd := exec.Command(args[0], args[1:]...) //nolint:gosec
+		cmd.Dir = workDir
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		return cmd
+	}
+	ending, staying := command("/bin/true"), command("/bin/sleep", "1000")
+	releases := make(map[*exec.Cmd]func())
+	prepare := func(cmd *exec.Cmd) {
+		release, err := step.prepare(cmd)
+		require.NoError(t, err)
+		// A failed assertion before the start leaves nothing open.
+		release = sync.OnceFunc(release)
+		t.Cleanup(release)
+		releases[cmd] = release
+	}
+	if endingPreparedFirst {
+		prepare(ending)
+		prepare(staying)
+	} else {
+		prepare(staying)
+		prepare(ending)
+	}
+	start := func(cmd *exec.Cmd) *cmdutil.ManagedProcess {
+		process, err := cmdutil.StartManagedProcess(cmd)
+		releases[cmd]()
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = process.Release() })
+		require.NoError(t, step.iso.started(process.PID()))
+		return process
+	}
+	endingProcess := start(ending)
+	stayingProcess := start(staying)
+
+	require.NoError(t, endingProcess.Wait())
+	ended := make(chan struct{})
+	go func() {
+		_ = stayingProcess.Wait()
+		close(ended)
+	}()
+	select {
+	case <-ended:
+		t.Fatal("the end of one process stopped the other one")
+	case <-time.After(time.Second):
+	}
+}
+
+// A process that no watcher can follow does not run: its start fails and the
+// process is stopped, with the child that it started and that holds its
+// stdout. Another process of the step that runs is kept. A child in its own
+// session stays until End, and the start still returns.
+func TestIsolatedStepStopsAnUnwatchedProcess(t *testing.T) {
+	t.Run("child in the group", func(t *testing.T) {
+		testStopsAnUnwatchedProcess(t, `sleep 1000 & echo > "$1"; wait`)
+	})
+	t.Run("child in its own session", func(t *testing.T) {
+		testStopsAnUnwatchedProcess(t, `setsid /bin/sh -c 'echo > "$0"; exec sleep 1000' "$1" & wait`)
+	})
+}
+
+func testStopsAnUnwatchedProcess(t *testing.T, script string) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	stepCtx := WithStep(ctx, step)
+	sleeper := func() *exec.Cmd {
+		cmd := exec.Command("/bin/sleep", "1000")
+		cmd.Dir = workDir
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		return cmd
+	}
+	staying, err := StartManagedProcess(stepCtx, sleeper())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = staying.Stop(cmdutil.StopRequest{Intent: cmdutil.ForceTermination()})
+		_ = staying.Wait()
+		_ = staying.Release()
+	})
+
+	// The open fails once the process has started its child.
+	forked := filepath.Join(workDir, "forked")
+	pidfdOpen = func(int, int) (int, error) {
+		assert.Eventually(t, func() bool { _, err := os.Stat(forked); return err == nil }, 10*time.Second, 10*time.Millisecond)
+		return -1, unix.EMFILE
+	}
+	t.Cleanup(func() { pidfdOpen = unix.PidfdOpen })
+	unwatched := exec.Command("/bin/sh", "-c", script, "sh", forked) //nolint:gosec
+	unwatched.Dir = workDir
+	unwatched.Env = []string{"PATH=/usr/bin:/bin"}
+	unwatched.Stdout = &bytes.Buffer{}
+	started := make(chan error, 1)
+	go func() {
+		_, err := StartManagedProcess(stepCtx, unwatched)
+		started <- err
+	}()
+	select {
+	case err = <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the failed start waits for the child that holds its stdout")
+	}
+	require.ErrorIs(t, err, unix.EMFILE)
+	require.NotNil(t, unwatched.ProcessState, "the process was not reaped")
+	assert.False(t, unwatched.ProcessState.Success())
+	assert.False(t, isZombie(staying.PID()), "the process that runs was stopped")
+}
+
+// A start that cannot confirm that the processes which the step left are
+// gone, here because the scan of /proc fails, does not start.
+func TestIsolatedStepStartNeedsTheLeftoversGone(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	listProcesses = func(uint32) ([]int, error) { return nil, unix.EACCES }
+	t.Cleanup(func() { listProcesses = userProcesses })
+
+	cmd := exec.Command("/bin/true")
+	cmd.Dir = workDir
+	cmd.Env = []string{"PATH=/usr/bin:/bin"}
+	_, err = StartManagedProcess(WithStep(ctx, step), cmd)
+	require.ErrorIs(t, err, unix.EACCES)
+	assert.ErrorContains(t, err, "stop the processes that the step left")
+	assert.Nil(t, cmd.Process, "the process started")
+}
+
+// A scan of /proc can miss a process: one that a leftover forks after the scan
+// read the list, when the leftover ends before the scan checks it. Here the
+// scan misses every process, and the leftover that holds the stdout of the
+// step must still be stopped when its root process ends.
+func TestIsolatedStepStopsALeftoverTheScanMisses(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	// The hook is restored after End, which waits for the watcher that reads
+	// it. End stops the processes through the kill helper.
+	t.Cleanup(func() { listProcesses = userProcesses })
+	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	listProcesses = func(uint32) ([]int, error) { return nil, nil }
+
+	cmd := exec.Command("/bin/sh", "-c", "sleep 1000 &")
+	cmd.Dir = workDir
+	cmd.Env = []string{"PATH=/usr/bin:/bin"}
+	cmd.Stdout = &bytes.Buffer{}
+	process, err := StartManagedProcess(WithStep(ctx, step), cmd)
+	require.NoError(t, err)
+	defer func() { _ = process.Release() }()
+	requireWaitReturns(t, process)
+}
+
+// A process that a root process of the step left without a pipe of the step
+// is stopped before the next process of the step starts, as between the
+// commands of a step with several commands.
+func TestIsolatedStepStopsLeftoverBeforeNextStart(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	stepCtx := WithStep(ctx, step)
+	out := runAs(t, stepCtx, workDir, `sleep 1000 >/dev/null 2>&1 & echo $!`)
+	leftover, err := strconv.Atoi(strings.TrimSpace(out))
+	require.NoError(t, err)
+
+	next := exec.Command("/bin/true")
+	next.Dir = workDir
+	next.Env = []string{"PATH=/usr/bin:/bin"}
+	process, err := StartManagedProcess(stepCtx, next)
+	require.NoError(t, err)
+	defer func() { _ = process.Release() }()
+	assert.Empty(t, liveTasks(leftover, testUID), "the process that the first one left still runs")
+	require.NoError(t, process.Wait())
+}
+
+// A process that fails to start does not keep the watcher of the process
+// before it from stopping what that process left: the leftover holds the
+// stdout pipe, so Wait returns only once the watcher stops it. The subtests
+// fail the second start before and after the first process ends.
+func TestIsolatedStepFailedStartKeepsTheCleanup(t *testing.T) {
+	t.Run("before", func(t *testing.T) { testFailedStartKeepsTheCleanup(t, false) })
+	t.Run("after", func(t *testing.T) { testFailedStartKeepsTheCleanup(t, true) })
+}
+
+func testFailedStartKeepsTheCleanup(t *testing.T, failAfterExit bool) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := Begin(ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = step.End(ctx) })
+	stepCtx := WithStep(ctx, step)
+
+	script := "sleep 1000 & sleep 1"
+	if failAfterExit {
+		script = "sleep 1000 &"
+	}
+	first := exec.Command("/bin/sh", "-c", script) //nolint:gosec
+	first.Dir = workDir
+	first.Env = []string{"PATH=/usr/bin:/bin"}
+	var stdout bytes.Buffer
+	first.Stdout = &stdout
+	// The start helper runs a missing command and exits with 127, so the
+	// start of a command whose context has ended is the one that fails.
+	ended, cancel := context.WithCancel(ctx)
+	cancel()
+	failing := exec.CommandContext(ended, "/bin/true")
+	failing.Dir = workDir
+
+	if failAfterExit {
+		// The failing start is prepared before the first process starts, so
+		// the first process ends while the other one is still starting. The
+		// start fails only after the watcher saw the end.
+		release, err := step.prepare(failing)
+		require.NoError(t, err)
+		defer release()
+		firstProcess, err := StartManagedProcess(stepCtx, first)
+		require.NoError(t, err)
+		defer func() { _ = firstProcess.Release() }()
+		waitEnded(t, firstProcess.PID())
+		time.Sleep(time.Second)
+		step.iso.abandon()
+		requireWaitReturns(t, firstProcess)
+		return
+	}
+	firstProcess, err := StartManagedProcess(stepCtx, first)
+	require.NoError(t, err)
+	defer func() { _ = firstProcess.Release() }()
+	_, err = StartManagedProcess(stepCtx, failing)
+	require.Error(t, err)
+	requireWaitReturns(t, firstProcess)
 }

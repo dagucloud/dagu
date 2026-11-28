@@ -9,6 +9,8 @@ import (
 	"os"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -32,6 +34,7 @@ func beginUntrustedStep(ctx context.Context, node *Node) (context.Context, *untr
 		StepName:    step.Name,
 		Config:      config.GetConfig(ctx).Untrusted,
 		WorkDir:     GetDAGContext(ctx).RunWorkDir,
+		ManagedRoot: config.GetConfig(ctx).Paths.DAGRunWorkDir,
 		WorkingDir:  env.WorkingDir,
 		OutputLimit: maxOutputSize(ctx),
 		LockDir:     config.GetConfig(ctx).Paths.DataDir,
@@ -46,6 +49,37 @@ func beginUntrustedStep(ctx context.Context, node *Node) (context.Context, *untr
 		ctx = WithEnv(ctx, env)
 	}
 	return ctx, session, nil
+}
+
+// withTrustedHome gives a trusted step of an isolated run a private HOME when
+// the restricted user can write or replace the HOME of the worker or an XDG
+// folder (Spec 103, "Protections for later trusted steps"). Then a file that an untrusted step planted
+// there, such as a git config with hooks, does not reach the trusted step. The
+// caller calls the returned function at the end of the step, which removes the
+// private HOME.
+func withTrustedHome(ctx context.Context, node *Node) (context.Context, func(), error) {
+	cfg := config.GetConfig(ctx).Untrusted
+	if !cfg.Enabled {
+		return ctx, func() {}, nil
+	}
+	env, ok := LookupEnv(ctx)
+	if !ok {
+		env = NewEnv(ctx, node.Step())
+	}
+	home, _ := env.Scope.Get("HOME")
+	entries, remove, err := untrusted.TrustedHome(cfg.UID, cfg.GID, GetDAGContext(ctx).RunWorkDir, env.WorkingDir, home, env.Scope.Get)
+	if err != nil {
+		return ctx, nil, fmt.Errorf("step %q: make a private HOME for a trusted step: %w", node.Step().Name, err)
+	}
+	if entries == nil {
+		return ctx, func() {}, nil
+	}
+	env.Scope = env.Scope.WithEntries(entries, cmnvalue.EnvSourceStepEnv)
+	return WithEnv(ctx, env), func() {
+		if err := remove(); err != nil {
+			logger.Warn(ctx, "Failed to remove the private HOME of a trusted step", tag.Step(node.Name()), tag.Error(err))
+		}
+	}, nil
 }
 
 // untrustedRun reports whether the run of ctx has an untrusted step.

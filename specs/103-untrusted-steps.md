@@ -316,6 +316,20 @@ The rules, in order:
    untrusted step "verify": the working directory /srv is not in the work directory of the run
    ```
 
+   The restricted user MUST be able to pass each folder above the work directory, by its mode and
+   its access ACL, as the kernel checks them. A folder of the worker user at
+   `paths.dag_run_work_dir` or below it that it cannot pass, and that has no access ACL, gets an
+   access ACL until the step ends. The ACL keeps the permissions of the owner, the group and
+   others, and adds the entry `user:<uid>:--x`, so only the restricted user gains access. When the
+   step ends, the folder gets its mode back, and then the ACL is removed. Dagu makes these folders
+   with the mode `0750`, which the restricted user cannot pass. A file system without POSIX ACLs
+   fails the step when a folder needs the entry. Any other folder that the restricted user cannot
+   pass fails the step:
+
+   ```text
+   untrusted step "verify": reach the work directory /data/run: the folder /data has the mode 0700: the restricted user cannot pass it
+   ```
+
 3. **Files.** Before the process starts, Dagu makes the restricted user the owner of every file and
    folder of the work directory, with these exceptions:
    - Each entry named `.git`, and everything in it, keeps the worker user as owner. The restricted
@@ -366,8 +380,10 @@ The rules, in order:
 
 6. **Files of the attempt.** The MCP config of the attempt (Spec 091) holds the secret of the tool
    bridge. The restricted user owns it, with the mode `0400`. The restricted user can read and
-   cannot write the skills folder (Spec 091) and the script of the step. It can write the file of
-   `DAGU_OUTPUT_FILE`.
+   cannot write the skills folder (Spec 091) and the script of the step, and can run the script.
+   The script keeps the worker user as owner and gets the group of the restricted user with the
+   mode `0550`, so only the worker user and the members of that group can read it. The restricted
+   user can write the file of `DAGU_OUTPUT_FILE`.
 
 7. **End.** The step ends after a success, a failure, a timeout or a stop. Dagu then sends
    `SIGKILL` to every process of the restricted user: every thread group that has a live task of
@@ -377,6 +393,15 @@ The rules, in order:
    step. The host MUST set `kernel.yama.ptrace_scope` to 1 or more, so that no process of the
    restricted user can trace the process that sends this `SIGKILL`. Otherwise an untrusted step
    with isolation fails before it starts.
+
+   Before the end, when a root process of the step ends while no other root process of the step
+   runs or starts, Dagu also sends `SIGKILL` to every process of the restricted user, as at the
+   end, and waits until no live task of that user is left. So a process that the root process left
+   cannot keep the output of the step open, and the step ends. This happens before the next root
+   process of the step starts, as between the commands of a step with several commands. A root
+   process of the step starts only when Dagu can watch it, and, when no other root process of the
+   step runs or starts, only once no process of the restricted user is left. Otherwise its start
+   fails.
 
 8. **Checks at the end.** Dagu checks the work directory before it gives it back. It fails the step
    and removes the entry for each of these entries of the restricted user:
@@ -489,10 +514,18 @@ An untrusted step can leave files behind that a later trusted step reads. Dagu c
 - **`.git`.** The restricted user cannot write, rename or replace `.git` or a git folder. See rule 3
   of [Isolation](#isolation).
 - **`HOME` and `XDG_` folders.** With isolation, the restricted user may be able to write the `HOME`
-  of the worker or an `XDG_` folder. So each trusted step of the run gets a private `HOME` and
-  private `XDG_` folders, with the mode `0700`, owned by the worker user. The steps of a child run
-  that an untrusted step started get them too, and the git setting below. The agent cannot plant a
-  file that a later trusted step reads, such as `.gitconfig`.
+  of the worker or an `XDG_` folder, its default below `HOME` included, or replace one through a
+  folder or a link on the way. A folder with an access ACL counts as one it can write. So does a
+  folder in the work directory of the run, or one that a link in it leads to: the restricted user
+  owns it during an untrusted step, and the restore keeps what it wrote there. A relative path
+  counts from the working directory of the step. For a relative `XDG_` value, Dagu checks that
+  path and also the default below `HOME`, which a program that follows the XDG Base Directory
+  Specification reads instead. Then each trusted step of the run gets a new private `HOME`, with
+  the mode `0700`, owned by the worker user, and `XDG_` variables that name folders below it. Dagu does not make these folders; a command makes them as it needs them.
+  Dagu removes the private `HOME` when the step ends. A temp folder of the worker that would let
+  the restricted user replace the private `HOME` fails the step. The steps of a child run that an
+  untrusted step started get them too, and the git setting below. The agent cannot plant a file
+  that a later trusted step reads, such as `.gitconfig`.
 - **Bare repositories.** In a run with an untrusted step, every process gets the git setting
   `safe.bareRepository=explicit`. Dagu adds it through `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and
   `GIT_CONFIG_VALUE_<n>`, after the entries these variables already have. Git reads

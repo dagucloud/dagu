@@ -6,6 +6,7 @@
 package untrusted
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"io/fs"
@@ -52,6 +53,23 @@ func killAllAs(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Log("killAllAs: processes of the restricted user are left")
+}
+
+// startAs starts the script as a process of the step and keeps that process
+// running, so that the processes which the script leaves stay until End: the
+// watcher of the step stops them once no root process of the step runs.
+func startAs(t *testing.T, ctx context.Context, dir, script string) {
+	t.Helper()
+	cmd := exec.Command("/bin/sh", "-c", script+"\nexec sleep 1000") //nolint:gosec
+	cmd.Dir = dir
+	cmd.Env = []string{"PATH=/usr/bin:/bin"}
+	process, err := StartManagedProcess(ctx, cmd)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = process.Stop(cmdutil.StopRequest{Intent: cmdutil.ForceTermination()})
+		_ = process.Wait()
+		_ = process.Release()
+	})
 }
 
 // hopSource is a loop that forks; the parent exits at once. The loop ends by
@@ -157,7 +175,19 @@ func TestReviewZombieLeaderSurvivesEnd(t *testing.T) {
 	marker := filepath.Join(os.TempDir(), "dagu-review-zombie-"+strconv.Itoa(os.Getpid()))
 	_ = os.Remove(marker)
 	t.Cleanup(func() { _ = os.Remove(marker) })
-	runAs(t, WithStep(ctx, step), filepath.Join(workDir, "repo"), bin+" "+marker+" </dev/null >/dev/null 2>&1 &\nsleep 1")
+	pidFile := marker + ".pid"
+	_ = os.Remove(pidFile)
+	t.Cleanup(func() { _ = os.Remove(pidFile) })
+	startAs(t, WithStep(ctx, step), filepath.Join(workDir, "repo"), bin+" "+marker+" </dev/null >/dev/null 2>&1 & echo $! >"+pidFile)
+	// End runs only once the leader is a zombie, the case of this test.
+	var leader int
+	require.Eventually(t, func() bool {
+		data, _ := os.ReadFile(pidFile)
+		pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		leader = pid
+		return err == nil
+	}, 5*time.Second, 20*time.Millisecond, "the shell did not write the PID of the agent")
+	waitEnded(t, leader)
 	// A count that changes shows that the thread runs before End, so an equal
 	// count below means a stopped thread. A read between the truncation and
 	// the write of the file is empty.
@@ -206,10 +236,9 @@ func TestReviewForkHopIsKilled(t *testing.T) {
 		workDir := testWorkDir(t)
 		step, err := beginStep(t, ctx, testRequest(t, workDir, filepath.Join(workDir, "repo")))
 		require.NoError(t, err)
-		// The script waits 1 s so that the loop runs before End.
-		out := runAs(t, WithStep(ctx, step), filepath.Join(workDir, "repo"),
-			"cut -d' ' -f5 /proc/loadavg\n"+hop+" </dev/null >/dev/null 2>&1 &\nsleep 1\ncut -d' ' -f5 /proc/loadavg")
-		t.Logf("round %d: last PID before and after 1 s of the loop: %s", round, strings.Join(strings.Fields(out), " -> "))
+		// The test waits 1 s so that the loop runs before End.
+		startAs(t, WithStep(ctx, step), filepath.Join(workDir, "repo"), hop+" </dev/null >/dev/null 2>&1 &")
+		time.Sleep(time.Second)
 		endErr := step.End(ctx)
 		after, _ := userProcesses(testUID)
 		// A process that is still there 500 ms later is a live loop, not a
@@ -287,7 +316,7 @@ func TestReviewStopperBlocksNoStart(t *testing.T) {
 	marker := filepath.Join(os.TempDir(), "dagu-review-stopper-"+strconv.Itoa(os.Getpid()))
 	_ = os.Remove(marker)
 	t.Cleanup(func() { _ = os.Remove(marker) })
-	runAs(t, stepCtx, repo, bin+" "+marker+" </dev/null >/dev/null 2>&1 &")
+	startAs(t, stepCtx, repo, bin+" "+marker+" </dev/null >/dev/null 2>&1 &")
 	require.Eventually(t, func() bool {
 		_, err := os.Stat(marker)
 		return err == nil
@@ -475,4 +504,42 @@ func TestReviewSymlinkReadAsRootAfterRestore(t *testing.T) {
 		t.Logf("the trusted read got %q", data)
 	}
 	assert.NotEqual(t, "WORKER-PRIVATE-KEY", string(data), "a trusted read of a file of the agent must not reach a file of the worker")
+}
+
+// Property (Spec 103, "Isolation", rule 7): each process of the step runs. A step with
+// two processes (run with a list of commands, or a harness attempt after
+// another) starts the second process when the first ends. The first process
+// leaves a child, and the watcher that stops that child must not also stop
+// the second process.
+func TestReviewWatcherKillsNextProcess(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := Begin(ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, step.End(ctx)) }()
+	stepCtx := WithStep(ctx, step)
+
+	killed := 0
+	const rounds = 5
+	for range rounds {
+		// The first command starts a server in the background, as "npm start &".
+		// Its output goes elsewhere, so that runAs returns whatever the watcher
+		// does.
+		runAs(t, stepCtx, workDir, `sleep 1000 >/dev/null 2>&1 &`)
+		cmd := exec.Command("/bin/sh", "-c", "sleep 0.3; echo second") //nolint:gosec
+		cmd.Dir = workDir
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		var stdout bytes.Buffer
+		cmd.Stdout = &stdout
+		process, err := StartManagedProcess(stepCtx, cmd)
+		require.NoError(t, err)
+		waitErr := process.Wait()
+		_ = process.Release()
+		if waitErr != nil {
+			killed++
+			t.Logf("second process: %v", waitErr)
+		}
+	}
+	assert.Zero(t, killed, "the watcher of the first process killed the second process in "+strconv.Itoa(killed)+" of "+strconv.Itoa(rounds)+" rounds")
 }

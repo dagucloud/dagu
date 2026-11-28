@@ -69,12 +69,6 @@ func isGitFolder(fd int) bool {
 	return hasChild(fd, "HEAD", 0) && hasChild(fd, "objects", 0) && hasChild(fd, "refs", 0)
 }
 
-// within reports whether path is root or a path below it.
-func within(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
-}
-
 // insideWork reports whether path is the work directory or a path below it.
 func (iso *isolation) insideWork(path string) bool {
 	return within(iso.workDir, path) || within(iso.lexicalWork, path)
@@ -221,12 +215,15 @@ func (iso *isolation) protectedPaths() map[string]bool {
 }
 
 // handoff gives the work directory to the restricted user. It first makes the
-// marker of the work directory, which stays until a restore makes the work
-// directory safe, so that no step of the run uses the work directory after a
-// stop of the process in between (CheckWorkDir).
+// marker of the work directory when place has not made it. The marker stays
+// until a restore makes the work directory safe, so that no step of the run
+// uses the work directory after a stop of the process in between
+// (CheckWorkDir).
 func (iso *isolation) handoff() error {
-	if err := iso.markHandoff(); err != nil {
-		return err
+	if iso.marker == "" {
+		if err := iso.markHandoff(); err != nil {
+			return err
+		}
 	}
 	if err := iso.discoverGit(); err != nil {
 		return err
@@ -549,6 +546,12 @@ const maxLinks = 40
 // followed as the kernel will follow them then. No process of the restricted
 // user runs during the restore, so the links cannot change under it.
 func resolveLinks(path string) (string, error) {
+	return followLinks(path, func(string) {})
+}
+
+// followLinks is resolveLinks, and calls visit with the path of each link
+// that it follows and of each entry that a ".." leaves.
+func followLinks(path string, visit func(path string)) (string, error) {
 	resolved := "/"
 	rest := path
 	for links := 0; ; {
@@ -560,6 +563,7 @@ func resolveLinks(path string) (string, error) {
 		case ".":
 			continue
 		case "..":
+			visit(resolved)
 			resolved = filepath.Dir(resolved)
 			continue
 		}
@@ -579,6 +583,7 @@ func resolveLinks(path string) (string, error) {
 		if links++; links > maxLinks {
 			return "", &fs.PathError{Op: "resolve", Path: path, Err: unix.ELOOP}
 		}
+		visit(next)
 		target, err := os.Readlink(next)
 		if err != nil {
 			return "", err
@@ -675,16 +680,22 @@ func (iso *isolation) checkGitRemoved() error {
 	return errors.Join(errs...)
 }
 
-// restoreModes gives each folder whose mode the isolation changed its mode
-// back, through the descriptor that the isolation kept.
+// restoreModes gives each folder whose mode or ACL the isolation changed its
+// mode back and removes the ACL, through the descriptor that the isolation
+// kept.
 func (iso *isolation) restoreModes() error {
+	return errors.Join(iso.restoreDirModes(iso.protected), iso.restorePassDirs())
+}
+
+// restoreDirModes gives each folder of dirs its mode back and forgets it.
+func (iso *isolation) restoreDirModes(dirs map[string]protectedDir) error {
 	var errs []error
-	for path, dir := range iso.protected {
+	for path, dir := range dirs {
 		if err := chmodFDPath(dir.fd, path, dir.mode); err != nil {
 			errs = append(errs, stepError(iso.step, "change the mode of", path, err))
 		}
 		_ = unix.Close(dir.fd)
-		delete(iso.protected, path)
+		delete(dirs, path)
 	}
 	return errors.Join(errs...)
 }
