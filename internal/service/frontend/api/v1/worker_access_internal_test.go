@@ -648,3 +648,20 @@ func TestRemoveWorkerAuditsRecordWorker(t *testing.T) {
 	require.Len(t, store.entries, 1)
 	assert.Contains(t, store.entries[0].Details, `"worker_id":"worker-before-restart"`)
 }
+
+// An invalid removal answers 400 also on a server without a coordinator,
+// after the role check.
+func TestRemoveWorkerInvalidWithoutCoordinator(t *testing.T) {
+	t.Parallel()
+
+	a, _ := rolesAPI(nil)
+	for name, params := range map[string]openapiv1.RemoveWorkerParams{
+		"runs":          {CertificateId: "cert-1", Runs: new(openapiv1.WorkerRemovalRuns("later"))},
+		"certificateId": {},
+	} {
+		_, err := a.RemoveWorker(userContext(auth.RoleAdmin), openapiv1.RemoveWorkerRequestObject{WorkerId: "worker-1", Params: params})
+		assert.Equal(t, http.StatusBadRequest, httpStatus(t, err), name)
+	}
+	_, err := a.RemoveWorker(userContext(auth.RoleViewer), openapiv1.RemoveWorkerRequestObject{WorkerId: "worker-1"})
+	assert.Equal(t, http.StatusForbidden, httpStatus(t, err))
+}

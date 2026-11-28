@@ -272,8 +272,7 @@ func (a *API) DeleteWorkerInvite(ctx context.Context, request api.DeleteWorkerIn
 
 // RemoveWorker implements the removeWorker operation.
 func (a *API) RemoveWorker(ctx context.Context, request api.RemoveWorkerRequestObject) (api.RemoveWorkerResponseObject, error) {
-	client, err := a.workerAccess(ctx)
-	if err != nil {
+	if err := a.requireAdmin(ctx); err != nil {
 		return nil, err
 	}
 	runs := api.WorkerRemovalRunsFinish
@@ -285,6 +284,10 @@ func (a *API) RemoveWorker(ctx context.Context, request api.RemoveWorkerRequestO
 	}
 	if request.Params.CertificateId == "" {
 		return nil, &Error{HTTPStatus: http.StatusBadRequest, Code: api.ErrorCodeBadRequest, Message: "certificateId is required: take it from the workers list"}
+	}
+	client, err := a.workerAccess(ctx)
+	if err != nil {
+		return nil, err
 	}
 	resp, err := client.RemoveWorker(ctx, &coordinatorv1.RemoveWorkerRequest{
 		WorkerId:      request.WorkerId,
