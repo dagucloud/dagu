@@ -280,7 +280,8 @@ The environment variables are `DAGU_WORKER_COORDINATORS` and
   once. The page says to stop it on its host, or to change the peer token.
 - **Invites** lists each invite with its kind, creator, creation and expiry
   times, use count, and last use. **Delete** stops new enrollments with it;
-  workers that already enrolled keep their certificates.
+  workers that already enrolled keep their certificates. An invite that was
+  used up or expired shows as such for 7 days, then leaves the list.
 
 ### Failures
 
@@ -470,6 +471,9 @@ names the setting to change:
   kind, expiry, creator, use count, and last use. A single-use invite is
   consumed with a compare-and-swap, so two coordinators cannot both accept
   it.
+- An invite ends when it is used up or expires. Each coordinator's daily
+  prune deletes its record 7 days later, so ended invites do not pile up.
+  A reusable invite without an expiry stays until it is deleted.
 - `worker.invite` (`--worker.invite`, `DAGU_WORKER_INVITE`) carries the
   invite. Config output masks it like `peer.token`.
 - New coordinator RPCs create, list, and delete invites and revoke
@@ -674,6 +678,9 @@ The existing keys keep working, with three fixes:
   also when idle. It is one small collection read, independent of DAGs and
   runs, with one record per removed worker. Invites are read on enrollment
   only.
+- **Invite records:** one per invite that has not ended or ended in the
+  last 7 days, plus reusable invites without an expiry. Enrollment reads
+  them all, so its cost follows that count, not DAGs, runs, or workers.
 - **Certificate records:** one per certificate seen in the last 90 days,
   plus one per removed worker. A record's last heartbeat is written at most
   once a day, and each coordinator prunes the collection once a day.
