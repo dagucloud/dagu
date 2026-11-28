@@ -66,6 +66,7 @@ type heartbeatInfo struct {
 
 	connectionTokens bool
 	connection       peerConnection
+	environment      coordinatorv1.HostEnvironment
 
 	host string
 	// certificateID is the worker certificate the heartbeat arrived with,
@@ -2108,6 +2109,7 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 				Version:         hb.version,
 				Connection:      convert.WorkerConnectionToProto(hb.connection.kind),
 				PlaintextReason: hb.connection.plaintextReason,
+				Environment:     hb.environment,
 			}
 			if hb.stats != nil {
 				workerInfo.TotalPollers = hb.stats.TotalPollers
@@ -2136,6 +2138,7 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 			Version:         hb.Version,
 			Connection:      convert.WorkerConnectionToProto(hb.Connection),
 			PlaintextReason: hb.PlaintextReason,
+			Environment:     convert.HostEnvironmentToProto(hb.Environment),
 		}
 
 		if hb.Stats != nil {
@@ -2193,6 +2196,7 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 
 		connectionTokens: req.ConnectionTokens,
 		connection:       connection,
+		environment:      req.Environment,
 
 		host: req.Host,
 	}
@@ -2225,6 +2229,7 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 			ConnectionTokens: req.ConnectionTokens,
 			Connection:       connection.kind,
 			PlaintextReason:  connection.plaintextReason,
+			Environment:      convert.ProtoToHostEnvironment(req.Environment),
 			CertificateID:    info.certificateID,
 		}); err != nil {
 			if pass != nil {

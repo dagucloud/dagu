@@ -94,6 +94,12 @@ var processEnvironment = sync.OnceValue(func() coordinatorv1.HostEnvironment {
 	})
 })
 
+// ProcessEnvironment returns where this process runs: in Kubernetes, in a
+// container, or on a host.
+func ProcessEnvironment() coordinatorv1.HostEnvironment {
+	return processEnvironment()
+}
+
 func systemHostProbe() hostProbe {
 	return hostProbe{environment: processEnvironment, interfaceAddrs: net.InterfaceAddrs}
 }
