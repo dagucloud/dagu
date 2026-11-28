@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	"io"
 	"math"
 	"net"
@@ -14,6 +15,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -30,15 +33,13 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
 const (
 	testInvite        = "dagu1.pinpinpinpinpinpinpinpinpinpinpinpinpinpinp.secretsecretsecretsecretsecretsecretsecr"
 	testInviteAddress = "192.168.1.20:50055"
-	// registryCacheDuration outlasts how long the file service registry
-	// serves members from its cache.
-	registryCacheDuration = 3*time.Second + 100*time.Millisecond
 )
 
 // testInviteExpiry is the expiry the fake coordinator reports.
@@ -51,8 +52,6 @@ type inviteCoordinator struct {
 	readiness    *coordinatorv1.GetJoinReadinessResponse
 	readinessErr error
 	createErr    error
-	// onReadiness runs before join readiness answers, when set.
-	onReadiness func()
 
 	mu      sync.Mutex
 	created []*coordinatorv1.CreateInviteRequest
@@ -60,9 +59,6 @@ type inviteCoordinator struct {
 }
 
 func (c *inviteCoordinator) GetJoinReadiness(context.Context, *coordinatorv1.GetJoinReadinessRequest) (*coordinatorv1.GetJoinReadinessResponse, error) {
-	if c.onReadiness != nil {
-		c.onReadiness()
-	}
 	return c.readiness, c.readinessErr
 }
 
@@ -346,8 +342,8 @@ func TestWorkerInviteNoPeerToken(t *testing.T) {
 	assert.Empty(t, fake.createRequests())
 }
 
-// A coordinator listed after join readiness was read gets no create, even
-// one that comes first in the order the client tries.
+// A coordinator the registry lists only after the client was made gets no
+// create, even one that comes first in the order the client tries.
 func TestWorkerInviteRegistryChange(t *testing.T) {
 	t.Parallel()
 
@@ -362,23 +358,140 @@ func TestWorkerInviteRegistryChange(t *testing.T) {
 		checked, late = second, first
 	}
 	late.readiness = loopbackReport(nil)
-	home := checkHome(t)
-	registerCoordinator(t, home, addrs[0])
-	registerLate := coordinatorRegistration(t, home, addrs[1])
-	var lateErr error
-	checked.onReadiness = func() {
-		lateErr = registerLate()
-		// A slow readiness call outlasts the registry's member cache, so a
-		// second read of the registry would list the late coordinator.
-		time.Sleep(registryCacheDuration)
-	}
+	registry := &changingRegistry{members: []serviceregistry.HostInfo{hostInfo(t, addrs[0])}}
+	client, err := cmd.SnapshotClientForTest(t.Context(), registry, coordinator.DefaultConfig())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Cleanup(context.Background()) })
+	registry.add(hostInfo(t, addrs[1]))
 
-	_, _, err := runWorkerInvite(t, home, "--address", testInviteAddress)
+	invites, ok := client.(interface {
+		coordinator.JoinReadinessClient
+		coordinator.InviteClient
+	})
+	require.True(t, ok)
+	reports, err := invites.GetJoinReadiness(t.Context())
+	require.NoError(t, err)
+	require.Len(t, reports, 1)
+	_, err = invites.CreateInvite(t.Context(), &coordinatorv1.CreateInviteRequest{Address: testInviteAddress})
 
 	require.NoError(t, err)
-	require.NoError(t, lateErr)
 	assert.Len(t, checked.createRequests(), 1)
 	assert.Empty(t, late.createRequests())
+}
+
+// changingRegistry is a service registry whose coordinators a test adds to.
+type changingRegistry struct {
+	serviceregistry.ServiceRegistry
+	mu      sync.Mutex
+	members []serviceregistry.HostInfo
+}
+
+func (r *changingRegistry) add(member serviceregistry.HostInfo) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.members = append(r.members, member)
+}
+
+func (r *changingRegistry) GetServiceMembers(context.Context, serviceregistry.ServiceName) ([]serviceregistry.HostInfo, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.members), nil
+}
+
+func hostInfo(t *testing.T, addr string) serviceregistry.HostInfo {
+	t.Helper()
+	host, portText, err := net.SplitHostPort(addr)
+	require.NoError(t, err)
+	port, err := strconv.Atoi(portText)
+	require.NoError(t, err)
+	return serviceregistry.HostInfo{ID: "coordinator-" + portText, Host: host, Port: port, Status: serviceregistry.ServiceStatusActive}
+}
+
+// A coordinator that refuses a call for TLS keeps its own remedy, and only
+// the coordinator's peer token refusals get the peer.token one.
+func TestWorkerInviteUnauthenticated(t *testing.T) {
+	t.Parallel()
+
+	const tokenRemedy = "set the same peer.token on this host"
+	for _, tc := range []struct {
+		name    string
+		message string
+		want    string
+	}{
+		{
+			name:    "RequireTLS",
+			message: "the coordinator requires TLS: upgrade this process, or remove peer.insecure: true",
+			want:    "the coordinator requires TLS: upgrade this process, or remove peer.insecure: true",
+		},
+		{
+			name:    "TokenMismatch",
+			message: "the peer token does not match the coordinator's peer token",
+			want:    "the coordinator refused this host's peer token, or its lack of one: " + tokenRemedy,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := &inviteCoordinator{readinessErr: status.Error(codes.Unauthenticated, tc.message)}
+			_, errOut, err := runWorkerInvite(t, startInviteCoordinators(t, fake), "--address", testInviteAddress)
+
+			require.Error(t, err)
+			assert.Contains(t, errOut, " did not report whether it accepts workers: "+tc.want+"\n")
+			if tc.name == "RequireTLS" {
+				assert.NotContains(t, errOut, tokenRemedy)
+			}
+		})
+	}
+}
+
+// addressVectorsPath is the file of Add worker inputs and results that the
+// dialog and the MCP action check too, from this package's directory.
+var addressVectorsPath = filepath.Join("..", "..", "ui", "src", "features", "workers", "add-worker", "__fixtures__", "commands.json")
+
+// The command takes the addresses the Add worker dialog and the MCP action
+// take, and refuses the others before any call.
+func TestWorkerInviteAddressVectors(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile(addressVectorsPath)
+	require.NoError(t, err)
+	var vectors struct {
+		Cases []struct {
+			Name  string `json:"name"`
+			Input struct {
+				Address string `json:"address"`
+			} `json:"input"`
+			Result struct {
+				Accepted bool   `json:"accepted"`
+				Field    string `json:"field"`
+			} `json:"result"`
+		} `json:"cases"`
+	}
+	require.NoError(t, json.Unmarshal(data, &vectors))
+
+	seen := map[string]bool{}
+	for _, tc := range vectors.Cases {
+		// Cases refused for another field say nothing about the address.
+		if (!tc.Result.Accepted && tc.Result.Field != "address") || seen[tc.Input.Address] {
+			continue
+		}
+		seen[tc.Input.Address] = true
+		t.Run(tc.Name, func(t *testing.T) {
+			t.Parallel()
+
+			fake := &inviteCoordinator{readiness: readyReport()}
+			_, _, err := runWorkerInvite(t, startInviteCoordinators(t, fake), "--address", tc.Input.Address)
+
+			if tc.Result.Accepted {
+				require.NoError(t, err)
+				assert.Len(t, fake.createRequests(), 1)
+				return
+			}
+			require.Error(t, err)
+			assert.True(t, strings.HasPrefix(err.Error(), "--address "), err.Error())
+			assert.Empty(t, fake.createRequests())
+		})
+	}
 }
 
 // An invite whose output fails is deleted, since no one may have its
@@ -501,7 +614,7 @@ func TestWorkerInviteFlags(t *testing.T) {
 	t.Parallel()
 
 	const (
-		badAddress = "--address must be host:port, such as 192.168.1.20:50055 or [2001:db8::1]:50055"
+		badAddress = "--address must be host:port, such as 192.168.1.20:50055"
 		badExpiry  = "--expires must be a positive duration, such as 24h"
 		oneAddress = "--address must be one host:port, without commas or surrounding spaces"
 	)
@@ -512,7 +625,8 @@ func TestWorkerInviteFlags(t *testing.T) {
 	}{
 		{name: "NoAddress", wantErr: `required flag(s) "address" not set`},
 		{name: "NoPort", args: []string{"--address", "192.168.1.20"}, wantErr: badAddress},
-		{name: "BadPort", args: []string{"--address", "192.168.1.20:70000"}, wantErr: badAddress},
+		{name: "BadPort", args: []string{"--address", "192.168.1.20:70000"}, wantErr: "--address must have a port from 1 to 65535"},
+		{name: "MalformedIPv6", args: []string{"--address", "[not:ipv6]:50055"}, wantErr: "--address must name one host: an IP address without a zone, or a DNS name"},
 		{name: "UnbracketedIPv6", args: []string{"--address", "2001:db8::1:50055"}, wantErr: badAddress},
 		// The worker would split the printed value on the comma.
 		{name: "Comma", args: []string{"--address", "missing,coordinator:50055"}, wantErr: oneAddress},

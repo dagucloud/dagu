@@ -20,6 +20,9 @@ func RestoreDAGFromStatusForTest(ctx context.Context, dag *ir.DAG, status *ir.DA
 
 var WorkerFlagsForTest = workerFlags
 
+// SnapshotClientForTest is the client dagu worker invite calls through.
+var SnapshotClientForTest = snapshotClient
+
 // EgressProxyForTest returns the egress-proxy command on the given listen and
 // dial functions.
 func EgressProxyForTest(listen func(network, address string) (net.Listener, error), dial egress.DialFunc) *cobra.Command {

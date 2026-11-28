@@ -10,9 +10,12 @@ import (
 	"io"
 	"math"
 	"net"
+	"os/signal"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -62,12 +65,33 @@ var coordinatorFailures = map[string]bool{
 	"failed to store the invite":    true,
 }
 
+var (
+	// containerID matches the short and the full ID of a container.
+	containerID = regexp.MustCompile(`^[0-9a-f]{12}([0-9a-f]{52})?$`)
+	// dnsName matches one DNS name, so a list, a zone, or shell syntax is
+	// not taken for a host.
+	dnsName = regexp.MustCompile(`^([A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9])?\.?$`)
+	// invitePattern matches text shaped like an invite: dagu1.<pin>.<secret>.
+	invitePattern = regexp.MustCompile(`dagu1\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}`)
+)
+
 // refusalCodes are the codes of a coordinator's refusal, whose message
 // names the cause and the change without any file location.
 var refusalCodes = map[codes.Code]bool{
 	codes.InvalidArgument:    true,
 	codes.FailedPrecondition: true,
 	codes.PermissionDenied:   true,
+	// A refusal for TLS, or one for the peer token outside
+	// peerTokenRefusals.
+	codes.Unauthenticated: true,
+}
+
+// peerTokenRefusals are the messages a coordinator refuses a missing or
+// wrong peer token with. Other refusals with the same code, such as the one
+// for coordinator.require_tls, keep their own remedy.
+var peerTokenRefusals = map[string]bool{
+	"the coordinator requires a peer token: set peer.token, or let this process read the coordinator's data directory": true,
+	"the peer token does not match the coordinator's peer token":                                                       true,
 }
 
 var (
@@ -199,6 +223,12 @@ func newInviteClient(ctx *Context) (coordinator.Client, error) {
 			return nil, err
 		}
 	}
+	return snapshotClient(ctx, registry, clientConfig)
+}
+
+// snapshotClient returns a client for the coordinators registry lists when
+// it is called, so join readiness and the create reach the same ones.
+func snapshotClient(ctx context.Context, registry serviceregistry.ServiceRegistry, clientConfig *coordinator.Config) (coordinator.Client, error) {
 	members, err := registry.GetServiceMembers(ctx, serviceregistry.ServiceNameCoordinator)
 	if err != nil || len(members) == 0 {
 		return nil, errNoInviteCoordinator
@@ -233,9 +263,13 @@ func parseInviteOptions(cmd *cobra.Command) (inviteOptions, error) {
 	if strings.Contains(address, ",") || strings.TrimSpace(address) != address {
 		return opts, fmt.Errorf("--%s must be one host:port, without commas or surrounding spaces", inviteAddressFlag.name)
 	}
-	if opts.address, err = normalizeHostPort(address); err != nil {
-		return opts, fmt.Errorf("--%s must be host:port, such as 192.168.1.20:50055 or [2001:db8::1]:50055", inviteAddressFlag.name)
+	if invitePattern.MatchString(address) {
+		return opts, fmt.Errorf("--%s holds an invite; the invite goes only into the printed command", inviteAddressFlag.name)
 	}
+	if problem := dialAddressProblem(address); problem != "" {
+		return opts, fmt.Errorf("--%s %s", inviteAddressFlag.name, problem)
+	}
+	opts.address = address
 	if opts.reusable, err = cmd.Flags().GetBool(inviteReusableFlag.name); err != nil {
 		return opts, err
 	}
@@ -256,17 +290,39 @@ func parseInviteOptions(cmd *cobra.Command) (inviteOptions, error) {
 	return opts, nil
 }
 
-// normalizeHostPort returns addr as host:port, with an IPv6 host in
-// brackets, or an error when addr is not a host and a TCP port.
-func normalizeHostPort(addr string) (string, error) {
+// dialAddressProblem says why a worker on another host cannot dial addr, or
+// returns "" when it can. It is the address rule of Spec 108 §Add Worker,
+// which the Add worker dialog and the MCP action apply too.
+func dialAddressProblem(addr string) string {
 	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return "", err
+	if err != nil || host == "" {
+		return "must be host:port, such as 192.168.1.20:50055"
 	}
-	if n, err := strconv.Atoi(port); host == "" || err != nil || n <= 0 || n > math.MaxUint16 {
-		return "", errors.New("not host:port")
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > math.MaxUint16 {
+		return "must have a port from 1 to 65535"
 	}
-	return net.JoinHostPort(host, port), nil
+	if ip := net.ParseIP(host); ip != nil {
+		switch {
+		case ip.IsUnspecified():
+			return "must name one address, not " + host
+		case ip.IsLoopback():
+			return "must not be a loopback address, which reaches only the worker's own machine"
+		case ip.IsLinkLocalUnicast():
+			return "must not be a link-local address, which another network does not route"
+		case ip.IsMulticast(), ip.Equal(net.IPv4bcast):
+			return "must be one machine's address, not a multicast or broadcast address"
+		}
+		return ""
+	}
+	switch {
+	case !dnsName.MatchString(host):
+		return "must name one host: an IP address without a zone, or a DNS name"
+	case strings.EqualFold(strings.TrimSuffix(host, "."), "localhost"):
+		return "must not be localhost, which reaches only the worker's own machine"
+	case containerID.MatchString(host):
+		return "must not be a container ID; give the address of the machine that runs the container"
+	}
+	return ""
 }
 
 // expirySeconds returns d in whole seconds, rounded up so the invite lasts at
@@ -291,7 +347,7 @@ func callFailure(subject string, err error) string {
 	st := carrier.GRPCStatus()
 	code := st.Code()
 	switch {
-	case code == codes.Unauthenticated:
+	case code == codes.Unauthenticated && peerTokenRefusals[st.Message()]:
 		// The coordinator's own words also cover processes on its host.
 		return "the coordinator refused this host's peer token, or its lack of one: set the same peer.token on this host"
 	case refusalCodes[code]:
@@ -364,8 +420,12 @@ func builtinTLSChange(reason coordinatorv1.BuiltinTLSReason) string {
 }
 
 // printInvite prints the invite of resp and the command that joins a worker
-// host with it through address, in one write.
+// host with it through address, in one write. A closed standard output
+// fails the write instead of ending the process, so the caller can delete
+// the invite.
 func printInvite(w io.Writer, address string, resp *coordinatorv1.CreateInviteResponse) error {
+	signal.Ignore(syscall.SIGPIPE)
+	defer signal.Reset(syscall.SIGPIPE)
 	kind := "single use"
 	if resp.Record.GetKind() == coordinatorv1.InviteKind_INVITE_KIND_REUSABLE {
 		kind = "reusable"
