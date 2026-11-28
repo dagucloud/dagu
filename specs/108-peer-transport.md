@@ -928,9 +928,9 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
 - `--address` is required. It is stored as the invite's `address` and used
   in the printed command.
 - The command calls the coordinator with the peer token, so it runs on any
-  host whose processes have the peer token. It calls the coordinators a
-  worker on its host would: those of `worker.coordinators` when set, else
-  those in its service registry.
+  host whose processes have the peer token. It calls the coordinators of
+  `worker.coordinators` when set, else those in the service registry of its
+  data directory.
 - `--expires` is a positive Go duration of at most `2562047h47m16s`. An
   empty value fails like any other that is not a duration.
 - It first reads join readiness. While a coordinator is not ready, it
@@ -938,8 +938,12 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
   creates no invite, and exits with code 1. For `loopbackOnly`, the change
   follows `hostSource`, and without `builtinTLS`, it follows
   `builtinTLSReason`, as the dialog's step 1 does.
-- A failed call prints the coordinator's refusal, or else only the kind of
-  failure and that `dagu worker --check` on the calling host shows why.
+- A failed call prints the coordinator's refusal. A coordinator that fails
+  to generate or store the invite gets that failure and its log as the
+  place to look. Any other failure gets only its kind and that
+  `dagu worker --check` on the calling host shows why.
+- `--address` must be valid UTF-8 and `host:port`, with an IPv6 host in
+  brackets.
 - On success it prints the invite kind and expiry, the invite, and the
   command to run on the worker host, and exits with code 0. The command
   quotes an address that a POSIX shell would change, such as an IPv6

@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"fmt"
 	"io"
 	"math"
 	"net"
@@ -361,8 +360,9 @@ func TestWorkerInviteOneOfTwoNotReady(t *testing.T) {
 }
 
 // A refused create reaches the user with the coordinator's message. A
-// coordinator that stops answering after join readiness, or fails on its
-// side, is named with the kind of failure and where to look.
+// coordinator that fails to store the invite points to its log. Any other
+// failure, whose origin the CLI cannot tell, gets only its kind and the
+// check to run.
 func TestWorkerInviteRefused(t *testing.T) {
 	t.Parallel()
 
@@ -370,7 +370,6 @@ func TestWorkerInviteRefused(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		err  error
-		// want is the cause, with %s for the coordinator's address.
 		want string
 	}{
 		{name: "FailedPrecondition", err: status.Error(codes.FailedPrecondition, ownCertificates), want: ownCertificates},
@@ -378,33 +377,33 @@ func TestWorkerInviteRefused(t *testing.T) {
 		{
 			name: "Unavailable",
 			err:  status.Error(codes.Unavailable, "connection reset"),
-			want: "coordinator %s could not be reached or did not answer: run dagu worker --check on this host to see why",
+			want: "the coordinator could not be reached or did not answer: run dagu worker --check on this host to see why",
 		},
 		{
 			name: "WriteFailed",
 			err:  status.Error(codes.Internal, "failed to store the invite"),
-			want: "coordinator %s failed on its side (failed to store the invite): see its log for the cause",
+			want: "the coordinator failed to store the invite: see its log for the cause",
 		},
 		{
-			name: "OtherServerError",
+			// gRPC raises Internal on the calling host too, with its own
+			// message.
+			name: "UnknownInternal",
+			err:  status.Error(codes.Internal, "grpc: error while marshaling"),
+			want: "the call failed with code Internal: run dagu worker --check on this host to see why",
+		},
+		{
+			name: "OtherCode",
 			err:  status.Error(codes.DataLoss, "details"),
-			want: "coordinator %s failed on its side with code DataLoss: see its log for the cause",
+			want: "the call failed with code DataLoss: run dagu worker --check on this host to see why",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			fake := &inviteCoordinator{readiness: readyReport(), createErr: tc.err}
-			home := checkHome(t)
-			addr := serveInviteCoordinator(t, fake)
-			registerCoordinator(t, home, addr)
-			out, _, err := runWorkerInvite(t, home, "--address", testInviteAddress)
+			out, _, err := runWorkerInvite(t, startInviteCoordinators(t, fake), "--address", testInviteAddress)
 
-			want := tc.want
-			if strings.Contains(want, "%s") {
-				want = fmt.Sprintf(want, addr)
-			}
-			require.EqualError(t, err, "failed to create the invite: "+want)
+			require.EqualError(t, err, "failed to create the invite: "+tc.want)
 			assert.Empty(t, out)
 		})
 	}
@@ -426,6 +425,8 @@ func TestWorkerInviteFlags(t *testing.T) {
 		{name: "NoPort", args: []string{"--address", "192.168.1.20"}, wantErr: badAddress},
 		{name: "BadPort", args: []string{"--address", "192.168.1.20:70000"}, wantErr: badAddress},
 		{name: "UnbracketedIPv6", args: []string{"--address", "2001:db8::1:50055"}, wantErr: badAddress},
+		// The request could not carry it, so it fails before any call.
+		{name: "InvalidUTF8", args: []string{"--address", "host\xff:50055"}, wantErr: "--address must be valid UTF-8 text"},
 		{name: "BadExpiry", args: []string{"--address", testInviteAddress, "--expires", "1day"}, wantErr: badExpiry},
 		{name: "NegativeExpiry", args: []string{"--address", testInviteAddress, "--expires", "-1h"}, wantErr: badExpiry},
 		// An empty value would otherwise give a reusable invite no expiry.

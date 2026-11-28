@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
@@ -49,6 +50,13 @@ var connectionCodes = map[codes.Code]bool{
 	codes.Unavailable:      true,
 	codes.DeadlineExceeded: true,
 	codes.Canceled:         true,
+}
+
+// coordinatorFailures are the messages a coordinator answers with for a
+// failure on its side of an invite call.
+var coordinatorFailures = map[string]bool{
+	"failed to generate the invite": true,
+	"failed to store the invite":    true,
 }
 
 // refusalCodes are the codes of a coordinator's refusal, whose message
@@ -107,10 +115,9 @@ after 24 hours unless --expires is given. A reusable invite enrolls any number
 of workers and lasts until deleted unless --expires is given.
 
 The command calls the coordinators with the peer token, so it runs on any host
-whose processes have the peer token. It calls the coordinators a worker on
-this host would: those of worker.coordinators when set, else those in the
-service registry of its data directory. The invite appears only in this
-output.
+whose processes have the peer token. It calls the coordinators of
+worker.coordinators when set, else those in the service registry of its data
+directory. The invite appears only in this output.
 
 While a coordinator accepts connections from its own machine only, or cannot
 create invites, the command prints the change to make to standard error,
@@ -157,15 +164,15 @@ func runWorkerInvite(ctx *Context, _ []string) error {
 		Address:          opts.address,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create the invite: %s", callFailure(coordinatorsSubject(reports), err))
+		return fmt.Errorf("failed to create the invite: %s", callFailure("the coordinator", err))
 	}
 	printInvite(ctx.Command.OutOrStdout(), opts.address, resp)
 	return nil
 }
 
-// newInviteClient returns a client for the coordinators a worker on this
-// host calls: those of worker.coordinators when set, else those in the
-// service registry of its data directory.
+// newInviteClient returns a client for the coordinators of
+// worker.coordinators when set, else those in the service registry of the
+// data directory.
 func newInviteClient(ctx *Context) (coordinator.Client, error) {
 	clientConfig, err := worker.CoordinatorClientConfig(ctx.Config, ctx.serverStores.ServiceRegistry)
 	if err != nil {
@@ -186,6 +193,11 @@ func parseInviteOptions(cmd *cobra.Command) (inviteOptions, error) {
 	address, err := cmd.Flags().GetString(inviteAddressFlag.name)
 	if err != nil {
 		return opts, err
+	}
+	// The request carries the address as a protobuf string, which must be
+	// valid UTF-8.
+	if !utf8.ValidString(address) {
+		return opts, fmt.Errorf("--%s must be valid UTF-8 text", inviteAddressFlag.name)
 	}
 	if opts.address, err = normalizeHostPort(address); err != nil {
 		return opts, fmt.Errorf("--%s must be host:port, such as 192.168.1.20:50055 or [2001:db8::1]:50055", inviteAddressFlag.name)
@@ -233,10 +245,10 @@ func expirySeconds(d time.Duration) int64 {
 	return seconds
 }
 
-// callFailure returns the cause of a failed call to subject, the
-// coordinators asked, and the change to make. It repeats a coordinator's
-// refusal, and otherwise only the kind of failure, since an error raised on
-// this host may name a credential file.
+// callFailure returns the cause of a failed call to subject and the change
+// to make. It repeats a coordinator's refusal and its own words for a
+// failure on its side, and otherwise only the kind of failure, since an
+// error raised on this host may name a credential file.
 func callFailure(subject string, err error) string {
 	var carrier interface{ GRPCStatus() *status.Status }
 	if !errors.As(err, &carrier) {
@@ -251,25 +263,13 @@ func callFailure(subject string, err error) string {
 		return subject + " predates worker invites: upgrade it to create invites"
 	case connectionCodes[code]:
 		return subject + " could not be reached or did not answer: run dagu worker --check on this host to see why"
-	case code == codes.Internal:
-		// The coordinator words its internal failures without details.
-		return fmt.Sprintf("%s failed on its side (%s): see its log for the cause", subject, st.Message())
+	case code == codes.Internal && coordinatorFailures[st.Message()]:
+		return fmt.Sprintf("%s %s: see its log for the cause", subject, st.Message())
 	default:
-		return fmt.Sprintf("%s failed on its side with code %s: see its log for the cause", subject, code)
+		// gRPC raises some codes, such as Internal, on this host too, so the
+		// failure cannot be placed.
+		return fmt.Sprintf("the call failed with code %s: run dagu worker --check on this host to see why", code)
 	}
-}
-
-// coordinatorsSubject names the coordinators of reports as the subject of
-// a sentence.
-func coordinatorsSubject(reports []coordinator.JoinReadiness) string {
-	addrs := make([]string, len(reports))
-	for i, report := range reports {
-		addrs[i] = coordinatorAddr(report)
-	}
-	if len(addrs) == 1 {
-		return "coordinator " + addrs[0]
-	}
-	return "one of the coordinators " + strings.Join(addrs, ", ")
 }
 
 func coordinatorAddr(report coordinator.JoinReadiness) string {
