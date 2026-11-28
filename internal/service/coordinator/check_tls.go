@@ -52,8 +52,12 @@ func checkHandshake(ctx context.Context, config *Config, plan connectionPlan, co
 	tlsConn := tls.Client(recorded, tlsConfig)
 	err = tlsConn.HandshakeContext(ctx)
 	if verifyErr, ok := errors.AsType[*tls.CertificateVerificationError](err); ok {
+		problem := verificationProblem(verifyErr, tlsConfig.RootCAs, verifyHost)
+		if plan.cert != nil && foreignCoordinatorFormat(err) == otherDaguFormat {
+			problem = ErrOtherDagu
+		}
 		return &TLSHandshake{
-			Err:         verificationProblem(verifyErr, tlsConfig.RootCAs, verifyHost),
+			Err:         problem,
 			Fallback:    fallbackFrom(config, plan, recorded, err),
 			Certificate: describeServerCertificate(verifyErr.UnverifiedCertificates, nil),
 		}, certSent
@@ -87,7 +91,7 @@ func checkHandshake(ctx context.Context, config *Config, plan connectionPlan, co
 	case notTLS:
 		handshake.Err = errors.New("the coordinator answered without TLS on this port")
 	case errors.Is(err, ErrInviteCAMismatch):
-		handshake.Err = errors.New("the coordinator belongs to a different Dagu: its CA does not match the invite")
+		handshake.Err = ErrInviteCAMismatch
 	case errors.Is(err, errNotBuiltinCertificate):
 		handshake.Err = errors.New("the coordinator serves TLS with its own certificates, so this worker cannot join it with an invite")
 	default:

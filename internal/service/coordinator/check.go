@@ -61,7 +61,9 @@ type H2CFallback struct {
 
 // TLSHandshake is what a TLS handshake with a coordinator showed.
 type TLSHandshake struct {
-	// Err says why the handshake failed; nil when it succeeded.
+	// Err says why the handshake failed; nil when it succeeded. It is
+	// ErrInviteCAMismatch or ErrOtherDagu for a coordinator of another Dagu
+	// than the one the worker's invite or certificate names.
 	Err error
 	// Fallback is the source of the h2c the client falls back to after the
 	// failed handshake, such as "tls failed on the network path"; empty when

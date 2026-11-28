@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
@@ -55,6 +57,32 @@ func TestConfirmWorkerCertificate(t *testing.T) {
 	assert.True(t, coordinator.IsWorkerRemoved(err), "%v", err)
 }
 
+// Every call of the client tells its owner of a refusal as revoked, not only
+// the heartbeat, so a coordinator that has not reread the revoked set yet and
+// still accepts heartbeats cannot keep a removed worker running (Spec 108
+// §Removed Worker).
+func TestClientReportsRemoval(t *testing.T) {
+	t.Parallel()
+	server := startPeerTLSServer(t, certHosts)
+	key, cert, _ := server.enrolled(t)
+	config := workerCertConfig(server, key, cert)
+	var refusals atomic.Int32
+	config.OnWorkerRemoved = func() { refusals.Add(1) }
+	registry, err := coordinator.NewStaticRegistry([]string{server.addr})
+	require.NoError(t, err)
+	client := coordinator.New(registry, config)
+	t.Cleanup(func() { _ = client.Cleanup(t.Context()) })
+
+	_, err = client.GetWorkers(t.Context())
+	require.NoError(t, err)
+	assert.Zero(t, refusals.Load())
+
+	server.remove(t, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH)
+	_, err = client.Poll(t.Context(), backoff.NewConstantBackoffPolicy(time.Second), &coordinatorv1.PollRequest{WorkerId: "worker-1", PollerId: "poller-1"})
+	assert.True(t, coordinator.IsWorkerRemoved(err), "%v", err)
+	assert.Equal(t, int32(1), refusals.Load())
+}
+
 // Only the coordinator's refusal of a revoked certificate counts as a
 // removal, whatever wraps it.
 func TestIsWorkerRemoved(t *testing.T) {
@@ -86,6 +114,12 @@ func TestCheckWorkerCertificate(t *testing.T) {
 	assert.Equal(t, invite.Record.Id, result.Credential.InviteID)
 	assert.Equal(t, coordinator.PeerTokenNone, result.Credential.PeerToken)
 
+	// A coordinator of another Dagu is named as such, not as an untrusted CA.
+	other := startPeerTLSServer(t, certHosts)
+	result = coordinator.Check(t.Context(), config, checkMember(t, other.addr))
+	require.NotNil(t, result.TLS)
+	assert.ErrorIs(t, result.TLS.Err, coordinator.ErrOtherDagu)
+
 	server.remove(t, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH)
 	result = coordinator.Check(t.Context(), config, checkMember(t, server.addr))
 	assert.False(t, result.Passed())
@@ -113,6 +147,6 @@ func TestCheckInvite(t *testing.T) {
 	result = coordinator.Check(t.Context(), config, checkMember(t, other.addr))
 	assert.False(t, result.Passed())
 	require.NotNil(t, result.TLS)
-	assert.EqualError(t, result.TLS.Err, "the coordinator belongs to a different Dagu: its CA does not match the invite")
+	assert.ErrorIs(t, result.TLS.Err, coordinator.ErrInviteCAMismatch)
 	assert.Empty(t, result.TLS.Fallback, "an invite worker never falls back to h2c")
 }

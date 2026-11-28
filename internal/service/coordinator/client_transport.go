@@ -385,6 +385,9 @@ func (t *clientTransport) awaitReady(ctx context.Context, cc *grpc.ClientConn) {
 // succeeds. A refusal of a connection that an h2c window put on h2c ends the
 // window, and the client opens a new connection.
 func (t *clientTransport) report(ctx context.Context, link *connLink, method string, err error, p *peer.Peer) {
+	if t.config.OnWorkerRemoved != nil && IsWorkerRemoved(err) {
+		t.config.OnWorkerRemoved()
+	}
 	refusal := isRequireTLSRefusal(err)
 	if refusal && link.refuse() {
 		t.windows.end(link.address, t.now())

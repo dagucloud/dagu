@@ -52,6 +52,10 @@ type Config struct {
 	workerCert *tls.Certificate
 	workerCA   *x509.Certificate
 
+	// OnWorkerRemoved, when set, is called each time a coordinator refuses
+	// the worker certificate as revoked, whatever the call.
+	OnWorkerRemoved func()
+
 	// Peer token sent on every call: Token when set, otherwise the content of
 	// TokenFile when this process can read it.
 	Token     string
