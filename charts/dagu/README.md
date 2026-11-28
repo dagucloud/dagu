@@ -124,6 +124,35 @@ helm upgrade --install dagu dagu/dagu \
   --wait
 ```
 
+### Peer TLS
+
+In distributed mode with Dagu releases after 2.27.0, the coordinator generates a CA in the data volume and serves TLS and plaintext gRPC on port 50055. Earlier images connect without TLS, as before, and ignore `peer.existingCASecret`. The scheduler and UI share that volume, so they connect over TLS with no setting. A network path that cannot carry TLS, such as a sidecar proxy that expects plaintext gRPC, falls back to plaintext and keeps working. The chart does not generate the CA itself, so `helm template` renders the same output on every run.
+
+Worker pods do not share the data volume, so they connect without TLS, and the Workers page shows them as `Plaintext · no TLS source`. To move them to TLS, store a CA in a Secret with the keys `ca.crt` and `ca.key`, and name it in `peer.existingCASecret`:
+
+```bash
+dagu peer init --out ./dagu-peer
+kubectl --namespace dagu create secret generic dagu-peer-ca \
+  --from-file=ca.crt=./dagu-peer/ca.crt \
+  --from-file=ca.key=./dagu-peer/ca.key
+```
+
+```yaml
+peer:
+  existingCASecret: dagu-peer-ca
+```
+
+Coordinator pods mount `ca.crt` and `ca.key` and use them as the CA. Scheduler, UI, and worker pods mount only `ca.crt`. The files are read-only with mode `0400`, and Kubernetes adds read access for the pod's `podSecurityContext.fsGroup`, so keep it set to the Dagu user's group. Until the coordinator restarts with the Secret's CA, pods that already use it fail their coordinator calls. Leave the value empty when `peer.cert_file` supplies your own certificates.
+
+Workers outside the cluster need the coordinator's port. Set `coordinator.service.type` to `LoadBalancer` or `NodePort`; the UI Ingress does not carry this traffic. `coordinator.service.annotations` takes provider-specific settings, such as those for an internal load balancer. Clients check a fixed certificate name, so the load balancer passes TCP through and needs no certificate.
+
+```yaml
+coordinator:
+  service:
+    type: LoadBalancer
+    annotations: {}
+```
+
 ### Graceful Shutdown
 
 Stopping a pod ends the DAG runs inside it, and an upgrade stops every pod. Set `shutdown.drainTimeoutSeconds` to let them finish first: a stopping pod then starts no new runs and waits up to that long for its running runs. Runs still going at the end stop as before. Each pod's `terminationGracePeriodSeconds` becomes the drain plus room for cleanup.
