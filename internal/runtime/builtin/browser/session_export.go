@@ -229,7 +229,7 @@ func exportStep(state sessionState, req ExportRequest) (*exportedSession, error)
 		item := ExportedOperation{SessionIndex: sessionIndex, Index: index, Kind: entry.Kind}
 		// key is where the step's replay cache keeps what the operation did,
 		// and what names it in a warning.
-		key, what := "", ""
+		key, literal, what := "", "", ""
 		if op.Act != nil {
 			for _, name := range entry.Variables {
 				used[name] = true
@@ -237,13 +237,15 @@ func exportStep(state sessionState, req ExportRequest) (*exportedSession, error)
 			if strings.Contains(op.Act.Instruction, "$") {
 				exported.warnf("operation %d's instruction holds $, which a step may fill in from its parameters before acting, so the first run may ask the model for it", sessionIndex)
 			}
-			key, what = replayKey(index, op.Act.Instruction, entry.URLBefore), fmt.Sprintf("act %q", op.Act.Instruction)
+			key, literal = replayKey(index, op.Act.Instruction, entry.URLBefore), literalKey(index, op.Act.Instruction, entry.URLBefore)
+			what = fmt.Sprintf("act %q", op.Act.Instruction)
 		}
 		if op.Upload != nil {
 			exported.warnf("operation %d uploads %s, the files the session was given; give the step the files each run uploads, such as an earlier step's output",
 				sessionIndex, strings.Join(op.Upload.Files, ", "))
 			if op.Upload.Into != "" {
-				key, what = uploadReplayKey(index, op.Upload.Into, entry.URLBefore), fmt.Sprintf("upload into %q", op.Upload.Into)
+				key, literal = uploadReplayKey(index, op.Upload.Into, entry.URLBefore), uploadLiteralKey(index, op.Upload.Into, entry.URLBefore)
+				what = fmt.Sprintf("upload into %q", op.Upload.Into)
 			}
 		}
 		// An act the session recorded before acts noted what their actions
@@ -260,7 +262,7 @@ func exportStep(state sessionState, req ExportRequest) (*exportedSession, error)
 		case len(unnoted) > 0:
 			exported.warnf("operation %d (%s) never uses %%%s%%, and the session did not note its value, so its recording is not exported and the first run may ask the model for it", sessionIndex, what, unnoted[0])
 		default:
-			exported.recordings[key] = recording{Actions: entry.Actions, Assumed: entry.Assumed}
+			exported.recordings[keepKey(key, literal, entry.URLBefore, entry.Actions)] = recording{Actions: entry.Actions, Assumed: entry.Assumed}
 			item.Recorded = true
 			if previous != "" && pagePath(previous) != pagePath(entry.URLBefore) {
 				exported.warnf("the page changed from %s to %s before operation %d outside the exported operations, so the first run may ask the model for it; an expect: {url: ...} before it makes the step wait for that page",

@@ -553,7 +553,11 @@ position, instruction, and page URL match, unless the act's choice is
 segment that looks like a record ID matches any other, so `/orders/4812/edit`
 and `/orders/4813/edit` are one page. Such a segment is all digits, or
 letters, digits, `-`, and `_` with at least two digits, other than a version
-such as `v2` or `v10`; `edit`, `new`, `step-1`, and `page2` are not. When a
+such as `v2` or `v10`; `edit`, `new`, `step-1`, and `page2` are not. A
+recording whose actions type one of its page's record IDs, such as an order
+number read off `/orders/4812/edit`, replays on that record only. A record's
+own recording, one of those or one made before record IDs were ignored,
+replays on it before the recording the record's page shares. When a
 replay fails, the step asks the model again, or fails under `never` (see How
 much AI decides).
 An `act`'s recording replays only on a run its actions fit. A variable the

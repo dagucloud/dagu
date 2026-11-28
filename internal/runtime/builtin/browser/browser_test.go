@@ -1169,29 +1169,96 @@ func TestReplayKeyPathIDs(t *testing.T) {
 	}
 }
 
-// A recording kept before replay keys ignored record IDs still replays on
-// its page under ai: never, and then moves to the key every record shares.
-func TestReplayRecordedBeforeIDsIgnored(t *testing.T) {
+// Recordings kept before replay keys ignored record IDs still replay under
+// ai: never, each on its own record, even after one of them is replayed and
+// kept again.
+func TestReplayPrefersItsRecordsOwnRecording(t *testing.T) {
 	t.Parallel()
 
 	const (
 		steps       = `{"url": %q, "ai": "never", "do": [{"act": "Click the save button"}]}`
 		instruction = "Click the save button"
-		recorded    = "https://crm.example.com/customer/C-100231/address"
+		pageA       = "https://crm.example.com/customer/C-100231/address"
+		pageB       = "https://crm.example.com/customer/C-100232/address"
 	)
 	run := newTestRun(t, pageModel(nil))
 	run.noModel = true
+	saveA := recordedAction{Selector: "xpath=/html/body/button[1]", Method: "click"}
+	saveB := recordedAction{Selector: "xpath=/html/body/button[2]", Method: "click"}
 	cache := openReplayCache(filepath.Join(run.dataDir, browserhost.DataDirName), "orders", "shop")
-	cache.Stage(literalKey(0, instruction, recorded), recording{Actions: []recordedAction{{Selector: "xpath=/html/body/button[1]", Method: "click"}}})
+	cache.Stage(literalKey(0, instruction, pageA), recording{Actions: []recordedAction{saveA}})
+	cache.Stage(literalKey(0, instruction, pageB), recording{Actions: []recordedAction{saveB}})
 	require.NoError(t, cache.Commit(t.Context()))
 
-	same := run.execute(fmt.Sprintf(steps, recorded), nil)
+	require.NoError(t, run.execute(fmt.Sprintf(steps, pageB), nil).err)
+	require.NoError(t, run.execute(fmt.Sprintf(steps, pageA), nil).err)
+	assert.Equal(t, []recordedAction{saveB, saveA}, run.engine.replays)
+}
+
+// What the model does on a record replaces the record's own recording even
+// when the run read no recording, as under ai: every_run, so a later replay
+// repeats the new actions rather than the old ones.
+func TestReplayReplacesItsRecordsOwnRecording(t *testing.T) {
+	t.Parallel()
+
+	const (
+		steps       = `{"url": %q, "ai": %q, "do": [{"act": "Click the save button"}]}`
+		instruction = "Click the save button"
+		page        = "https://crm.example.com/customer/C-100231/address"
+	)
+	run := newTestRun(t, pageModel(nil))
+	old := recordedAction{Selector: "xpath=/html/body/button[9]", Method: "click"}
+	cache := openReplayCache(filepath.Join(run.dataDir, browserhost.DataDirName), "orders", "shop")
+	cache.Stage(literalKey(0, instruction, page), recording{Actions: []recordedAction{old}})
+	require.NoError(t, cache.Commit(t.Context()))
+
+	require.NoError(t, run.execute(fmt.Sprintf(steps, page, aiEveryRun), nil).err)
+	run.noModel = true
+	replayed := run.execute(fmt.Sprintf(steps, page, aiNever), nil)
+	require.NoError(t, replayed.err)
+	require.Len(t, run.engine.replays, 1)
+	assert.NotEqual(t, old, run.engine.replays[0], "the old recording is replaced")
+}
+
+// An act that types its page's record ID, such as an order number it read
+// off the page, replays on that record only, so it never types one
+// record's ID into another.
+func TestReplayKeepsTypedRecordIDToItsRecord(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"url": %q, "do": [{"act": "Copy the order number into the reference field"}]}`
+	run := newTestRun(t, pageModel(nil))
+	run.engine.actFills = "Order 4812"
+	require.NoError(t, run.execute(fmt.Sprintf(steps, "https://shop.example.com/orders/4812/edit"), nil).err)
+
+	run.engine.actFills = "Order 77"
+	other := run.execute(fmt.Sprintf(steps, "https://shop.example.com/orders/77/edit"), nil)
+	require.NoError(t, other.err)
+	assert.Equal(t, []string{"goto:completed", "act:completed"}, eventNames(other.exec.GetAgentSession()))
+
+	same := run.execute(fmt.Sprintf(steps, "https://shop.example.com/orders/4812/edit"), nil)
 	require.NoError(t, same.err)
 	assert.Equal(t, []string{"goto:completed", "act:cache-hit"}, eventNames(same.exec.GetAgentSession()))
+	assert.Equal(t, []string{"Order 4812"}, run.engine.replays[len(run.engine.replays)-1].Arguments)
+}
 
-	other := run.execute(fmt.Sprintf(steps, "https://crm.example.com/customer/C-100232/address"), nil)
-	require.NoError(t, other.err)
-	assert.Equal(t, []string{"goto:completed", "act:cache-hit"}, eventNames(other.exec.GetAgentSession()))
+// A record the shared recording does not fit keeps what the model did there
+// to itself and leaves the shared recording to the records it fits.
+func TestReplayKeepsSharedRecordingForTheRecordsItFits(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"url": %q, "variables": {"item": %q}, "do": [{"act": "Choose %%item%% as the item and add it"}]}`
+	run := newTestRun(t, pageModel(nil))
+	require.NoError(t, run.execute(fmt.Sprintf(steps, "https://shop.example.com/orders/4812/edit", "A4 paper"), nil).err)
+
+	run.engine.actFills = "Order 77"
+	unfit := run.execute(fmt.Sprintf(steps, "https://shop.example.com/orders/77/edit", "Toner T-20"), nil)
+	require.NoError(t, unfit.err)
+	assert.Equal(t, []string{"goto:completed", "act:completed"}, eventNames(unfit.exec.GetAgentSession()))
+
+	fits := run.execute(fmt.Sprintf(steps, "https://shop.example.com/orders/99/edit", "A4 paper"), nil)
+	require.NoError(t, fits.err)
+	assert.Equal(t, []string{"goto:completed", "act:cache-hit"}, eventNames(fits.exec.GetAgentSession()))
 }
 
 // A step's recordings are kept only when the step succeeds, and a replay the

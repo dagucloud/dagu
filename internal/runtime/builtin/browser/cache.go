@@ -89,10 +89,68 @@ func replayKey(index int, instruction, pageURL string) string {
 
 // literalKey identifies an act operation on the page it ran on, record IDs
 // included. Commit points are keyed by it, so approving a write on one
-// record's page approves it on no other, and it finds a recording kept
-// before replayKey ignored record IDs.
+// record's page approves it on no other. A recording kept under it, made
+// before replayKey ignored record IDs or one keepKey keeps to its record,
+// replays on that record before what every record shares.
 func literalKey(index int, instruction, pageURL string) string {
 	return pageKey(index, instruction, pageURL, false)
+}
+
+// keepKey returns the key a recording of actions made on pageURL is kept
+// under: the replay key, or the literal key when an action types one of the
+// page's record IDs, such as an order number read off /orders/4812/edit, so
+// that it never types one record's ID into another record.
+func keepKey(key, literal, pageURL string, actions []recordedAction) string {
+	if key == literal {
+		return key
+	}
+	for _, id := range pathRecordIDs(pageURL) {
+		for _, action := range actions {
+			for _, argument := range action.Arguments {
+				if containsWord(argument, id) {
+					return literal
+				}
+			}
+		}
+	}
+	return key
+}
+
+// pathRecordIDs returns the path segments of pageURL that look like record
+// IDs.
+func pathRecordIDs(pageURL string) []string {
+	parsed, err := url.Parse(pageURL)
+	if err != nil {
+		return nil
+	}
+	var ids []string
+	for segment := range strings.SplitSeq(parsed.Path, "/") {
+		if isRecordID(segment) {
+			ids = append(ids, segment)
+		}
+	}
+	return ids
+}
+
+// containsWord reports whether word occurs in s with no letter or digit
+// beside it, so 4812 is in "Order 4812" but 1 is not in "100".
+func containsWord(s, word string) bool {
+	for start := 0; ; {
+		i := strings.Index(s[start:], word)
+		if i < 0 {
+			return false
+		}
+		i += start
+		end := i + len(word)
+		if (i == 0 || !isAlnum(s[i-1])) && (end == len(s) || !isAlnum(s[end])) {
+			return true
+		}
+		start = i + 1
+	}
+}
+
+func isAlnum(b byte) bool {
+	return b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
 }
 
 func pageKey(index int, instruction, pageURL string, ignoreIDs bool) string {
