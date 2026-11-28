@@ -12,11 +12,13 @@ export interface AddressProblem {
 }
 
 // The rule of Spec 108 §Add Worker, which the MCP action applies with Go's
-// net.SplitHostPort and net.ParseIP; the shared vectors in __fixtures__
-// hold both to it. The host is one IP address without a zone, or one DNS
-// name.
-const DNS_NAME =
-  /^([A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9])?\.?$/;
+// net.SplitHostPort and net.ParseIP and the invite API's
+// ValidInviteAddress; the shared vectors in __fixtures__ hold both to it.
+// The host is an IPv4 address, an IPv6 address in brackets without a
+// zone, or a host name: labels of letters, digits, and inner hyphens, at
+// most 63 characters each and 253 in all, with no trailing dot.
+const HOST_NAME =
+  /^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
 const IPV4_OCTET = '(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]\\d|\\d)';
 const IPV4 = new RegExp(`^${IPV4_OCTET}(\\.${IPV4_OCTET}){3}$`);
 // A short or full container ID, as a container's host name.
@@ -223,13 +225,17 @@ function ipProblem(ip: ParsedIP): string | undefined {
   return undefined;
 }
 
-function hostProblem(host: string): string | undefined {
+function hostProblem(host: string, bracketed: boolean): string | undefined {
   const ip = parseIP(host);
-  if (ip) return ipProblem(ip);
-  if (!DNS_NAME.test(host)) {
+  // Brackets hold only an IPv6 address, which has a colon.
+  const valid = bracketed
+    ? !!ip && host.includes(':')
+    : !!ip || HOST_NAME.test(host);
+  if (!valid) {
     return '{host} is not one host. Enter an IP address without a zone, or a DNS name.';
   }
-  if (host.replace(/\.$/, '').toLowerCase() === 'localhost') return LOOPBACK;
+  if (ip) return ipProblem(ip);
+  if (host.toLowerCase() === 'localhost') return LOOPBACK;
   if (CONTAINER_ID.test(host)) {
     return '{host} looks like a container ID. Enter the address of the machine that runs the container.';
   }
@@ -256,10 +262,10 @@ export function addressProblem(text: string): AddressProblem | undefined {
     return { text: 'Enter host:port, such as 192.168.1.20:50055.' };
   }
   const [host, port] = parts;
-  // Go's strconv.Atoi takes a sign.
-  if (!/^[+-]?\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
+  // Decimal digits without a sign or leading zero, as the invite API takes.
+  if (!/^[1-9]\d*$/.test(port) || Number(port) > 65535) {
     return { text: 'Enter a port from 1 to 65535.' };
   }
-  const problem = hostProblem(host);
+  const problem = hostProblem(host, address.startsWith('['));
   return problem ? { text: problem, values: { host } } : undefined;
 }

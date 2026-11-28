@@ -1321,14 +1321,17 @@ and prints the message:
   coordinator now reports, compared with the host in lowercase, and **Use
   this address** puts it in the field.
 - Step 2 refuses an address that a worker on another host cannot dial: one
-  that is not `host:port` with a port from 1 to 65535, or whose host is
-  not one IP address without a zone or one DNS name, or is `0.0.0.0`,
+  that is not `host:port` with a port from 1 to 65535 written without a
+  sign or leading zero; whose host is not an IPv4 address, an IPv6
+  address in brackets without a zone, or a host name of dot-separated
+  labels of letters, digits, and inner hyphens, at most 63 characters
+  each and 253 in all, with no trailing dot; or whose host is `0.0.0.0`,
   `[::]`, a loopback, link-local, multicast, or broadcast address,
   `localhost`, a container ID (12 or 64 lowercase hexadecimal
   characters), or text shaped like an invite.
-  `POST /api/v1/workers/invites` checks only that the address is
-  `host:port` with a port from 1 to 65535 and that its host holds no
-  invite, since automation may reach the coordinator through a tunnel.
+  `POST /api/v1/workers/invites` checks only the form, the same
+  `host:port` rule without the reachability checks, since automation may
+  reach the coordinator through a tunnel.
 - Step 3 shows only after steps 1 and 2, and not while a reading of step
   1 runs, as after a restart. Its tab sets the invite kind:
 
