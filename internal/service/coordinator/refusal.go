@@ -16,11 +16,11 @@ const refusalDomain = "coordinator.dagu"
 
 // The reasons of the refusals that a caller acts on.
 const (
-	reasonOwnCertificates   = "own_certificates"
-	reasonCAUnavailable     = "ca_unavailable"
-	reasonPeerTokenMissing  = "peer_token_missing"
-	reasonPeerTokenMismatch = "peer_token_mismatch"
-	reasonRequireTLS        = "require_tls"
+	reasonOwnCertificates  = "own_certificates"
+	reasonCAUnavailable    = "ca_unavailable"
+	reasonPeerAuthMissing  = "peer_token_missing"
+	reasonPeerAuthMismatch = "peer_token_mismatch"
+	reasonRequireTLS       = "require_tls"
 )
 
 // refusal is a coordinator's refusal of a call: its code and message.
@@ -34,8 +34,8 @@ type refusal struct {
 var refusalReasons = map[refusal]string{
 	{codes.FailedPrecondition, ownCertificatesMessage}: reasonOwnCertificates,
 	{codes.FailedPrecondition, caUnavailableMessage}:   reasonCAUnavailable,
-	{codes.Unauthenticated, peerTokenMissingMessage}:   reasonPeerTokenMissing,
-	{codes.Unauthenticated, peerTokenMismatchMessage}:  reasonPeerTokenMismatch,
+	{codes.Unauthenticated, peerTokenMissingMessage}:   reasonPeerAuthMissing,
+	{codes.Unauthenticated, peerTokenMismatchMessage}:  reasonPeerAuthMismatch,
 	{codes.Unauthenticated, requireTLSMessage}:         reasonRequireTLS,
 }
 
