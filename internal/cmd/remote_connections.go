@@ -4,7 +4,10 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"time"
@@ -55,6 +58,14 @@ func (c *remoteClient) createOAuthApp(ctx context.Context, body api.CreateOAuthA
 	return &out, nil
 }
 
+func (c *remoteClient) connections(ctx context.Context, workspace string) ([]api.Connection, error) {
+	var out api.ConnectionListResponse
+	if err := c.do(ctx, http.MethodGet, "/connections", nil, &out, workspaceQuery(workspace)); err != nil {
+		return nil, err
+	}
+	return out.Connections, nil
+}
+
 func (c *remoteClient) deleteOAuthApp(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/oauth-apps/"+url.PathEscape(id), nil, nil, nil)
 }
@@ -96,18 +107,33 @@ func (c *remoteClient) authorization(ctx context.Context, workspace, name, sessi
 	return &out, nil
 }
 
-// completeTimeout bounds a complete request, which the server may spend up
-// to 45 seconds on with the provider, within its 60-second write deadline.
-const completeTimeout = 60 * time.Second
+const (
+	// completeTimeout bounds a complete request, which the server may spend
+	// up to 45 seconds on with the provider, within its 60-second write
+	// deadline.
+	completeTimeout = 60 * time.Second
+	// toolsTimeout bounds a tools request, which waits while the server
+	// lists a stale catalog again. The server's 60-second write deadline
+	// ends the answer sooner than the listing's own two-minute bound, so a
+	// longer wait would gain nothing. The listing goes on after the
+	// request ends.
+	toolsTimeout = 60 * time.Second
+)
+
+// atLeast returns c with a client timeout of at least d, for a request
+// that the server may take longer to answer than c allows.
+func (c *remoteClient) atLeast(d time.Duration) *remoteClient {
+	slow := *c
+	if hc := *c.client; hc.Timeout != 0 && hc.Timeout < d {
+		hc.Timeout = d
+		slow.client = &hc
+	}
+	return &slow
+}
 
 func (c *remoteClient) completeAuthorization(ctx context.Context, workspace, name, redirectURL string) error {
 	body := api.CompleteConnectionAuthorizationRequest{RedirectUrl: &redirectURL}
-	slow := *c
-	if hc := *c.client; hc.Timeout < completeTimeout {
-		hc.Timeout = completeTimeout
-		slow.client = &hc
-	}
-	return slow.do(ctx, http.MethodPost, connectionPath(name, "/authorization/complete"), body, nil, workspaceQuery(workspace))
+	return c.atLeast(completeTimeout).do(ctx, http.MethodPost, connectionPath(name, "/authorization/complete"), body, nil, workspaceQuery(workspace))
 }
 
 func (c *remoteClient) confirmAuthorization(ctx context.Context, workspace, name, session string) (*api.Connection, error) {
@@ -132,11 +158,20 @@ func (c *remoteClient) testConnection(ctx context.Context, workspace, name strin
 	return out.Services, nil
 }
 
-func (c *remoteClient) connectionTools(ctx context.Context, workspace, name, server string) (*api.ConnectionToolsResponse, error) {
-	var out api.ConnectionToolsResponse
+// connectionTools returns the tools response, and its body as the server
+// sent it, whose input schemas keep their numbers exact.
+func (c *remoteClient) connectionTools(ctx context.Context, workspace, name, server string) (*api.ConnectionToolsResponse, json.RawMessage, error) {
+	var raw json.RawMessage
 	query := map[string]string{"workspace": workspace, "server": server}
-	if err := c.do(ctx, http.MethodGet, connectionPath(name, "/tools"), nil, &out, query); err != nil {
-		return nil, err
+	if err := c.atLeast(toolsTimeout).do(ctx, http.MethodGet, connectionPath(name, "/tools"), nil, &raw, query); err != nil {
+		return nil, nil, err
 	}
-	return &out, nil
+	// Numbers stay literal, since a schema bound may not fit a float64.
+	var out api.ConnectionToolsResponse
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&out); err != nil {
+		return nil, nil, fmt.Errorf("failed to decode the tools response: %w", err)
+	}
+	return &out, raw, nil
 }

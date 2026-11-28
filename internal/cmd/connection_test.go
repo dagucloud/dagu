@@ -36,13 +36,16 @@ const (
 
 // fakeConnectionAPI serves the connections REST API from canned replies
 // and records each request it gets. A reply that is an int is that error
-// status.
+// status, and a rawReply is sent as it is.
 type fakeConnectionAPI struct {
 	mu       sync.Mutex
 	requests []string
 	bodies   map[string]json.RawMessage
 	replies  map[string]any
 }
+
+// rawReply is a reply body that the fake sends byte for byte.
+type rawReply []byte
 
 func newFakeConnectionAPI(t *testing.T, replies map[string]any) (*fakeConnectionAPI, *remoteClient) {
 	t.Helper()
@@ -72,6 +75,8 @@ func (f *fakeConnectionAPI) serve(w http.ResponseWriter, r *http.Request) {
 	case int:
 		w.WriteHeader(reply)
 		_ = json.NewEncoder(w).Encode(map[string]string{"code": "error", "message": http.StatusText(reply)})
+	case rawReply:
+		_, _ = w.Write(reply)
 	default:
 		_ = json.NewEncoder(w).Encode(reply)
 	}
@@ -217,7 +222,7 @@ func TestConnectionAddPaste(t *testing.T) {
 	assert.Contains(t, printed, "Signed in as ops@example.com. Is this the right account? [Y/n]")
 	assert.Contains(t, printed, "Warning: work-google in ops already holds ops@example.com on this client.")
 	assert.Contains(t, printed, "gmail  read  ok  (2 MCP tools)")
-	assert.Contains(t, printed, "Connection work is ready.")
+	assert.Contains(t, printed, "Connection work is ready. Try: dagu connection tools work --workspace ops")
 	assert.NotContains(t, printed, fakeCode)
 	assert.NotContains(t, printed, fakeState)
 }

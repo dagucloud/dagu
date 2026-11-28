@@ -412,7 +412,11 @@ func (c *connectionCLI) report(ctx context.Context, in *signedIn, app *api.OAuth
 	if probeErr != nil {
 		return fmt.Errorf("connection %s is connected, but %w; fix them and run '%s'", name, probeErr, c.command("test", name))
 	}
-	c.term.printf("Connection %s is ready.\n", name)
+	c.term.printf("Connection %s is ready.", name)
+	if app.Agent {
+		c.term.printf(" Try: %s", c.command("tools", name))
+	}
+	c.term.printf("\n")
 	return nil
 }
 
@@ -422,7 +426,7 @@ func (c *connectionCLI) toolCounts(ctx context.Context, name string, app *api.OA
 	if !app.Agent {
 		return nil
 	}
-	resp, err := c.client.connectionTools(ctx, c.workspace, name, "")
+	resp, _, err := c.client.connectionTools(ctx, c.workspace, name, "")
 	if err != nil {
 		return nil
 	}

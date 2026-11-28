@@ -29,7 +29,7 @@ var (
 	}
 	connectionAppFlag = commandLineFlag{
 		name:  "app",
-		usage: "OAuth app to use, by ID or name",
+		usage: "OAuth app to use, by ID or name ('dagu connection apps list')",
 	}
 	connectionClientFileFlag = commandLineFlag{
 		name:  "client-file",

@@ -49,7 +49,7 @@ func Connection() *cobra.Command {
 	cmd := NewCommand(&cobra.Command{
 		Use:     "connection",
 		Aliases: []string{"connections"},
-		Short:   "Add, test, reconnect, and remove connections",
+		Short:   "Add, list, test, reconnect, and remove connections",
 		Long: `Work with connections: named OAuth sign-ins, such as a Google Workspace
 account, that a workspace's DAGs name from steps such as mcp.call.
 
@@ -61,10 +61,15 @@ a client secret, refresh token, or access token.`,
 		return ctx.Command.Help()
 	})
 
+	cmd.AddCommand(connectionProvidersCommand())
 	cmd.AddCommand(connectionAddCommand())
+	cmd.AddCommand(connectionListCommand())
+	cmd.AddCommand(connectionShowCommand())
 	cmd.AddCommand(connectionTestCommand())
 	cmd.AddCommand(connectionReconnectCommand())
 	cmd.AddCommand(connectionRemoveCommand())
+	cmd.AddCommand(connectionToolsCommand())
+	cmd.AddCommand(connectionAppsCommand())
 	return cmd
 }
 
@@ -275,10 +280,16 @@ func (c *connectionCLI) command(sub, name string) string {
 	if c.workspace != "" {
 		s += " --workspace " + c.workspace
 	}
-	if c.remoteContext != "" {
-		s += " --context " + c.remoteContext
+	return s + c.contextFlag()
+}
+
+// contextFlag returns the --context flag that selects this CLI's remote
+// context, or nothing for the local context.
+func (c *connectionCLI) contextFlag() string {
+	if c.remoteContext == "" {
+		return ""
 	}
-	return s
+	return " --context " + c.remoteContext
 }
 
 func (t *connectionTerm) printf(format string, args ...any) {
@@ -479,7 +490,7 @@ func (c *connectionCLI) findApp(ctx context.Context, ref string) (*api.OAuthApp,
 	}
 	switch len(named) {
 	case 0:
-		return nil, fmt.Errorf("no OAuth app has the ID or name %q", ref)
+		return nil, fmt.Errorf("no OAuth app has the ID or name %q; 'dagu connection apps list%s' lists them", ref, c.contextFlag())
 	case 1:
 		return &named[0], nil
 	default:
