@@ -8,12 +8,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -40,6 +42,11 @@ const (
 	// workerDataDir is the data directory of the image, where a worker keeps
 	// its certificate.
 	workerDataDir = "/var/lib/dagu"
+	// maxExpiresIn is the longest expiresIn the invite API accepts: its whole
+	// seconds, rounded up, fit the coordinator's expiry.
+	maxExpiresIn = time.Duration(math.MaxInt64/int64(time.Second)) * time.Second
+	// maxImageTag is the longest tag an image registry accepts.
+	maxImageTag = 128
 	// workerLabelRule is the rule a worker applies to its labels at start.
 	workerLabelRule = "a label is key or key=value; a key holds only letters, digits, -, _, and ., " +
 		"at most 63, and a value only those and /, at most 255, each starting with a letter or digit"
@@ -53,9 +60,10 @@ var addWorkerFields = []string{executeFieldAddress, executeFieldReusable, execut
 
 var (
 	// releaseVersion matches the version of a build from a release tag,
-	// vX.Y.Z or vX.Y.Z-<anything>, whose image the release workflow tags with
-	// the version without the leading v.
-	releaseVersion = regexp.MustCompile(`^v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?)$`)
+	// vX.Y.Z or vX.Y.Z-<anything>, whose image the release workflow tags
+	// with the version without the leading v. An image tag holds only
+	// letters, digits, _, ., and -.
+	releaseVersion = regexp.MustCompile(`^v?(\d+\.\d+\.\d+(?:-[\w.-]+)?)$`)
 	// unreleasedSuffix matches what an unreleased build adds to the last
 	// tag: git describe's commit count and hash, or a snapshot's -next.
 	unreleasedSuffix = regexp.MustCompile(`(-\d+-g[0-9a-f]+|-next)$`)
@@ -107,6 +115,11 @@ func validateAddWorkerInput(input *executeInput, provided map[string]bool) *exec
 			return executeInputError("The address field "+problem+".", executeFieldAddress)
 		}
 	}
+	if expiresIn := input.AddWorker.ExpiresIn; expiresIn != "" {
+		if d, err := time.ParseDuration(expiresIn); err != nil || d <= 0 || d > maxExpiresIn {
+			return executeInputError("The expiresIn field must be a positive duration of at most "+maxExpiresIn.String()+", such as 24h.", executeFieldExpiresIn)
+		}
+	}
 	return workerLabelsProblem(input.Labels)
 }
 
@@ -117,7 +130,9 @@ func workerLabelsProblem(labels []string) *executeToolError {
 	for i, label := range labels {
 		position := fmt.Sprintf("Worker label %d", i+1)
 		one := config.ParseWorkerLabels(label)
-		if len(one) != 1 {
+		// The parser splits at commas and keeps the last of a repeated key,
+		// so a comma would hide a label from these checks.
+		if strings.Contains(label, ",") || len(one) != 1 {
 			return executeInputError(position+" must be one key or key=value, without a comma.", executeFieldLabels)
 		}
 		accepted, err := ir.WorkerLabels(one)
@@ -129,11 +144,11 @@ func workerLabelsProblem(labels []string) *executeToolError {
 				return executeInputError(position+" sets "+key+", which a worker sets from its own host.", executeFieldLabels)
 			}
 		}
-	}
-	// The command carries the labels joined, as the worker parses them.
-	accepted, err := ir.WorkerLabels(config.ParseWorkerLabels(strings.Join(labels, ",")))
-	if err != nil || len(accepted) != len(labels) {
-		return executeInputError("Worker labels must set each key once; keys compare without case.", executeFieldLabels)
+		// The command carries the labels joined, as the worker parses them.
+		accepted, err = ir.WorkerLabels(config.ParseWorkerLabels(strings.Join(labels[:i+1], ",")))
+		if err != nil || len(accepted) != i+1 {
+			return executeInputError(position+" sets a key an earlier label sets; keys compare without case.", executeFieldLabels)
+		}
 	}
 	return nil
 }
@@ -174,7 +189,7 @@ func dialAddressProblem(addr string) string {
 // for a build that has no published image.
 func workerImage(version string) (string, bool) {
 	match := releaseVersion.FindStringSubmatch(version)
-	if match == nil || match[1] == "0.0.0" || unreleasedSuffix.MatchString(version) {
+	if match == nil || match[1] == "0.0.0" || len(match[1]) > maxImageTag || unreleasedSuffix.MatchString(version) {
 		return "", false
 	}
 	return workerImageRepository + ":" + match[1], true

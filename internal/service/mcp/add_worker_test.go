@@ -4,7 +4,6 @@
 package mcp
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"strings"
@@ -36,9 +35,12 @@ type workerAccessStub struct {
 	readiness []coordinator.JoinReadiness
 	invites   []*coordinatorv1.InviteRecord
 	created   *coordinatorv1.CreateInviteRequest
+	// readinessCalls counts the join readiness calls.
+	readinessCalls int
 }
 
 func (s *workerAccessStub) GetJoinReadiness(context.Context) ([]coordinator.JoinReadiness, error) {
+	s.readinessCalls++
 	return s.readiness, nil
 }
 
@@ -253,12 +255,10 @@ func TestAddWorkerRefused(t *testing.T) {
 		return &workerAccessStub{readiness: []coordinator.JoinReadiness{{Err: err}}}
 	}
 	tests := map[string]struct {
-		client    coordinator.Client
-		role      auth.Role
-		expiresIn string
-		code      string
-		field     string
-		message   string
+		client  coordinator.Client
+		role    auth.Role
+		code    string
+		message string
 	}{
 		"non-admin":         {client: ready(), role: auth.RoleDeveloper, code: executeErrorUnauthorized},
 		"no coordinator":    {role: auth.RoleAdmin, code: executeErrorResourceUnavailable},
@@ -267,28 +267,17 @@ func TestAddWorkerRefused(t *testing.T) {
 			client: refusing(status.Error(codes.Unauthenticated, "no peer token")), role: auth.RoleAdmin,
 			code: executeErrorResourceUnavailable, message: "the coordinator refused the server: no peer token",
 		},
-		"expiresIn not a duration": {client: ready(), role: auth.RoleAdmin, code: executeErrorInvalidToolInput, field: executeFieldExpiresIn},
-		"expiresIn too long": {
-			client: ready(), role: auth.RoleAdmin, expiresIn: "2562047h47m17s",
-			code: executeErrorInvalidToolInput, field: executeFieldExpiresIn,
-		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			svc, store := newAddWorkerService(tc.client)
-			// By default an invite is pasted into expiresIn, which reaches no
-			// audit entry.
-			expiresIn := cmp.Or(tc.expiresIn, testWorkerInvite)
 
-			result, data := addWorker(t, cloudUser(tc.role), svc, map[string]any{"address": "192.168.1.20:50055", "expiresIn": expiresIn})
+			result, data := addWorker(t, cloudUser(tc.role), svc, map[string]any{"address": "192.168.1.20:50055", "expiresIn": "24h"})
 
 			require.True(t, result.IsError, data)
 			output := structuredMap(t, result)
 			require.Equal(t, tc.code, output["code"], data)
-			if tc.field != "" {
-				require.Equal(t, tc.field, output["field"], data)
-			}
 			if tc.message != "" {
 				require.Equal(t, tc.message, output["message"], data)
 			}
@@ -298,7 +287,6 @@ func TestAddWorkerRefused(t *testing.T) {
 			require.NotEmpty(t, store.entries)
 			for _, entry := range store.entries {
 				require.Equal(t, "cloud:user-1", entry.UserID, entry.Action)
-				require.NotContains(t, entry.Details, testWorkerInvite, entry.Action)
 			}
 		})
 	}
@@ -343,6 +331,8 @@ func TestAddWorkerInputValidation(t *testing.T) {
 		"same key in two cases": {input: `{"action":"add_worker","labels":["GPU=true","gpu=false"]}`, field: executeFieldLabels},
 		"built-in key":          {input: `{"action":"add_worker","labels":["os=linux"]}`, field: executeFieldLabels},
 		"comma in a label":      {input: `{"action":"add_worker","labels":["zone=a,b"]}`, field: executeFieldLabels},
+		"key twice in a label":  {input: `{"action":"add_worker","labels":["gpu=first,gpu=second"]}`, field: executeFieldLabels},
+		"trailing comma":        {input: `{"action":"add_worker","labels":["gpu=a,"]}`, field: executeFieldLabels},
 		"space in a label":      {input: `{"action":"add_worker","labels":["team=data eng"]}`, field: executeFieldLabels},
 		"quote in a label":      {input: `{"action":"add_worker","labels":["note=it's"]}`, field: executeFieldLabels},
 		"dollar in a label":     {input: `{"action":"add_worker","labels":["leak=$(DAGU_WORKER_INVITE)"]}`, field: executeFieldLabels},
@@ -373,6 +363,36 @@ func TestAddWorkerLabels(t *testing.T) {
 	require.Equal(t, executeFieldLabels, err.Field)
 	require.Contains(t, err.Message, "label 2")
 	require.NotContains(t, err.Message, "AAAAAAAAAA")
+
+	// A repeated key is named by the label that repeats it.
+	_, err = parseExecuteToolInput(json.RawMessage(`{"action":"add_worker","labels":["zone=a","gpu=1","GPU=2"]}`))
+	require.NotNil(t, err)
+	require.Contains(t, err.Message, "label 3")
+}
+
+// An expiresIn the invite API would refuse is refused before any
+// coordinator is asked, so an invite pasted into it reaches no audit entry.
+func TestAddWorkerChecksExpiresInFirst(t *testing.T) {
+	t.Parallel()
+
+	for _, expiresIn := range []string{"soon", "-1h", "0s", "2562047h47m17s", testWorkerInvite} {
+		stub := &workerAccessStub{readiness: []coordinator.JoinReadiness{{Report: readyReport()}}}
+		svc, store := newAddWorkerService(stub)
+
+		result, data := addWorker(t, cloudUser(auth.RoleAdmin), svc, map[string]any{"address": "192.168.1.20:50055", "expiresIn": expiresIn})
+
+		require.True(t, result.IsError, expiresIn)
+		output := structuredMap(t, result)
+		require.Equal(t, executeErrorInvalidToolInput, output["code"], data)
+		require.Equal(t, executeFieldExpiresIn, output["field"], data)
+		require.Zero(t, stub.readinessCalls, expiresIn)
+		for _, entry := range store.entries {
+			require.NotContains(t, entry.Details, testWorkerInvite, entry.Action)
+		}
+	}
+	// The longest expiry the invite API accepts passes.
+	_, err := parseExecuteToolInput(json.RawMessage(`{"action":"add_worker","expiresIn":"2562047h47m16s"}`))
+	require.Nil(t, err)
 }
 
 // A release or prerelease build gets its own image tag. A build that was
@@ -388,6 +408,9 @@ func TestWorkerImage(t *testing.T) {
 		"0.0.0":                    "",
 		"v2.27.0-12-gabc":          "",
 		"2.28.0-preview-test.1":    "ghcr.io/dagucloud/dagu:2.28.0-preview-test.1",
+		"v2.28.0--preview.1":       "ghcr.io/dagucloud/dagu:2.28.0--preview.1",
+		"2.28.0-rc_1":              "ghcr.io/dagucloud/dagu:2.28.0-rc_1",
+		"2.28.0+build.1":           "",
 		"v2.28.0-rc.1-3-g1a2b3c4d": "",
 		"2.27.1-next":              "",
 	} {

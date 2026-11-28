@@ -1035,7 +1035,8 @@ and prints the message:
   is one `key` or `key=value`, a key holds only letters, digits, `-`, `_`,
   and `.`, a value only those and `/`, and each key appears once, compared
   without case. They also refuse `os` and `arch`, which a worker sets from
-  its own host. A refusal names the label by its position, not its text.
+  its own host. A label entry holds no comma. A refusal names the label by
+  its position, the later one for a repeated key, never by its text.
 - Step 3 shows only after steps 1 and 2. Its tab sets the invite kind:
 
   | Tab | Invite | Command |
@@ -1111,7 +1112,8 @@ The Workers page is the list of workers on System status.
   `reusable`, and `expiresIn`. `labels` go into the commands.
 - Without `address`, it creates no invite, as the dialog shows step 3 only
   after step 2. It refuses an `address` and `labels` as step 2 and step 3
-  do, with `invalid_tool_input`, before asking any coordinator.
+  do, and an `expiresIn` that `POST /api/v1/workers/invites` would refuse,
+  with `invalid_tool_input`, before asking any coordinator.
 - `coordinators` holds, for each coordinator, `ready`, its report or
   `error`, the `changes` of step 1 while it is not ready, and the `notes`
   that step 1 keeps even when ready. `addressOptions` holds `initial`, the value
@@ -1137,8 +1139,7 @@ The Workers page is the list of workers on System status.
 - A non-admin gets `unauthorized`. No coordinator running or reachable, or
   a coordinator that refuses the server, gives `resource_unavailable` with
   the message of [REST API](#rest-api). Only coordinators of an earlier
-  release give `conflict`. An `expiresIn` the REST API refuses gives
-  `invalid_tool_input` on `expiresIn`.
+  release give `conflict`.
 
 ### Secrets in Output
 

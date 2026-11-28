@@ -2911,8 +2911,11 @@ func (l *ConfigLoader) configureViper(configDir, configFile string) {
 
 // ParseWorkerLabels parses worker labels from a comma-separated string or a list of
 // key or key=value entries, or from a map. A key with no value or a null value
-// is a label with no value. Entries are kept as written: the worker applies the
-// label rules, so a malformed entry stops it instead of being dropped.
+// is a label with no value. From a string or a list, it trims each entry, its
+// key, and its value, skips blank entries, and keeps the last value of a key
+// given more than once. Entries are otherwise kept as written: the worker
+// applies the label rules, so a malformed entry stops it instead of being
+// dropped.
 func ParseWorkerLabels(input any) map[string]string {
 	labels := make(map[string]string)
 
