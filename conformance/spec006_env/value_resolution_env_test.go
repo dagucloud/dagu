@@ -383,6 +383,9 @@ func TestRuntime(t *testing.T) {
 				// The built-in secret store's key, in the form Dagu generates.
 				"DAGU_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 				"DAGU_SECRETS_VAULT_TOKEN=conformance-vault-token",
+				// Both spellings Dagu reads worker.invite from.
+				"DAGU_WORKER_INVITE=dagu1.conformance.invite",
+				"DAGU_WORKER.INVITE=dagu1.conformance.invite",
 				"DAGU_CONFORMANCE_SETTING=visible",
 			},
 			"start",
@@ -390,7 +393,7 @@ func TestRuntime(t *testing.T) {
 		)
 		result.ExpectExitCode(0)
 		dagu.ExpectFileContent("dagu-credentials-env.txt",
-			"DAGU_ENCRYPTION_KEY unset\nDAGU_SECRETS_VAULT_TOKEN unset\nDAGU_CONFORMANCE_SETTING=visible\nFROM_ROOT_ENV=${DAGU_SECRETS_VAULT_TOKEN}\nFROM_ENV_REF=${env.DAGU_ENCRYPTION_KEY}\n")
+			"DAGU_ENCRYPTION_KEY unset\nDAGU_SECRETS_VAULT_TOKEN unset\nDAGU_WORKER_INVITE unset\nDAGU_WORKER.INVITE unset\nDAGU_CONFORMANCE_SETTING=visible\nFROM_ROOT_ENV=${DAGU_SECRETS_VAULT_TOKEN}\nFROM_ENV_REF=${env.DAGU_ENCRYPTION_KEY}\n")
 		dagu.ExpectFileContent("dagu-credentials-expansion.txt",
 			"$DAGU_ENCRYPTION_KEY|${DAGU_SECRETS_VAULT_TOKEN}|visible\n")
 	})

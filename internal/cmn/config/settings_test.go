@@ -264,23 +264,27 @@ auth:
 	assert.Equal(t, Setting{Key: "auth.basic.password", Value: "", Source: SourceDefault}, settings["auth.basic.password"])
 }
 
-// Load reads worker.invite from DAGU_WORKER_INVITE, and config output masks
-// it as it masks peer.token (Spec 108 §Keys).
+// Load reads worker.invite from either spelling of its variable, and config
+// output masks it as it masks peer.token (Spec 108 §Keys).
 func TestSettingsMasksWorkerInvite(t *testing.T) {
 	const invite = "dagu1.pin.secret"
-	t.Setenv("DAGU_WORKER_INVITE", invite)
+	for _, name := range []string{"DAGU_WORKER_INVITE", "DAGU_WORKER.INVITE"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, invite)
 
-	loader := NewConfigLoader(viper.New(), WithAppHomeDir(t.TempDir()))
-	cfg, err := loader.Load()
-	require.NoError(t, err)
-	assert.Equal(t, invite, cfg.Worker.Invite)
-	for _, s := range loader.Settings(cfg) {
-		if s.Key == "worker.invite" {
-			assert.Equal(t, Setting{Key: "worker.invite", Value: MaskedValue, Source: "env:DAGU_WORKER_INVITE"}, s)
-			return
-		}
+			loader := NewConfigLoader(viper.New(), WithAppHomeDir(t.TempDir()))
+			cfg, err := loader.Load()
+			require.NoError(t, err)
+			assert.Equal(t, invite, cfg.Worker.Invite)
+			for _, s := range loader.Settings(cfg) {
+				if s.Key == "worker.invite" {
+					assert.Equal(t, Setting{Key: "worker.invite", Value: MaskedValue, Source: "env:" + name}, s)
+					return
+				}
+			}
+			t.Fatal("config output lists no worker.invite")
+		})
 	}
-	t.Fatal("config output lists no worker.invite")
 }
 
 func TestSettingsFormatsLists(t *testing.T) {

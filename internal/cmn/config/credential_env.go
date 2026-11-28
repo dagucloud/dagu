@@ -25,8 +25,13 @@ var credentialEnv = sync.OnceValue(func() map[string]bool {
 		names[normalizeEnvKey(prefix+name)] = true
 	}
 	for _, binding := range envBindings {
-		if binding.secret {
-			names[normalizeEnvKey(prefix+binding.env)] = true
+		if !binding.secret {
+			continue
+		}
+		// Load reads a setting from each of these, such as DAGU_PEER_TOKEN
+		// and DAGU_PEER.TOKEN.
+		for _, name := range envNames(binding.key) {
+			names[normalizeEnvKey(name)] = true
 		}
 	}
 	return names

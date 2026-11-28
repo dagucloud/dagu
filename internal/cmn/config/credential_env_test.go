@@ -28,6 +28,23 @@ func TestEverySettingThatNamesACredentialIsHiddenFromWorkflows(t *testing.T) {
 	}
 }
 
+// Load reads a secret setting from DAGU_<KEY> too, as DAGU_WORKER.INVITE
+// for worker.invite, so workflows do not get that spelling either.
+func TestEverySecretSpellingIsHiddenFromWorkflows(t *testing.T) {
+	t.Parallel()
+
+	prefix := strings.ToUpper(AppSlug) + "_"
+	for _, binding := range envBindings {
+		if !binding.secret {
+			continue
+		}
+		require.True(t, IsCredentialEnv(prefix+binding.env), binding.env)
+		require.True(t, IsCredentialEnv(prefix+strings.ToUpper(binding.key)), binding.key)
+	}
+	require.True(t, IsCredentialEnv("DAGU_WORKER_INVITE"))
+	require.True(t, IsCredentialEnv("DAGU_WORKER.INVITE"))
+}
+
 // The _file key of a credential names the file that holds it. Workflows do
 // not get that path either.
 func TestSecretFileSettingsAreHiddenFromWorkflows(t *testing.T) {

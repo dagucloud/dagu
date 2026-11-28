@@ -151,6 +151,10 @@ func TestBaseEnvWithoutCredentials(t *testing.T) {
 		"DAGU_GITSYNC_AUTH_SSH_PASSPHRASE",
 		"DAGU_ENCRYPTION_KEY",
 		"DAGU_XLSX_PASSWORD",
+		"DAGU_PEER_TOKEN",
+		"DAGU_PEER.TOKEN",
+		"DAGU_WORKER_INVITE",
+		"DAGU_WORKER.INVITE",
 	}
 	for _, name := range credentials {
 		t.Setenv(name, "credential")
