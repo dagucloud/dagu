@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"sync"
 	"time"
@@ -26,6 +27,8 @@ type RemoteProgressDisplay struct {
 	colorEnabled bool
 	isTTY        bool
 	termWidth    int
+	// out is where the display writes, stderr outside tests.
+	out io.Writer
 
 	mu                      sync.Mutex
 	completed               int
@@ -62,6 +65,7 @@ func NewRemoteProgressDisplay(dag *ir.DAG, dagRunID string) *RemoteProgressDispl
 		colorEnabled: isTTY,
 		isTTY:        isTTY,
 		termWidth:    termWidth,
+		out:          os.Stderr,
 		startTime:    time.Now(),
 		stopCh:       make(chan struct{}),
 	}
@@ -146,6 +150,24 @@ func (p *RemoteProgressDisplay) Stop() {
 	p.printFinal(status)
 }
 
+// notice prints msg on a line of its own, above the progress line on a
+// terminal.
+func (p *RemoteProgressDisplay) notice(msg string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.isTTY {
+		_, _ = fmt.Fprintf(p.out, "\r\033[K%s\n", msg)
+		// A worker update rewrites the line above the progress line, so the
+		// header follows the notice again.
+		p.printHeader()
+		if p.workerID != "" {
+			p.updateHeaderWithWorker()
+		}
+		return
+	}
+	_, _ = fmt.Fprintln(p.out, msg)
+}
+
 // SetSubRunResolver enables inline expansion of sub-run step trees in the
 // final summary.
 func (p *RemoteProgressDisplay) SetSubRunResolver(resolver output.SubRunResolver) {
@@ -203,10 +225,10 @@ func (p *RemoteProgressDisplay) printHeader() {
 	}
 
 	if p.isTTY {
-		fmt.Fprintf(os.Stderr, "▶ %s %s\n", dagName, p.gray("("+p.dagRunID+")"))
+		_, _ = fmt.Fprintf(p.out, "▶ %s %s\n", dagName, p.gray("("+p.dagRunID+")"))
 	} else {
 		// Non-TTY: just print once
-		fmt.Fprintf(os.Stderr, "Started: %s (%s)\n", dagName, p.dagRunID)
+		_, _ = fmt.Fprintf(p.out, "Started: %s (%s)\n", dagName, p.dagRunID)
 	}
 }
 
@@ -226,9 +248,9 @@ func (p *RemoteProgressDisplay) updateHeaderWithWorker() {
 
 	// ANSI: clear line, move up, clear header, print new header
 	if workerDisplay != "" {
-		fmt.Fprintf(os.Stderr, "\r\033[K\033[1A\r\033[K▶ %s %s %s\n", dagName, p.gray("("+p.dagRunID+")"), p.gray("→ "+workerDisplay))
+		_, _ = fmt.Fprintf(p.out, "\r\033[K\033[1A\r\033[K▶ %s %s %s\n", dagName, p.gray("("+p.dagRunID+")"), p.gray("→ "+workerDisplay))
 	} else {
-		fmt.Fprintf(os.Stderr, "\r\033[K\033[1A\r\033[K▶ %s %s\n", dagName, p.gray("("+p.dagRunID+")"))
+		_, _ = fmt.Fprintf(p.out, "\r\033[K\033[1A\r\033[K▶ %s %s\n", dagName, p.gray("("+p.dagRunID+")"))
 	}
 }
 
@@ -288,7 +310,7 @@ func (p *RemoteProgressDisplay) render() {
 	workerInfo := p.truncateWorkerID(remainingWidth)
 
 	// Use \r to overwrite the line, pad with spaces to clear previous content
-	fmt.Fprintf(os.Stderr, "\r%s %d%% (%d/%d steps) %s%s   ", spinner, percent, completed, p.total, p.gray(elapsed), p.gray(workerInfo))
+	_, _ = fmt.Fprintf(p.out, "\r%s %d%% (%d/%d steps) %s%s   ", spinner, percent, completed, p.total, p.gray(elapsed), p.gray(workerInfo))
 }
 
 func (p *RemoteProgressDisplay) printFinal(status *ir.DAGRunStatus) {
@@ -314,14 +336,14 @@ func (p *RemoteProgressDisplay) printFinal(status *ir.DAGRunStatus) {
 		baseText := fmt.Sprintf("%s %d%% (%d/%d steps) %s", icon, percent, completed, total, elapsed)
 		remainingWidth := termWidth - len(baseText) - 4
 		workerInfo := p.truncateWorkerID(remainingWidth)
-		fmt.Fprintf(os.Stderr, "\r%s %d%% (%d/%d steps) %s%s   \n", icon, percent, completed, total, p.gray(elapsed), p.gray(workerInfo))
+		_, _ = fmt.Fprintf(p.out, "\r%s %d%% (%d/%d steps) %s%s   \n", icon, percent, completed, total, p.gray(elapsed), p.gray(workerInfo))
 		return
 	}
 
 	if workerID != "" {
-		fmt.Fprintf(os.Stderr, "Finished: %s (%d/%d steps) [%s] worker=%s\n", statusText, completed, total, elapsed, workerID)
+		_, _ = fmt.Fprintf(p.out, "Finished: %s (%d/%d steps) [%s] worker=%s\n", statusText, completed, total, elapsed, workerID)
 	} else {
-		fmt.Fprintf(os.Stderr, "Finished: %s (%d/%d steps) [%s]\n", statusText, completed, total, elapsed)
+		_, _ = fmt.Fprintf(p.out, "Finished: %s (%d/%d steps) [%s]\n", statusText, completed, total, elapsed)
 	}
 }
 

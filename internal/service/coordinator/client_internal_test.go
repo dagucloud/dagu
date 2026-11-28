@@ -5,13 +5,21 @@ package coordinator
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 type stubServiceRegistry struct{}
@@ -127,4 +135,165 @@ func TestClientCacheUsesAdvertisedEndpointAcrossCoordinatorProcesses(t *testing.
 	require.Same(t, first, second)
 	require.Len(t, cli.clients, 1)
 	require.NoError(t, cli.Cleanup(t.Context()))
+}
+
+// interruptingRegistry finds no coordinator, and stops the attempts of the
+// call during its first lookup, as an interrupt during the first attempt does.
+type interruptingRegistry struct {
+	stubServiceRegistry
+	stop    func()
+	lookups int
+}
+
+func (r *interruptingRegistry) GetServiceMembers(context.Context, serviceregistry.ServiceName) ([]serviceregistry.HostInfo, error) {
+	r.lookups++
+	r.stop()
+	return nil, nil
+}
+
+// A dispatch whose attempts stop makes no retry once its attempt in flight
+// ends, and returns that attempt's error at once. The retry interval is an
+// hour, so a retry would hold the call.
+func TestDispatchStopsRetryingWhenAttemptsStop(t *testing.T) {
+	t.Parallel()
+
+	stop := make(chan struct{})
+	registry := &interruptingRegistry{stop: sync.OnceFunc(func() { close(stop) })}
+	cfg := DefaultConfig()
+	cfg.RetryInterval = time.Hour
+	cli := New(registry, cfg)
+
+	// The deadline only bounds a broken cutoff; the call must end before it.
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	err := cli.Dispatch(WithAttemptStop(ctx, stop), dispatch.DispatchRequest{
+		Task: &dispatch.DispatchTask{Operation: dispatch.DispatchOperationStart, Target: "deploy", DAGRunID: "run"},
+	})
+	require.ErrorContains(t, err, "no coordinators available")
+	require.NoError(t, ctx.Err(), "the call ends when its attempts stop, before its deadline")
+	require.Equal(t, 1, registry.lookups)
+}
+
+// stalledHealthClient is the health service of a coordinator that accepts a
+// check and never answers it. The check stops the call's attempts, as an
+// interrupt during the check does.
+type stalledHealthClient struct {
+	grpc_health_v1.HealthClient
+	stop func()
+}
+
+func (c stalledHealthClient) Check(ctx context.Context, _ *grpc_health_v1.HealthCheckRequest, _ ...grpc.CallOption) (*grpc_health_v1.HealthCheckResponse, error) {
+	c.stop()
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// stubMember makes cli reach member through c, whose services are stubs in
+// place of a connection.
+func stubMember(cli *clientImpl, member serviceregistry.HostInfo, c *client) {
+	c.address = coordinatorAddress(member)
+	c.link = &connLink{transport: cli.transport, address: c.address}
+	cli.clients[coordinatorMemberKey(member)] = c
+}
+
+// The health check before a dispatch changes nothing, so it ends as soon as
+// the call's attempts stop, and the call returns without a dispatch. A check
+// cut off this way says nothing about the coordinator, so it is no failure.
+func TestDispatchHealthCheckEndsWhenAttemptsStop(t *testing.T) {
+	t.Parallel()
+
+	stop := make(chan struct{})
+	member := serviceregistry.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 1}
+	cli := New(staticStateRegistry{members: []serviceregistry.HostInfo{member}}, DefaultConfig()).(*clientImpl)
+	stubMember(cli, member, &client{
+		healthClient: stalledHealthClient{stop: sync.OnceFunc(func() { close(stop) })},
+	})
+
+	// The deadline only bounds a broken cutoff; the call must end before it.
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	err := cli.Dispatch(WithAttemptStop(ctx, stop), dispatch.DispatchRequest{
+		Task: &dispatch.DispatchTask{Operation: dispatch.DispatchOperationStart, Target: "deploy", DAGRunID: "run"},
+	})
+	require.ErrorContains(t, err, "health check failed")
+	require.NoError(t, ctx.Err(), "the call ends when its attempts stop, before its deadline")
+	require.Zero(t, cli.Metrics().FailCount)
+}
+
+// passingStopHealthClient is the health service of a healthy coordinator. The
+// check stops the call's attempts, as an interrupt right after it does.
+type passingStopHealthClient struct {
+	grpc_health_v1.HealthClient
+	stop func()
+}
+
+func (c passingStopHealthClient) Check(context.Context, *grpc_health_v1.HealthCheckRequest, ...grpc.CallOption) (*grpc_health_v1.HealthCheckResponse, error) {
+	c.stop()
+	return &grpc_health_v1.HealthCheckResponse{Status: grpc_health_v1.HealthCheckResponse_SERVING}, nil
+}
+
+// dispatchCountingClient counts the Dispatch requests a coordinator receives.
+type dispatchCountingClient struct {
+	coordinatorv1.CoordinatorServiceClient
+	dispatches int
+}
+
+func (c *dispatchCountingClient) Dispatch(context.Context, *coordinatorv1.DispatchRequest, ...grpc.CallOption) (*coordinatorv1.DispatchResponse, error) {
+	c.dispatches++
+	return &coordinatorv1.DispatchResponse{}, nil
+}
+
+// No Dispatch request starts once the call's attempts stop, here right after
+// a passing health check.
+func TestDispatchSendsNothingAfterAttemptsStop(t *testing.T) {
+	t.Parallel()
+
+	stop := make(chan struct{})
+	member := serviceregistry.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 1}
+	cli := New(staticStateRegistry{members: []serviceregistry.HostInfo{member}}, DefaultConfig()).(*clientImpl)
+	server := &dispatchCountingClient{}
+	stubMember(cli, member, &client{
+		client:       server,
+		healthClient: passingStopHealthClient{stop: sync.OnceFunc(func() { close(stop) })},
+	})
+
+	err := cli.Dispatch(WithAttemptStop(t.Context(), stop), dispatch.DispatchRequest{
+		Task: &dispatch.DispatchTask{Operation: dispatch.DispatchOperationStart, Target: "deploy", DAGRunID: "run"},
+	})
+	require.ErrorIs(t, err, errAttemptsStopped)
+	require.Zero(t, server.dispatches)
+}
+
+// The upload of a dispatch's workspace admits nothing, so it ends as soon as
+// the call's attempts stop, here during the upload's health check, and the
+// call returns without a dispatch.
+func TestDispatchWorkspaceUploadEndsWhenAttemptsStop(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "input.txt"), []byte("input"), 0o600))
+	stop := make(chan struct{})
+	member := serviceregistry.HostInfo{ID: "coord-1", Host: "127.0.0.1", Port: 1}
+	cfg := DefaultConfig()
+	cfg.WorkspaceBundleDir = t.TempDir()
+	cli := New(staticStateRegistry{members: []serviceregistry.HostInfo{member}}, cfg).(*clientImpl)
+	stubMember(cli, member, &client{
+		healthClient: stalledHealthClient{stop: sync.OnceFunc(func() { close(stop) })},
+	})
+
+	// The deadline only bounds a broken cutoff; the call must end before it.
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	err := cli.Dispatch(WithAttemptStop(ctx, stop), dispatch.DispatchRequest{
+		Task: &dispatch.DispatchTask{
+			Operation:     dispatch.DispatchOperationStart,
+			Target:        "deploy",
+			DAGRunID:      "run",
+			SourceWorkDir: workDir,
+			Definition: fmt.Sprintf("name: deploy\nworking_dir: %q\nsteps:\n  - name: consume\n    run: cat input.txt\n    dependencies: input.txt\n",
+				filepath.ToSlash(workDir)),
+		},
+	})
+	require.ErrorContains(t, err, "upload DAG file dependencies")
+	require.NoError(t, ctx.Err(), "the call ends when its attempts stop, before its deadline")
 }

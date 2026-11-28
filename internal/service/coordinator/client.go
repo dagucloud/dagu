@@ -243,10 +243,13 @@ func (cli *clientImpl) Dispatch(ctx context.Context, req dispatch.DispatchReques
 	if task == nil {
 		return fmt.Errorf("dispatch task is nil")
 	}
-	if err := cli.prepareTaskWorkspace(ctx, task); err != nil {
-		if !errors.Is(err, runtimeexec.ErrDAGWorkspaceSourceUnavailable) {
-			return err
-		}
+	// Uploading the workspace admits nothing, so it ends as soon as the
+	// call's attempts stop.
+	prepareCtx, cancelPrepare := contextUntilAttemptStop(ctx)
+	err := cli.prepareTaskWorkspace(prepareCtx, task)
+	cancelPrepare()
+	if err != nil && !errors.Is(err, runtimeexec.ErrDAGWorkspaceSourceUnavailable) {
+		return err
 	}
 	protoTask, err := convert.DispatchTaskToProto(task)
 	if err != nil {
@@ -267,7 +270,7 @@ func (cli *clientImpl) Dispatch(ctx context.Context, req dispatch.DispatchReques
 
 	policy := backoff.WithJitter(basePolicy, backoff.FullJitter)
 
-	return backoff.Retry(ctx, func(ctx context.Context) error {
+	attempt := func(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -321,7 +324,71 @@ func (cli *clientImpl) Dispatch(ctx context.Context, req dispatch.DispatchReques
 
 			return nil
 		})
-	}, policy, nil)
+	}
+
+	// Once the call's attempts stop (WithAttemptStop), the attempt in flight
+	// runs on under ctx, and the call returns as soon as it ends.
+	retryCtx, cancelRetries := contextUntilAttemptStop(ctx)
+	defer cancelRetries()
+	var lastErr error
+	err = backoff.Retry(retryCtx, func(context.Context) error {
+		lastErr = attempt(ctx)
+		return lastErr
+	}, policy, func(err error) bool {
+		return !errors.Is(err, backoff.ErrPermanent) && !attemptsStopped(ctx)
+	})
+	if err != nil && ctx.Err() == nil && attemptsStopped(ctx) {
+		if lastErr != nil {
+			return lastErr
+		}
+		return errAttemptsStopped
+	}
+	return err
+}
+
+// errAttemptsStopped is the error of a call whose attempts stopped before
+// any attempt ended.
+var errAttemptsStopped = errors.New("the call stopped before it reached a coordinator")
+
+// attemptStopKey is the context key of the channel WithAttemptStop sets.
+type attemptStopKey struct{}
+
+// WithAttemptStop returns ctx for a Dispatch call that starts no new attempt,
+// retry, or fallback to another coordinator once stop is closed. An attempt
+// already in flight runs on until it ends or ctx is done.
+func WithAttemptStop(ctx context.Context, stop <-chan struct{}) context.Context {
+	return context.WithValue(ctx, attemptStopKey{}, stop)
+}
+
+// attemptsStopped reports whether the attempts of the call with ctx stopped.
+func attemptsStopped(ctx context.Context) bool {
+	stop, _ := ctx.Value(attemptStopKey{}).(<-chan struct{})
+	if stop == nil {
+		return false
+	}
+	select {
+	case <-stop:
+		return true
+	default:
+		return false
+	}
+}
+
+// contextUntilAttemptStop returns a child of ctx that is also done once the
+// attempts of the call with ctx stop.
+func contextUntilAttemptStop(ctx context.Context) (context.Context, context.CancelFunc) {
+	child, cancel := context.WithCancel(ctx)
+	stop, _ := ctx.Value(attemptStopKey{}).(<-chan struct{})
+	if stop != nil {
+		go func() {
+			select {
+			case <-stop:
+				cancel()
+			case <-child.Done():
+			}
+		}()
+	}
+	return child, cancel
 }
 
 func (cli *clientImpl) prepareTaskWorkspace(ctx context.Context, task *dispatch.DispatchTask) error {
@@ -426,6 +493,12 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []serviceregistr
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if attemptsStopped(ctx) {
+			if lastErr == nil {
+				lastErr = errAttemptsStopped
+			}
+			return lastErr
+		}
 
 		// Get or create client for this coordinator
 		client, err := cli.getOrCreateDiscoveredClient(member)
@@ -440,16 +513,31 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []serviceregistr
 			continue
 		}
 
-		// Check if the coordinator is healthy
-		if err := cli.isHealthy(ctx, client); err != nil {
+		// Check if the coordinator is healthy. The check changes nothing, so
+		// it ends as soon as the call's attempts stop.
+		healthCtx, cancelHealth := contextUntilAttemptStop(ctx)
+		err = cli.isHealthy(healthCtx, client)
+		cancelHealth()
+		if err != nil {
+			lastErr = err
+			// A check the stop cut off says nothing about the coordinator.
+			if attemptsStopped(ctx) {
+				continue
+			}
 			logger.Warn(ctx, "Failed to check coordinator health",
 				slog.String("coordinator-id", member.ID),
 				tag.Host(member.Host),
 				tag.Port(member.Port),
 				tag.Error(err))
 			cli.recordFailure(err)
-			lastErr = err
 			continue
+		}
+		// The stop can come after a passing check. No request starts after it.
+		if attemptsStopped(ctx) {
+			if lastErr == nil {
+				lastErr = errAttemptsStopped
+			}
+			return lastErr
 		}
 
 		// Create request

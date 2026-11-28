@@ -4,16 +4,19 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -239,6 +242,108 @@ func TestDispatchInterruptedCancelsRun(t *testing.T) {
 	err := dispatchToCoordinatorAndWait(ctx, &ir.DAG{Name: "deploy"}, "run", runOptions{}, client)
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, []string{"dispatched run", "cancel deploy:run"}, client.calls)
+}
+
+// stalledDispatchClient is a coordinator that takes a call while the command
+// is interrupted and never answers it.
+type stalledDispatchClient struct {
+	coordinator.Client
+	interrupt context.CancelFunc
+	calls     int
+	// cutOff, when set, is closed once the call is cut off.
+	cutOff chan struct{}
+}
+
+func (c *stalledDispatchClient) Dispatch(ctx context.Context, _ dispatch.DispatchRequest) error {
+	c.calls++
+	c.interrupt()
+	select {
+	case <-ctx.Done():
+		if c.cutOff != nil {
+			close(c.cutOff)
+		}
+		return ctx.Err()
+	case <-time.After(time.Minute):
+		// Fails the test instead of hanging it when the deadline is lost.
+		return errors.New("the interrupted dispatch was not cut off")
+	}
+}
+
+// An interrupted dispatch to a coordinator that stalls ends one timeout after
+// the interrupt, instead of waiting out the call's own timeout and retries.
+func TestDispatchThroughInterruptDeadline(t *testing.T) {
+	t.Parallel()
+
+	signalCtx, interrupt := context.WithCancel(context.Background())
+	defer interrupt()
+	client := &stalledDispatchClient{interrupt: interrupt}
+
+	noticed := 0
+	err := dispatchThroughInterrupt(signalCtx, client, dispatch.DispatchRequest{Task: &dispatch.DispatchTask{}},
+		time.Millisecond, func() { noticed++ })
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, 1, client.calls)
+	assert.Equal(t, 1, noticed, "the interrupt is shown once")
+}
+
+// The cutoff does not wait on the notice, whose write to a stalled terminal
+// can block. Here the notice blocks until the call is cut off.
+func TestDispatchThroughInterruptBlockedNotice(t *testing.T) {
+	t.Parallel()
+
+	signalCtx, interrupt := context.WithCancel(context.Background())
+	defer interrupt()
+	client := &stalledDispatchClient{interrupt: interrupt, cutOff: make(chan struct{})}
+
+	err := dispatchThroughInterrupt(signalCtx, client, dispatch.DispatchRequest{Task: &dispatch.DispatchTask{}},
+		time.Millisecond, func() { <-client.cutOff })
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+// An interrupt that arrives before the dispatch sends nothing, so no run
+// exists to wait for or cancel.
+func TestDispatchThroughInterruptBeforeCall(t *testing.T) {
+	t.Parallel()
+
+	signalCtx, interrupt := context.WithCancel(context.Background())
+	interrupt()
+	client := &stalledDispatchClient{interrupt: interrupt}
+
+	noticed := 0
+	err := dispatchThroughInterrupt(signalCtx, client, dispatch.DispatchRequest{Task: &dispatch.DispatchTask{}},
+		time.Millisecond, func() { noticed++ })
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Zero(t, client.calls, "nothing is sent")
+	assert.Zero(t, noticed, "nothing waits on the coordinator")
+}
+
+// On a terminal the logger is quiet while the progress display owns stderr,
+// so the interrupt notice goes through the display.
+func TestNoticeInterruptedOnTerminal(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	progress := NewRemoteProgressDisplay(&ir.DAG{Name: "deploy"}, "run")
+	progress.out, progress.isTTY = &out, true
+	quiet := logger.WithLogger(context.Background(), logger.NewLogger(logger.WithQuiet()))
+
+	noticeInterrupted(quiet, progress)
+	assert.Contains(t, out.String(), interruptedNotice)
+}
+
+// On a terminal a worker update rewrites the line above the progress line,
+// so the header follows the notice and the update leaves the notice in place.
+func TestRemoteProgressNoticeKeepsHeaderBelow(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	progress := NewRemoteProgressDisplay(&ir.DAG{Name: "deploy"}, "run")
+	progress.out, progress.isTTY = &out, true
+
+	progress.notice(interruptedNotice)
+	_, after, found := strings.Cut(out.String(), interruptedNotice)
+	require.True(t, found)
+	assert.Contains(t, after, "▶ deploy", "the header follows the notice")
 }
 
 func TestRestoreDAGFromStatus_SMTP(t *testing.T) {
