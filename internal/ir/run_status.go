@@ -512,8 +512,9 @@ func (st *DAGRunStatus) ErrorText() string {
 
 // ConnectionCause returns the connections that caused a failed run: the
 // connections of its failed steps, when each of them failed on a connection
-// that needs attention (Spec 107 §Run Records). It returns nil for any other
-// run, including one that failed before its first step.
+// that needs attention or ran sub-DAG runs that such connections failed
+// (Spec 107 §Run Records). It returns nil for any other run, including one
+// that failed before its first step.
 func (st *DAGRunStatus) ConnectionCause() []string {
 	if st == nil || st.Status != Failed {
 		return nil
@@ -523,11 +524,17 @@ func (st *DAGRunStatus) ConnectionCause() []string {
 		if node == nil || node.Status != NodeFailed {
 			continue
 		}
-		if node.Connection == nil || node.Connection.Failure != ConnectionNeedsAttention {
+		cause := node.ConnectionCause
+		if node.Connection != nil && node.Connection.Failure == ConnectionNeedsAttention {
+			cause = append(slices.Clone(cause), node.Connection.Name)
+		}
+		if len(cause) == 0 {
 			return nil
 		}
-		if !slices.Contains(names, node.Connection.Name) {
-			names = append(names, node.Connection.Name)
+		for _, name := range cause {
+			if !slices.Contains(names, name) {
+				names = append(names, name)
+			}
 		}
 	}
 	return names

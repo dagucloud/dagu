@@ -26,6 +26,7 @@ import (
 var _ executor.DAGExecutor = (*dagExecutor)(nil)
 var _ executor.NodeStatusDeterminer = (*dagExecutor)(nil)
 var _ executor.DeclaredOutputsProvider = (*dagExecutor)(nil)
+var _ executor.ConnectionCauseProvider = (*dagExecutor)(nil)
 
 type dagExecutor struct {
 	child     *executor.SubDAGExecutor
@@ -193,6 +194,16 @@ func (e *dagExecutor) Run(ctx context.Context) error {
 	}
 
 	return execErr
+}
+
+// ConnectionCause implements executor.ConnectionCauseProvider.
+func (e *dagExecutor) ConnectionCause() []string {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+	if e.result == nil {
+		return nil
+	}
+	return e.result.ConnectionCause
 }
 
 // DetermineNodeStatus implements NodeStatusDeterminer.

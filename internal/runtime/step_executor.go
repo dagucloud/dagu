@@ -378,6 +378,10 @@ func (e *StepExecutor) captureExecutorSideChannels(cmd executor.Executor, node *
 		node.SetSubRuns(runtimeSubRuns)
 	}
 
+	if causeProvider, ok := cmd.(executor.ConnectionCauseProvider); ok {
+		node.SetConnectionCause(causeProvider.ConnectionCause())
+	}
+
 	if toolDefProvider, ok := cmd.(executor.ToolDefinitionProvider); ok {
 		toolDefs := toolDefProvider.GetToolDefinitions()
 		node.SetToolDefinitions(toolDefs)

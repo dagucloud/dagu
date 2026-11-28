@@ -661,6 +661,16 @@ func TestDAGRunStatusConnectionCause(t *testing.T) {
 			want: []string{"work-google", "drive"},
 		},
 		{
+			// A call or parallel step takes the cause of its failed sub-DAG runs.
+			name:   "SubDAGRunCause",
+			status: ir.Failed,
+			nodes: []*ir.Node{
+				failedOn("unread", "work-google", ir.ConnectionNeedsAttention),
+				{Step: ir.Step{Name: "fetch-mail"}, Status: ir.NodeFailed, ConnectionCause: []string{"work-google", "drive"}},
+			},
+			want: []string{"work-google", "drive"},
+		},
+		{
 			name:   "OtherFailedStep",
 			status: ir.Failed,
 			nodes: []*ir.Node{

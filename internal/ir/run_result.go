@@ -80,6 +80,9 @@ type RunStatus struct {
 	FailedStep string        `json:"-"`
 	StartedAt  string        `json:"-"`
 	FinishedAt string        `json:"-"`
+	// ConnectionCause is the run's DAGRunStatus.ConnectionCause, for the
+	// parent step that ran it. It is not part of the step's output.
+	ConnectionCause []string `json:"-"`
 }
 
 // MarshalJSON implements json.Marshaler.

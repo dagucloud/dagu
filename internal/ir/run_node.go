@@ -173,6 +173,10 @@ type Node struct {
 	ModelUsage *StepModelUsage `json:"modelUsage,omitempty"`
 	// Connection is the connection the step's latest attempt used.
 	Connection *NodeConnection `json:"connection,omitempty"`
+	// ConnectionCause names the connections that caused the failure of the
+	// sub-DAG runs of the step's latest attempt, when each failed run had
+	// one, as DAGRunStatus.ConnectionCause gives it.
+	ConnectionCause []string `json:"connectionCause,omitempty"`
 	// StdoutStart and StderrStart are the sizes of Stdout and Stderr when the
 	// latest execution started, in the status of the process that ran it. A
 	// stored status does not hold them.

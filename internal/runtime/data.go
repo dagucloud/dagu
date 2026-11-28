@@ -128,6 +128,9 @@ type NodeState struct {
 	ModelUsage *ir.StepModelUsage
 	// Connection is the connection the step's latest attempt used.
 	Connection *ir.NodeConnection
+	// ConnectionCause names the connections that caused the failure of the
+	// sub-DAG runs of the step's latest attempt.
+	ConnectionCause []string
 	// ApprovalInputs stores key-value parameters provided during approval.
 	// These are available as environment variables in subsequent steps.
 	ApprovalInputs map[string]string
@@ -972,6 +975,14 @@ func (d *Data) SetConnection(conn *ir.NodeConnection) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.inner.State.Connection = conn.Clone()
+}
+
+// SetConnectionCause records the connections that caused the failure of
+// the sub-DAG runs of the step's attempt.
+func (d *Data) SetConnectionCause(names []string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.inner.State.ConnectionCause = slices.Clone(names)
 }
 
 // ModelUsage returns a detached copy of what the step's calls to models

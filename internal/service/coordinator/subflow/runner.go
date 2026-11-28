@@ -632,6 +632,7 @@ func statusToRunStatus(status *ir.DAGRunStatus, runID string) *ir.RunStatus {
 		PreconditionNotMet: preconditionNotMet(status),
 		PendingStepRetries: ir.PendingStepRetriesFromStatus(status),
 		ModelUsage:         status.ModelUsageTotal(),
+		ConnectionCause:    status.ConnectionCause(),
 		Steps:              stepProgress(status),
 		StartedAt:          status.StartedAt,
 		FinishedAt:         status.FinishedAt,

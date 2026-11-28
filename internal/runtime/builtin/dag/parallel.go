@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,6 +34,7 @@ var _ executor.ParallelExecutor = (*parallelExecutor)(nil)
 var _ executor.NodeStatusDeterminer = (*parallelExecutor)(nil)
 var _ executor.StatusDetailsProvider = (*parallelExecutor)(nil)
 var _ executor.OutputsValueProvider = (*parallelExecutor)(nil)
+var _ executor.ConnectionCauseProvider = (*parallelExecutor)(nil)
 
 type parallelExecutor struct {
 	step          ir.Step
@@ -467,6 +469,32 @@ func (e *parallelExecutor) SetStderr(out io.Writer) {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 	e.stderr = out
+}
+
+// ConnectionCause implements executor.ConnectionCauseProvider. A child run
+// without a result failed for another reason, so it leaves no cause.
+func (e *parallelExecutor) ConnectionCause() []string {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+	var names []string
+	for _, params := range e.runParamsList {
+		result, ok := e.results[params.RunID]
+		if !ok {
+			return nil
+		}
+		if result.Status.IsSuccess() || result.Status == ir.Waiting {
+			continue
+		}
+		if len(result.ConnectionCause) == 0 {
+			return nil
+		}
+		for _, name := range result.ConnectionCause {
+			if !slices.Contains(names, name) {
+				names = append(names, name)
+			}
+		}
+	}
+	return names
 }
 
 // DetermineNodeStatus implements NodeStatusDeterminer.
