@@ -50,9 +50,10 @@ Implemented so far:
   connection only for the `authorization_code` grant. A server callback
   connect confirmed at once is audited only at its start, since the
   callback has no Dagu user.
-- [CLI](#cli): `dagu connection add google`, `reconnect`, `test`, and
-  `remove`, without `--notifications`, through a remote context or this
-  host's server.
+- [CLI](#cli): `dagu connection providers`, `add google`, `list`, `show`,
+  `test`, `reconnect`, `remove`, `tools`, and `apps list` and
+  `apps remove`, without `--notifications`, through a remote context or
+  this host's server.
 - [Events](#events), recorded by the server, a local run, or the
   coordinator, whichever made the change, and written to the
   [Audit](#audit) log. Notification routes offer both types, and new

@@ -2534,11 +2534,24 @@ dagu nodes export [--inventory <name|id>]
 Add and manage connections: named OAuth sign-ins, such as a Google Workspace account, that a workspace's DAGs name from `mcp.call` (Spec 107). `connections` is an alias. Every subcommand calls the server's REST API: a remote context's server, or, with the local context, the server this host's configuration describes (`localhost` when it binds every address), which must be running; with builtin auth, the local context has no API key, so use a remote context. No command prints a client secret, refresh token, or access token.
 
 ```sh
+dagu connection providers
 dagu connection add google [<name>] --services gmail,calendar:write [--agent] [--app <id|name> | --client-file <file>] [--no-browser] [--workspace <name>]
+dagu connection list [--workspace <name>]
+dagu connection show <name> [--workspace <name>]
 dagu connection reconnect <name> [--no-browser] [--workspace <name>]
 dagu connection test <name> [--workspace <name>]
 dagu connection remove <name> [--yes/-y] [--workspace <name>]
+dagu connection tools <name> [--server <service>] [--json] [--workspace <name>]
+dagu connection apps list
+dagu connection apps remove <id|name>
 ```
+
+- `providers` — The providers the server connects, with their services, whether each has an MCP server, the APIs to enable, and setup pages; and the redirect modes the server offers, in the order they are picked, each with its client type and the redirect URI to register. `Public URL: none` means the server callback needs `server.public_url`
+- `list` — The workspace's connections: name, provider, account (`-` before a sign-in), status (`pending`, `connected`, `needs_reconnect`, or `broken`), and services as `--services` takes them
+- `show` — One connection: workspace, provider, app (its name when the caller may read apps, else its ID), status with its reason, account, services, extra scopes and bound hosts, granted scopes, last refresh, refresh token expiry, and token export. A service whose scopes were not granted names them and the `reconnect` command that grants them
+- `tools` — The MCP tools of each service, or of the one `--server` names, from the server's tool catalog, relisted when older than 10 minutes: name, `read-only` or `writes` from the tool's `readOnlyHint`, and the description's first line. `--json` prints the tools with their input schemas. Fails when a service's tools could not be listed
+- `apps list` — The OAuth apps, without secrets: ID, name, provider, client type, agent flag, status, and client ID
+- `apps remove` — Removes an app by ID or by name, which must be unique; an app that a connection uses is refused. Needs admin
 
 - `add google` — Creates the connection on an OAuth app and signs in its account. `--app` names an app an admin registered; `--client-file` registers Google's client JSON as a new app named after the connection, which needs admin. Without either, it uses the one Google app whose agent flag matches `--agent`, or asks. `--agent` is for AI agents through `mcp.call`: Google requires a separate client with its agent setting. Without a name or `--services` it asks on a terminal, and fails without one
 - Sign-in: a web client uses the mode the server picks, the server callback; a desktop client uses a listener on `127.0.0.1` when a browser opens on this host, else paste mode, where the person pastes the address the browser lands on (read without echo). `--no-browser`, and SSH, print the URL instead of opening it. Before consent it prints the redirect URI to register in the client and the client ID a Workspace admin may have to trust. It then waits, asks to confirm the account, warns about another connection of the workspace on the same account and client, and prints each service with its access and check. Ctrl-C, or a failure, at any point before the confirm cancels the session. The cancel discards the unconfirmed tokens; when it cannot reach the server, the tokens stay until a later sign-in or remove touches the session, and the CLI names the command to run. While the server is unreachable for a moment, the CLI says so once and keeps waiting until the 10-minute session ends. A new connection whose sign-in fails stays `pending`. Hints for the next command keep `--workspace` and `--context`
