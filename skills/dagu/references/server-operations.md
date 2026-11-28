@@ -46,6 +46,9 @@ Setting `DAGU_HOME` or `DAGU_DAGS_DIR` only points a local CLI at the server's f
 | Run status, history, logs | `dagu_read` (`runs`, `run`, `run_logs`) | `GET /dag-runs`, `GET /dag-runs/{name}/{id}` | `history`, `status` |
 | List or read nodes and inventories | `dagu_read` (`nodes`, `node`, `inventories`) | `GET /nodes`, `GET /nodes/{name}`, `GET /inventories` | nodes: `dagu nodes list`, `show`; inventories: `dagu nodes export` prints them with their nodes |
 | Forget an offline worker node (admin; ask first) | not supported | `DELETE /nodes/{name}` | `dagu nodes forget` |
+| Add a worker on another host (admin) | not supported | `GET /workers/join-readiness`, then `POST /workers/invites` | not supported; `dagu worker invite` runs on a host with the coordinator's peer token |
+| List or delete worker invites (admin; ask before deleting) | not supported | `GET /workers/invites`, `DELETE /workers/invites/{id}` | no |
+| Remove a worker that joined with an invite (admin; ask first) | not supported | `DELETE /workers/{workerId}/certificate?certificateId=<id>&runs=finish\|stop` | no |
 | Approve, reject, push back a waiting step | `dagu_execute` | where supported | not supported |
 | Schedule | `schedule:` via `dagu_change` | edit the DAG spec | no separate command |
 
@@ -57,10 +60,11 @@ The live MCP `tools/list` schema and the server's OpenAPI document are authorita
 - For create and update, preview, check `valid`, apply, then read the DAG back.
 - Report a run's `statusLabel` (such as `succeeded`), not the numeric `status`.
 - Pass the key to `curl` through a config file on stdin (`-K -`) so it stays out of argv and output.
+- An invite from `POST /workers/invites` appears only in that response. Hand it to the user for the worker host; never log, store, or repeat it. Take `certificateId` for a removal from `GET /workers`.
 
 ## Ask first
 
-Deleting DAGs, purging run history, editing the DAG directory by hand, or an unclear target. Otherwise proceed without asking which context to use.
+Deleting DAGs, purging run history, deleting worker invites, removing workers, editing the DAG directory by hand, or an unclear target. Otherwise proceed without asking which context to use.
 
 ## Local-only fallback
 
