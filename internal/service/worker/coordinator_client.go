@@ -32,47 +32,50 @@ func newCoordinatorClient(ctx context.Context, cfg *config.Config, clientConfig 
 	return coordinator.New(registry, clientConfig), nil
 }
 
+// memberClient is the client that Membership.Connect returns. NewWorker
+// ties the worker that uses it to the membership's handling of a removal.
+type memberClient struct {
+	coordinator.Client
+	// revoked is closed once a coordinator refused the client's
+	// certificate as revoked, on any call.
+	revoked <-chan struct{}
+	// removed returns the failure the worker then exits with.
+	removed func(context.Context) error
+}
+
 // CoordinatorClientConfig returns the configuration the worker's
 // coordinator client dials with at start, for dagu worker --check: with the
 // worker certificate it keeps, also one a coordinator refused as revoked,
-// or else with its worker.invite. It takes no lock and never enrolls.
-// localRegistry is the service registry in the worker's data directory.
-func CoordinatorClientConfig(cfg *config.Config, localRegistry serviceregistry.ServiceRegistry) (*coordinator.Config, error) {
-	clientConfig, err := withStartCredential(cfg, clientConfigOf(cfg, localRegistry))
-	if err != nil {
-		return nil, err
+// or else with its worker.invite. It refuses the settings that the start
+// refuses. removed is the failure the worker exits with at start because the
+// certificate it keeps records a refusal as revoked, and nil otherwise. It
+// takes no lock and never enrolls. localRegistry is the service registry in
+// the worker's data directory.
+func CoordinatorClientConfig(cfg *config.Config, localRegistry serviceregistry.ServiceRegistry) (clientConfig *coordinator.Config, removed error, err error) {
+	if _, err := workerLabels(cfg.Worker.Labels); err != nil {
+		return nil, nil, err
 	}
-	if err := clientConfig.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid coordinator client configuration: %w", err)
-	}
-	return clientConfig, nil
-}
-
-// withStartCredential returns clientConfig with the invite or the kept
-// worker certificate that the worker starts with, by Spec 108 §Worker Start.
-func withStartCredential(cfg *config.Config, clientConfig *coordinator.Config) (*coordinator.Config, error) {
 	invite, cred, err := startCredential(cfg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	clientConfig = clientConfigOf(cfg, localRegistry)
 	if invite != nil {
 		clientConfig = clientConfig.WithInvite(*invite)
 	}
-	if keptUseOf(cred, invite) != keptUnused {
-		clientConfig = clientConfig.WithWorkerCertificate(cred.cert, cred.ca)
+	switch keptUseOf(cred, invite) {
+	case keptRemoved:
+		// The check still dials with it, to show what coordinators answer.
+		removed = errRemoved(coordinator.ProcessEnvironment() == coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES)
+		clientConfig = clientConfig.WithWorkerCertificate(cred.cert, cred.ca, nil)
+	case keptConnect:
+		clientConfig = clientConfig.WithWorkerCertificate(cred.cert, cred.ca, nil)
+	case keptUnused:
 	}
-	return clientConfig, nil
-}
-
-// RecordedRemoval returns the failure that the worker exits with at start
-// because its data directory records a refusal of its certificate as
-// revoked, by Spec 108 §Worker Start, or nil. It takes no lock.
-func RecordedRemoval(cfg *config.Config) error {
-	invite, cred, err := startCredential(cfg)
-	if err != nil || keptUseOf(cred, invite) != keptRemoved {
-		return nil
+	if err := clientConfig.Validate(); err != nil {
+		return nil, nil, fmt.Errorf("invalid coordinator client configuration: %w", err)
 	}
-	return errRemoved(coordinator.ProcessEnvironment() == coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES)
+	return clientConfig, removed, nil
 }
 
 // startCredential returns worker.invite, nil without one, and the credential
@@ -96,7 +99,7 @@ func startCredential(cfg *config.Config) (*coordinator.Invite, *credential, erro
 	}
 	cred, err := newCredentialStore(cfg.Paths.DataDir).load()
 	if err != nil {
-		return nil, nil, errUnreadable(cfg.Paths.DataDir, err)
+		return nil, nil, errUnreadable(err)
 	}
 	return invite, cred, nil
 }

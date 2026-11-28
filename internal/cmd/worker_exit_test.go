@@ -4,8 +4,9 @@
 package cmd
 
 import (
-	"context"
+	"bytes"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,52 +14,30 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 )
 
-// fakeRemoval is a membership whose client met a refusal as revoked when
-// revoked is closed.
-type fakeRemoval struct {
-	revoked chan struct{}
-	removed int
-}
+// removedForTest is a removed worker's failure, as the worker returns it.
+var removedForTest = fmt.Errorf("%w\n  Get a new command", worker.ErrRemoved)
 
-func (f *fakeRemoval) Revoked() <-chan struct{} { return f.revoked }
-
-func (f *fakeRemoval) Removed(context.Context) error {
-	f.removed++
-	return errors.New("This worker was removed from the coordinator")
-}
-
-// A removal decides the exit however the worker ended, a signal included,
-// so it records the removal and exits with its message (Spec 108 §Removed
+// A removed worker exits with its failure as is, so the message prints
+// without a prefix, and any other end says what failed (Spec 108 §Removed
 // Worker).
-func TestWorkerExit(t *testing.T) {
+func TestWorkerEnd(t *testing.T) {
 	t.Parallel()
-	stopFailed := errors.New("failed to stop worker")
-	closed := make(chan struct{})
-	close(closed)
-	for _, tc := range []struct {
-		name        string
-		revoked     chan struct{}
-		err         error
-		wantRemoved bool
-		wantErr     error
-	}{
-		{name: "SignalAfterRemoval", revoked: closed, wantRemoved: true},
-		{name: "StopFailedAfterRemoval", revoked: closed, err: stopFailed, wantRemoved: true},
-		{name: "StartReturnedRemoved", revoked: make(chan struct{}), err: worker.ErrRemoved, wantRemoved: true},
-		{name: "Signal", revoked: make(chan struct{})},
-		{name: "StopFailed", revoked: make(chan struct{}), err: stopFailed, wantErr: stopFailed},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			membership := &fakeRemoval{revoked: tc.revoked}
-			err := workerExit(t.Context(), membership, tc.err)
-			if tc.wantRemoved {
-				assert.EqualError(t, err, "This worker was removed from the coordinator")
-				assert.Equal(t, 1, membership.removed)
-				return
-			}
-			assert.Equal(t, tc.wantErr, err)
-			assert.Zero(t, membership.removed)
-		})
-	}
+	assert.NoError(t, workerEnd(nil, "worker failed"))
+	assert.Equal(t, removedForTest, workerEnd(removedForTest, "failed to stop worker"))
+	assert.EqualError(t, workerEnd(errors.New("boom"), "worker failed"), "worker failed: boom")
+}
+
+// A removal the worker keeps a record of fails the check whatever the
+// coordinators answered, as one that has not reread the revoked set yet still
+// accepts the certificate (Spec 108 §dagu worker --check).
+func TestWorkerCheckVerdict(t *testing.T) {
+	t.Parallel()
+	var out bytes.Buffer
+	assert.Equal(t, removedForTest, workerCheckVerdict(&out, removedForTest, 0, 1, false))
+	assert.Equal(t, "This worker keeps a record that a coordinator refused its certificate as revoked, so it exits at start\n", out.String())
+
+	out.Reset()
+	assert.NoError(t, workerCheckVerdict(&out, nil, 0, 1, false))
+	assert.Equal(t, "Every coordinator passed the check\n", out.String())
+	assert.EqualError(t, workerCheckVerdict(&out, nil, 1, 2, false), "1 of 2 coordinators did not pass the check")
 }

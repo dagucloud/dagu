@@ -73,9 +73,11 @@ type Worker struct {
 	// certificate as revoked.
 	removed     chan struct{}
 	removedOnce sync.Once
-	// removalSignal, when set, is closed once the worker's client met a
-	// refusal as revoked on any call.
+	// removalSignal is closed once the worker's client met a refusal as
+	// revoked on any call, and removalExit returns the failure the worker
+	// then exits with. Both are nil for a client of no membership.
 	removalSignal <-chan struct{}
+	removalExit   func(context.Context) error
 
 	// For global PostgreSQL connection pool
 	poolManager  *sql.GlobalPoolManager
@@ -136,12 +138,6 @@ func (w *Worker) SetHealthServer(server *healthcheck.Server) {
 	w.healthServer = server
 }
 
-// SetRemovalSignal makes the worker stop as removed, as Start states, once
-// removed is closed. Call it before Start.
-func (w *Worker) SetRemovalSignal(removed <-chan struct{}) {
-	w.removalSignal = removed
-}
-
 // SetMachine makes heartbeats carry the latest sample of the worker's
 // machine. Call it before Start.
 func (w *Worker) SetMachine(machine Machine) {
@@ -157,7 +153,10 @@ func (w *Worker) SetAfterTaskAckHook(hook func(context.Context, *coordinatorv1.T
 	w.afterTaskAckHook = hook
 }
 
-// NewWorker creates a new worker instance.
+// NewWorker creates a new worker instance. With a client from
+// Membership.Connect, it stops as removed once a coordinator refuses the
+// client's certificate as revoked, and Start and Stop then return the
+// removed worker's failure, which errors.Is matches with ErrRemoved.
 func NewWorker(
 	workerID string,
 	maxActiveRuns int,
@@ -199,6 +198,10 @@ func NewWorker(
 		openCodeHost:   opencodehost.New(context.Background(), openCodeConfig),
 	}
 	w.healthServer.SetReadyFunc(w.ready.Load)
+	// A client from Membership.Connect stops the worker on its removal.
+	if member, ok := coordinatorClient.(*memberClient); ok {
+		w.removalSignal, w.removalExit = member.revoked, member.removed
+	}
 	return w
 }
 
@@ -308,16 +311,6 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 	wg.Go(func() {
 		w.cleanupAgentSessions(pollCtx)
 	})
-	if w.removalSignal != nil {
-		wg.Go(func() {
-			select {
-			case <-w.removalSignal:
-				w.markRemoved()
-			case <-internalCtx.Done():
-			}
-		})
-	}
-
 	// Wait for all goroutines to complete, then signal done
 	go func() {
 		wg.Wait()
@@ -329,16 +322,15 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 	select {
 	case <-w.stopDone:
 		// A removal that a stop overtook still ends Start as a removal.
-		select {
-		case <-w.removed:
-			return ErrRemoved
-		default:
-			return nil
+		if w.isRemoved() {
+			return w.removedError(ctx)
 		}
+		return nil
 	case <-w.removed:
+	case <-w.removalSignal:
 	}
 	w.stopRemoved(ctx)
-	return ErrRemoved
+	return w.removedError(ctx)
 }
 
 // workerLabels applies the label rules to the configured labels and adds the
@@ -490,46 +482,84 @@ func (w *Worker) Stop(ctx context.Context) error {
 		if w.stopPolling != nil {
 			w.stopPolling()
 		}
-		w.drain(ctx)
-		w.signalRunningTasks(syscall.SIGTERM)
-		if w.pollersDone != nil {
+		// A removal during the waits stops the runs at once instead.
+		if !w.drain(ctx) {
+			w.signalRunningTasks(syscall.SIGTERM)
+		}
+		if w.pollersDone != nil && !w.isRemoved() {
 			select {
 			case <-w.pollersDone:
+			case <-w.removed:
+			case <-w.removalSignal:
 			case <-ctx.Done():
 				logger.Warn(ctx, "Worker stop timed out waiting for running tasks",
 					tag.WorkerID(w.id))
 			}
 		}
-
+		if w.isRemoved() {
+			w.haltRemoved(ctx)
+			return
+		}
 		err = w.halt(ctx)
 	})
-
+	// A removal decides how the worker ends, whatever stopped it.
+	if w.isRemoved() {
+		return w.removedError(ctx)
+	}
 	return err
 }
 
 // stopRemoved stops the worker once a coordinator refused its certificate
-// as revoked. Its runs can no longer report to a coordinator, so each is
-// logged and stopped at once. The coordinator ends them as it does when a
-// worker stops sending heartbeats.
+// as revoked.
 func (w *Worker) stopRemoved(ctx context.Context) {
 	w.stopOnce.Do(func() {
 		if w.stopPolling != nil {
 			w.stopPolling()
 		}
-		w.pollersMu.Lock()
-		for _, state := range w.runningTasks {
-			if state != nil && state.task != nil {
-				logRemovedRun(ctx, state.task)
-			}
-		}
-		w.pollersMu.Unlock()
-		// A done context cancels the runs at once and bounds the waits.
-		done, cancel := context.WithCancel(context.WithoutCancel(ctx))
-		cancel()
-		if err := w.halt(done); err != nil {
-			logger.Warn(ctx, "Worker stop failed", tag.WorkerID(w.id), tag.Error(err))
-		}
+		w.haltRemoved(ctx)
 	})
+}
+
+// haltRemoved stops a removed worker. Its runs can no longer report to a
+// coordinator, so each is logged and stopped at once. The coordinator ends
+// them as it does when a worker stops sending heartbeats.
+func (w *Worker) haltRemoved(ctx context.Context) {
+	w.markRemoved()
+	w.pollersMu.Lock()
+	for _, state := range w.runningTasks {
+		if state != nil && state.task != nil {
+			logRemovedRun(ctx, state.task)
+		}
+	}
+	w.pollersMu.Unlock()
+	// A done context cancels the runs at once and bounds the waits.
+	done, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	cancel()
+	if err := w.halt(done); err != nil {
+		logger.Warn(ctx, "Worker stop failed", tag.WorkerID(w.id), tag.Error(err))
+	}
+}
+
+// isRemoved reports whether a coordinator refused the worker's certificate
+// as revoked, as the worker or its client learned.
+func (w *Worker) isRemoved() bool {
+	select {
+	case <-w.removed:
+		return true
+	case <-w.removalSignal:
+		return true
+	default:
+		return false
+	}
+}
+
+// removedError returns the failure a removed worker exits with: the
+// membership's, which handles the removal, or ErrRemoved without one.
+func (w *Worker) removedError(ctx context.Context) error {
+	if w.removalExit != nil {
+		return w.removalExit(ctx)
+	}
+	return ErrRemoved
 }
 
 // logRemovedRun logs a run that the worker stops since it was removed.
@@ -609,14 +639,15 @@ func (w *Worker) halt(ctx context.Context) error {
 }
 
 // drain waits up to signal_handling.drain_timeout, or until ctx is done, for
-// the running tasks to finish without a signal.
-func (w *Worker) drain(ctx context.Context) {
+// the running tasks to finish without a signal. It reports whether a removal
+// ended the wait.
+func (w *Worker) drain(ctx context.Context) bool {
 	if w.cfg == nil || w.cfg.SignalHandling.DrainTimeout <= 0 || w.pollersDone == nil {
-		return
+		return w.isRemoved()
 	}
 	select {
 	case <-w.pollersDone:
-		return
+		return w.isRemoved()
 	default:
 	}
 	timeout := w.cfg.SignalHandling.DrainTimeout
@@ -631,8 +662,11 @@ func (w *Worker) drain(ctx context.Context) {
 		logger.Info(ctx, "Worker tasks finished", tag.WorkerID(w.id))
 	case <-timer.C:
 		logger.Warn(ctx, "Worker tasks still running after the drain timeout", tag.WorkerID(w.id))
+	case <-w.removed:
+	case <-w.removalSignal:
 	case <-ctx.Done():
 	}
+	return w.isRemoved()
 }
 
 // liveStopContext returns ctx while it is live. Once ctx is done, it returns a
@@ -731,6 +765,12 @@ func (t *trackingHandler) Handle(ctx context.Context, task *coordinatorv1.Task) 
 
 	if task.AttemptKey != "" && owner.Host != "" {
 		cancelled, heartbeatErr := t.worker.validateClaimedTask(taskCtx, owner, runningTask)
+		if coordinator.IsWorkerRemoved(heartbeatErr) {
+			// The refusal ends the worker; the run never starts.
+			t.worker.markRemoved()
+			logRemovedRun(taskCtx, runningTask)
+			return ErrRemoved
+		}
 		if heartbeatErr != nil {
 			logger.Warn(taskCtx, "Failed to validate claimed task with owner coordinator before execution",
 				tag.WorkerID(t.worker.id),
@@ -753,12 +793,10 @@ func (t *trackingHandler) Handle(ctx context.Context, task *coordinatorv1.Task) 
 	t.worker.pollersMu.Lock()
 	// A removal stops the runs that registered before it, and no run
 	// reaches the executor after it, also one whose preflight it canceled.
-	select {
-	case <-t.worker.removed:
+	if t.worker.isRemoved() {
 		t.worker.pollersMu.Unlock()
 		logRemovedRun(taskCtx, runningTask)
 		return ErrRemoved
-	default:
 	}
 	t.worker.runningTasks[attemptKey] = &runningTaskState{
 		task:                 runningTask,

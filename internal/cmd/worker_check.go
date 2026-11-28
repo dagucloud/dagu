@@ -31,7 +31,7 @@ func isWorkerCheck(cmd *cobra.Command) bool {
 // worker.coordinators it checks the coordinators in the service registry,
 // and fails since the worker does not start without them.
 func runWorkerCheck(ctx *Context) error {
-	clientConfig, err := worker.CoordinatorClientConfig(ctx.Config, ctx.serverStores.ServiceRegistry)
+	clientConfig, removed, err := worker.CoordinatorClientConfig(ctx.Config, ctx.serverStores.ServiceRegistry)
 	if err != nil {
 		return err
 	}
@@ -55,19 +55,26 @@ func runWorkerCheck(ctx *Context) error {
 			failed++
 		}
 	}
-	// The worker exits at start on a recorded removal, whatever a
-	// coordinator that has not reread the revoked set yet answers.
-	if err := worker.RecordedRemoval(ctx.Config); err != nil {
-		_, _ = fmt.Fprintln(out, "This worker's data directory records that a coordinator refused its certificate as revoked, so the worker exits at start")
-		return err
-	}
+	return workerCheckVerdict(out, removed, failed, len(members), len(ctx.Config.Worker.Coordinators) == 0)
+}
+
+// workerCheckVerdict returns how the check ends after failed of total
+// coordinators did not pass. removed is the failure the worker exits with at
+// start on a recorded removal, which decides whatever the coordinators
+// answered, since one that has not reread the revoked set yet still accepts
+// the certificate. fromRegistry reports coordinators taken from the service
+// registry, without worker.coordinators.
+func workerCheckVerdict(out io.Writer, removed error, failed, total int, fromRegistry bool) error {
 	switch {
-	case len(ctx.Config.Worker.Coordinators) == 0 && failed == len(members):
+	case removed != nil:
+		_, _ = fmt.Fprintln(out, "This worker keeps a record that a coordinator refused its certificate as revoked, so it exits at start")
+		return removed
+	case fromRegistry && failed == total:
 		return fmt.Errorf("%w, and no coordinator in the service registry passed the check", worker.ErrNoCoordinators)
-	case len(ctx.Config.Worker.Coordinators) == 0:
+	case fromRegistry:
 		return fmt.Errorf("%w: set it to the address of a coordinator above that passed", worker.ErrNoCoordinators)
 	case failed > 0:
-		return fmt.Errorf("%d of %d coordinators did not pass the check", failed, len(members))
+		return fmt.Errorf("%d of %d coordinators did not pass the check", failed, total)
 	}
 	_, _ = fmt.Fprintln(out, "Every coordinator passed the check")
 	return nil

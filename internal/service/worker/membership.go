@@ -110,10 +110,20 @@ func errOtherDaguJoined(address string) failure {
 	}
 }
 
+// removedFailure is the failure of a removed worker, which errors.Is
+// matches with ErrRemoved.
+type removedFailure struct {
+	failure
+}
+
+func (removedFailure) Is(target error) bool {
+	return target == ErrRemoved
+}
+
 // errRemoved is the failure of a worker whose certificate a coordinator
 // refused as revoked. In Kubernetes the pod restarts the worker, which
 // exits again, until its Deployment is scaled down.
-func errRemoved(kubernetes bool) failure {
+func errRemoved(kubernetes bool) removedFailure {
 	f := failure{
 		cause: "This worker was removed from the coordinator",
 		next:  `Get a new command from "Add worker" to add it again.`,
@@ -121,7 +131,7 @@ func errRemoved(kubernetes bool) failure {
 	if kubernetes {
 		f.next = `Scale its Deployment down to stop it, or get a new command from "Add worker" to add it again.`
 	}
-	return f
+	return removedFailure{f}
 }
 
 // terminationLogPath is where Kubernetes reads a container's termination
@@ -233,7 +243,7 @@ func (m *Membership) open(ctx context.Context) error {
 	m.config = m.config.WithInvite(invite)
 	kept, err := m.store.kept()
 	if err != nil {
-		return errUnreadable(m.cfg.Paths.DataDir, err)
+		return errUnreadable(err)
 	}
 	if !kept && !m.store.writable() {
 		// Nothing is kept to share, so the worker enrolls with a key in
@@ -246,7 +256,7 @@ func (m *Membership) open(ctx context.Context) error {
 	m.writable = m.store.writable()
 	cred, err := m.store.load()
 	if err != nil {
-		return errUnreadable(m.cfg.Paths.DataDir, err)
+		return errUnreadable(err)
 	}
 	return m.start(ctx, cred)
 }
@@ -323,7 +333,7 @@ func (m *Membership) openWithoutInvite(ctx context.Context) error {
 	}
 	kept, err := m.store.kept()
 	if err != nil {
-		return errUnreadable(m.cfg.Paths.DataDir, err)
+		return errUnreadable(err)
 	}
 	if !kept {
 		return nil
@@ -333,7 +343,7 @@ func (m *Membership) openWithoutInvite(ctx context.Context) error {
 	}
 	cred, err := m.store.load()
 	if err != nil {
-		return errUnreadable(m.cfg.Paths.DataDir, err)
+		return errUnreadable(err)
 	}
 	return m.start(ctx, cred)
 }
@@ -366,12 +376,12 @@ func usesKeptCertificate(peer config.Peer) bool {
 	return !insecure && !ownTLS
 }
 
-// errUnreadable is the failure of a kept credential in dataDir that cannot
-// be read. The worker stops rather than call without it.
-func errUnreadable(dataDir string, err error) error {
+// errUnreadable is the failure of a kept credential that cannot be read.
+// The worker stops rather than call without it.
+func errUnreadable(err error) error {
 	return failure{
-		cause: "This worker cannot read the certificate it enrolled for: " + reason(err),
-		next:  fmt.Sprintf("Let this user read %s, or start the worker with a new data directory and a new invite.", dataDir),
+		cause: "This worker cannot read the certificate it keeps: " + reason(err),
+		next:  "Let this user read the data directory, or start the worker with a new data directory and a new invite.",
 	}
 }
 
@@ -393,7 +403,7 @@ func reason(err error) string {
 // use makes the worker's client present cred.
 func (m *Membership) use(cred *credential) {
 	m.cred = cred
-	m.config = m.config.WithWorkerCertificate(cred.cert, cred.ca)
+	m.config = m.config.WithWorkerCertificate(cred.cert, cred.ca, nil)
 }
 
 // StartTransport returns the transport the worker starts with and what
@@ -422,26 +432,43 @@ func (m *Membership) Connect(ctx context.Context, workerID string) (coordinator.
 			return nil, err
 		}
 	}
-	clientConfig := *m.config
-	clientConfig.OnWorkerRemoved = func() { m.revoke(ctx) }
-	return newCoordinatorClient(ctx, m.cfg, &clientConfig)
+	clientConfig := m.config
+	if m.cred != nil {
+		// Only the client the worker runs with reports a removal, not
+		// the confirmation above.
+		clientConfig = m.config.WithWorkerCertificate(m.cred.cert, m.cred.ca, func() { m.revoke(ctx) })
+	}
+	client, err := newCoordinatorClient(ctx, m.cfg, clientConfig)
+	if err != nil {
+		return nil, err
+	}
+	// The worker that runs with the client stops on its removal.
+	return &memberClient{Client: client, revoked: m.revoked, removed: m.removed}, nil
 }
 
-// Revoked is closed once a coordinator refused the certificate of the
-// client that Connect returned as revoked, on any call. By then the refusal
-// is recorded as Removed records it, so a worker that is stopped or killed
-// after it still exits at its next start.
-func (m *Membership) Revoked() <-chan struct{} {
-	return m.revoked
-}
-
-// revoke records a refusal as revoked once, then closes revoked.
+// revoke handles a refusal of the worker's certificate as revoked once: it
+// records the refusal and writes the termination message before it closes
+// revoked, so a worker that a signal or a kill ends right after it still
+// exits at its next start.
 func (m *Membership) revoke(ctx context.Context) {
 	m.revokedOnce.Do(func() {
 		m.recordRemoval(ctx)
 		_ = m.removedFailure(ctx)
 		close(m.revoked)
 	})
+}
+
+// removed returns the failure a worker exits with once a coordinator refused
+// its certificate as revoked, with the message of Spec 108 §Messages, after
+// revoke has handled the refusal.
+func (m *Membership) removed(ctx context.Context) error {
+	m.revoke(ctx)
+	return errRemoved(m.kubernetes())
+}
+
+// kubernetes reports whether the worker runs in Kubernetes.
+func (m *Membership) kubernetes() bool {
+	return m.opts.environment() == coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES
 }
 
 func (m *Membership) enroll(ctx context.Context, workerID string) error {
@@ -579,10 +606,17 @@ func (m *Membership) confirm(ctx context.Context) error {
 		switch {
 		case err == nil:
 			return nil
+		case coordinator.IsWorkerRemoved(err):
+			// Before the context: a refusal that arrives with a signal is
+			// still recorded.
+			return m.removedAtStart(ctx)
 		case ctx.Err() != nil:
 			return ctx.Err()
-		case coordinator.IsWorkerRemoved(err):
-			return m.removedAtStart(ctx)
+		case answered(err):
+			// The coordinator accepted the handshake with the certificate
+			// and did not refuse it, so it is of this Dagu.
+			logger.Debug(ctx, "Worker certificate confirmed with an error", tag.Addr(address), tag.Error(err))
+			return nil
 		case errors.Is(err, coordinator.ErrOtherDagu):
 			if otherDagu == "" {
 				otherDagu = address
@@ -615,16 +649,6 @@ func (m *Membership) removedAtStart(ctx context.Context) error {
 	return nil
 }
 
-// Removed returns the failure a worker exits with once a coordinator refused
-// its certificate as revoked, with the message of Spec 108 §Messages. It
-// records the refusal with the kept certificate, so later starts exit with
-// the same failure without calling a coordinator. In Kubernetes, it also
-// writes the message to the container's termination message.
-func (m *Membership) Removed(ctx context.Context) error {
-	m.revoke(ctx)
-	return m.removedFailure(ctx)
-}
-
 // recordRemoval marks the worker's certificate as refused as revoked, and
 // keeps the mark with the certificate when the worker keeps one.
 func (m *Membership) recordRemoval(ctx context.Context) {
@@ -646,7 +670,7 @@ func (m *Membership) recordRemoval(ctx context.Context) {
 // also the container's termination message, which kubectl describe pod
 // shows.
 func (m *Membership) removedFailure(ctx context.Context) error {
-	kubernetes := m.opts.environment() == coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES
+	kubernetes := m.kubernetes()
 	f := errRemoved(kubernetes)
 	if kubernetes {
 		writeTerminationMessage(ctx, m.opts.terminationLog, f.logLine())
