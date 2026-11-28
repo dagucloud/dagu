@@ -21,6 +21,7 @@ import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import {
   addressProblem,
+  coordinatorEnvironment,
   initialAddress,
   joinAddress,
   suggestedHosts,
@@ -127,7 +128,8 @@ function AddWorkerDialog({
 
   const data = readiness.state === 'loaded' ? readiness.data : undefined;
   const ready = data ? allReady(data.coordinators) : false;
-  const problem = address ? addressProblem(address) : undefined;
+  const environment = data ? coordinatorEnvironment(data) : undefined;
+  const problem = address ? addressProblem(address, environment) : undefined;
   const validAddress =
     ready && address && !problem ? joinAddress(address) : undefined;
 
@@ -205,8 +207,7 @@ function AddressFields({
   onChange: (address: WorkerAddress) => void;
 }) {
   const { ts } = useI18n();
-  const environment = data.coordinators.find((c) => c.report)?.report
-    ?.environment;
+  const environment = coordinatorEnvironment(data);
   const hosts = suggestedHosts(data);
   let hint: string | undefined;
   if (environment === HostEnvironment.container) {

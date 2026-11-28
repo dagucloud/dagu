@@ -6,6 +6,12 @@ import { defineMessages } from '@/features/workflow-workspace/messages/define';
 /** The static messages of the Add worker dialog. */
 export const addWorkerMessages = defineMessages({
   en: {
+    '{host} is a bare host name, such as a machine name or a container ID, that other machines may not resolve. Enter an IP address or a full DNS name.':
+      '{host} is a bare host name, such as a machine name or a container ID, that other machines may not resolve. Enter an IP address or a full DNS name.',
+    "{host} is the container's own address, which other machines cannot reach. Enter the address of the machine that runs the container.":
+      "{host} is the container's own address, which other machines cannot reach. Enter the address of the machine that runs the container.",
+    '{host} is a link-local address that other networks cannot reach. Enter another address of the machine.':
+      '{host} is a link-local address that other networks cannot reach. Enter another address of the machine.',
     'IP address or DNS name': 'IP address or DNS name',
     'Add worker': 'Add worker',
     'Run a worker on another machine. It joins this Dagu with an invite.':
@@ -76,6 +82,12 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Shown after steps 1 and 2',
   },
   'zh-CN': {
+    '{host} is a bare host name, such as a machine name or a container ID, that other machines may not resolve. Enter an IP address or a full DNS name.':
+      '{host} 是不完整的主机名（例如机器名或容器 ID），其他机器可能无法解析。请输入 IP 地址或完整的 DNS 名称。',
+    "{host} is the container's own address, which other machines cannot reach. Enter the address of the machine that runs the container.":
+      '{host} 是容器自身的地址，其他机器无法访问。请输入运行该容器的机器的地址。',
+    '{host} is a link-local address that other networks cannot reach. Enter another address of the machine.':
+      '{host} 是链路本地地址，其他网络无法访问。请输入该机器的其他地址。',
     'IP address or DNS name': 'IP 地址或 DNS 名称',
     'Add worker': '添加 Worker',
     'Run a worker on another machine. It joins this Dagu with an invite.':
@@ -142,6 +154,12 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': '完成步骤 1 和 2 后显示',
   },
   ja: {
+    '{host} is a bare host name, such as a machine name or a container ID, that other machines may not resolve. Enter an IP address or a full DNS name.':
+      '{host} はマシン名やコンテナ ID のような単独のホスト名で、他のマシンでは名前解決できないことがあります。IP アドレスか完全な DNS 名を入力してください。',
+    "{host} is the container's own address, which other machines cannot reach. Enter the address of the machine that runs the container.":
+      '{host} はコンテナ自身のアドレスで、他のマシンからは届きません。コンテナを実行しているマシンのアドレスを入力してください。',
+    '{host} is a link-local address that other networks cannot reach. Enter another address of the machine.':
+      '{host} はリンクローカルアドレスで、他のネットワークからは届きません。マシンの別のアドレスを入力してください。',
     'IP address or DNS name': 'IP アドレスまたは DNS 名',
     'Add worker': 'ワーカーを追加',
     'Run a worker on another machine. It joins this Dagu with an invite.':
@@ -213,6 +231,12 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'ステップ 1 と 2 の後に表示',
   },
   de: {
+    '{host} is a bare host name, such as a machine name or a container ID, that other machines may not resolve. Enter an IP address or a full DNS name.':
+      '{host} ist ein bloßer Hostname, etwa ein Rechnername oder eine Container-ID, den andere Rechner womöglich nicht auflösen. Geben Sie eine IP-Adresse oder einen vollständigen DNS-Namen ein.',
+    "{host} is the container's own address, which other machines cannot reach. Enter the address of the machine that runs the container.":
+      '{host} ist die eigene Adresse des Containers, die andere Rechner nicht erreichen. Geben Sie die Adresse des Rechners ein, auf dem der Container läuft.',
+    '{host} is a link-local address that other networks cannot reach. Enter another address of the machine.':
+      '{host} ist eine Link-Local-Adresse, die andere Netze nicht erreichen. Geben Sie eine andere Adresse des Rechners ein.',
     'IP address or DNS name': 'IP-Adresse oder DNS-Name',
     'Add worker': 'Worker hinzufügen',
     'Run a worker on another machine. It joins this Dagu with an invite.':
@@ -285,6 +309,12 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Erscheint nach Schritt 1 und 2',
   },
   fr: {
+    '{host} is a bare host name, such as a machine name or a container ID, that other machines may not resolve. Enter an IP address or a full DNS name.':
+      '{host} est un nom d’hôte seul, comme un nom de machine ou un ID de conteneur, que les autres machines risquent de ne pas résoudre. Saisissez une adresse IP ou un nom DNS complet.',
+    "{host} is the container's own address, which other machines cannot reach. Enter the address of the machine that runs the container.":
+      '{host} est l’adresse propre du conteneur, que les autres machines ne peuvent pas joindre. Saisissez l’adresse de la machine qui exécute le conteneur.',
+    '{host} is a link-local address that other networks cannot reach. Enter another address of the machine.':
+      '{host} est une adresse lien-local que les autres réseaux ne peuvent pas joindre. Saisissez une autre adresse de la machine.',
     'IP address or DNS name': 'Adresse IP ou nom DNS',
     'Add worker': 'Ajouter un worker',
     'Run a worker on another machine. It joins this Dagu with an invite.':

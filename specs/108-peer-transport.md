@@ -1281,8 +1281,11 @@ and prints the message:
 - The port sits beside the address and starts with the port of
   `lastInviteAddress`, else the reported `port`, since a published port or a
   `NodePort` can differ from it. The address is a host name or an IP
-  address. The dialog refuses `localhost`, a loopback address, `0.0.0.0`,
-  `[::]`, a scheme or path, and a port outside 1 to 65535.
+  address. The dialog refuses `localhost`, a loopback address, a wildcard
+  address such as `0.0.0.0` or `[::]` with or without a port, a link-local
+  address, a host name without a dot such as a machine name or a container
+  ID, an address in `172.17.0.0/16` when the coordinator runs in a
+  container, a scheme or path, and a port outside 1 to 65535.
 - Step 3 shows only after steps 1 and 2. Its tab sets the invite kind:
 
   | Tab | Invite | Command |

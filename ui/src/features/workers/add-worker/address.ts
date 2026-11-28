@@ -60,6 +60,13 @@ export function initialAddress(readiness: JoinReadiness): WorkerAddress {
   return { host: advertise ? splitAddress(advertise).host : '', port };
 }
 
+/** Where the first coordinator that reported runs. */
+export function coordinatorEnvironment(
+  readiness: JoinReadiness
+): HostEnvironment | undefined {
+  return readiness.coordinators.find((c) => c.report)?.report?.environment;
+}
+
 /**
  * The hosts step 2 suggests: the interface addresses each coordinator on a
  * host reports. A container or a pod reports none, since its own addresses
@@ -74,9 +81,47 @@ export function suggestedHosts(readiness: JoinReadiness): string[] {
   return [...new Set(hosts)];
 }
 
-/** What is wrong with the address fields, or undefined when they are usable. */
+// "host:port" typed into the host field, bracketed or not.
+const HOST_WITH_PORT = /^(?:\[([^\]]+)\]|([^:[\]]+)):(\d*)$/;
+const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
+// Docker's default bridge: a container's own address there is unreachable
+// from other machines.
+const DOCKER_BRIDGE = /^172\.17\./;
+
+function hostProblem(
+  host: string,
+  environment?: HostEnvironment
+): string | undefined {
+  const lower = host.toLowerCase();
+  const ip = lower.includes(':') || IPV4.test(lower);
+  if (lower.includes(':') ? !IPV6.test(lower) : !DNS_NAME.test(lower)) {
+    return '{host} is not a host name or IP address.';
+  }
+  if (lower === 'localhost' || /^127\./.test(lower) || lower === '::1') {
+    return '{host} reaches only the machine it runs on. Enter an address that workers on other hosts can reach.';
+  }
+  if (lower === '0.0.0.0' || /^[0:]+$/.test(lower)) {
+    return '{host} is a listen address. Enter an address that workers can dial.';
+  }
+  if (/^169\.254\./.test(lower) || /^fe80:/.test(lower)) {
+    return '{host} is a link-local address that other networks cannot reach. Enter another address of the machine.';
+  }
+  if (environment === HostEnvironment.container && DOCKER_BRIDGE.test(lower)) {
+    return "{host} is the container's own address, which other machines cannot reach. Enter the address of the machine that runs the container.";
+  }
+  if (!ip && !lower.includes('.')) {
+    return '{host} is a bare host name, such as a machine name or a container ID, that other machines may not resolve. Enter an IP address or a full DNS name.';
+  }
+  return undefined;
+}
+
+/**
+ * What is wrong with the address fields, or undefined when a worker on
+ * another machine can dial them. `environment` is the coordinator's.
+ */
 export function addressProblem(
-  address: WorkerAddress
+  address: WorkerAddress,
+  environment?: HostEnvironment
 ): AddressProblem | undefined {
   const raw = address.host.trim();
   if (raw === '') {
@@ -87,29 +132,13 @@ export function addressProblem(
       text: 'Enter a host name or IP address only, without a scheme or path.',
     };
   }
-  const host = raw.replace(/^\[(.*)\]$/, '$1');
-  if (host.includes(':') && host === raw && host.split(':').length === 2) {
-    return { text: 'Enter the port in the Port field.' };
-  }
-  if (host.includes(':') ? !IPV6.test(host) : !DNS_NAME.test(host)) {
-    return {
-      text: '{host} is not a host name or IP address.',
-      values: { host: raw },
-    };
-  }
-  const lower = host.toLowerCase();
-  if (lower === 'localhost' || /^127\./.test(lower) || lower === '::1') {
-    return {
-      text: '{host} reaches only the machine it runs on. Enter an address that workers on other hosts can reach.',
-      values: { host: raw },
-    };
-  }
-  if (lower === '0.0.0.0' || lower === '::') {
-    return {
-      text: '{host} is a listen address. Enter an address that workers can dial.',
-      values: { host: raw },
-    };
-  }
+  const withPort = HOST_WITH_PORT.exec(raw);
+  const host = withPort
+    ? (withPort[1] ?? withPort[2] ?? '')
+    : raw.replace(/^\[(.*)\]$/, '$1');
+  const problem = hostProblem(host, environment);
+  if (problem) return { text: problem, values: { host } };
+  if (withPort) return { text: 'Enter the port in the Port field.' };
   const port = address.port.trim();
   if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
     return { text: 'Enter a port from 1 to 65535.' };
