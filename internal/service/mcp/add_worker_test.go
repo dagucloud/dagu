@@ -4,11 +4,16 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/goccy/go-yaml"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -18,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
@@ -114,6 +120,16 @@ func addWorker(t *testing.T, ctx context.Context, svc *Service, args map[string]
 	return result, string(data)
 }
 
+// inputError returns the refusal of raw as dagu_execute input, by the parser
+// or, for add_worker, by its input check, or nil.
+func inputError(raw string) *executeToolError {
+	input, err := parseExecuteToolInput(json.RawMessage(raw))
+	if err != nil || input.Action != executeActionAddWorker {
+		return err
+	}
+	return checkAddWorkerInput(input)
+}
+
 // A coordinator on loopback, or one of an earlier release beside a ready
 // one, gets what to change, and no invite is created even with an address.
 func TestAddWorkerNotReady(t *testing.T) {
@@ -169,6 +185,7 @@ func TestAddWorkerNotReady(t *testing.T) {
 				require.Equal(t, []string{tc.want}, last["changes"])
 			} else {
 				require.Equal(t, tc.want, last["error"])
+				require.Equal(t, daguapi.WorkerAccessReasonOlderCoordinator, last["errorReason"])
 			}
 			require.Nil(t, stub.created)
 			require.NotContains(t, data, testWorkerInvite)
@@ -258,14 +275,18 @@ func TestAddWorkerRefused(t *testing.T) {
 		client  coordinator.Client
 		role    auth.Role
 		code    string
+		reason  string
 		message string
 	}{
-		"non-admin":         {client: ready(), role: auth.RoleDeveloper, code: executeErrorUnauthorized},
-		"no coordinator":    {role: auth.RoleAdmin, code: executeErrorResourceUnavailable},
-		"older coordinator": {client: refusing(status.Error(codes.Unimplemented, "unknown method")), role: auth.RoleAdmin, code: executeErrorConflict},
+		"non-admin":      {client: ready(), role: auth.RoleDeveloper, code: executeErrorUnauthorized},
+		"no coordinator": {role: auth.RoleAdmin, code: executeErrorResourceUnavailable, reason: "no_coordinator"},
+		"older coordinator": {
+			client: refusing(status.Error(codes.Unimplemented, "unknown method")), role: auth.RoleAdmin,
+			code: executeErrorConflict, reason: "older_coordinator",
+		},
 		"coordinator refuses the server": {
 			client: refusing(status.Error(codes.Unauthenticated, "no peer token")), role: auth.RoleAdmin,
-			code: executeErrorResourceUnavailable, message: "the coordinator refused the server: no peer token",
+			code: executeErrorResourceUnavailable, reason: "coordinator_refused", message: "the coordinator refused the server: no peer token",
 		},
 	}
 	for name, tc := range tests {
@@ -278,6 +299,11 @@ func TestAddWorkerRefused(t *testing.T) {
 			require.True(t, result.IsError, data)
 			output := structuredMap(t, result)
 			require.Equal(t, tc.code, output["code"], data)
+			if tc.reason == "" {
+				require.NotContains(t, output, "reason")
+			} else {
+				require.Equal(t, tc.reason, output["reason"], data)
+			}
 			if tc.message != "" {
 				require.Equal(t, tc.message, output["message"], data)
 			}
@@ -290,6 +316,82 @@ func TestAddWorkerRefused(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A non-admin is refused before its input is checked, and an admin's
+// refused input is in the audit log.
+func TestAddWorkerChecksAccessFirst(t *testing.T) {
+	t.Parallel()
+
+	stub := &workerAccessStub{readiness: []coordinator.JoinReadiness{{Report: readyReport()}}}
+	svc, store := newAddWorkerService(stub)
+
+	result, data := addWorker(t, cloudUser(auth.RoleDeveloper), svc, map[string]any{"address": "0.0.0.0:50055"})
+	require.True(t, result.IsError, data)
+	require.Equal(t, executeErrorUnauthorized, structuredMap(t, result)["code"], data)
+
+	store.entries = nil
+	result, data = addWorker(t, cloudUser(auth.RoleAdmin), svc, map[string]any{"address": "0.0.0.0:50055"})
+	require.True(t, result.IsError, data)
+	require.Equal(t, executeErrorInvalidToolInput, structuredMap(t, result)["code"], data)
+	actions := make([]string, 0, len(store.entries))
+	for _, entry := range store.entries {
+		actions = append(actions, entry.Action)
+	}
+	require.Contains(t, actions, "mcp.tool_call.failed")
+	require.Zero(t, stub.readinessCalls)
+}
+
+// An invite pasted into any field is refused, and no audit entry or log
+// line holds it.
+func TestAddWorkerKeepsPastedInvitesOut(t *testing.T) {
+	t.Parallel()
+
+	for field, value := range map[string]any{
+		executeFieldAddress:   testWorkerInvite + ":50055",
+		executeFieldLabels:    []string{"note=" + testWorkerInvite},
+		executeFieldExpiresIn: testWorkerInvite,
+		executeFieldName:      testWorkerInvite,
+	} {
+		stub := &workerAccessStub{readiness: []coordinator.JoinReadiness{{Report: readyReport()}}}
+		svc, store := newAddWorkerService(stub)
+		var logs bytes.Buffer
+		ctx := logger.WithLogger(cloudUser(auth.RoleAdmin), logger.NewLogger(logger.WithDebug(), logger.WithWriter(&logs)))
+
+		args := map[string]any{executeFieldAddress: "192.168.1.20:50055", field: value}
+		result, data := addWorker(t, ctx, svc, args)
+
+		require.True(t, result.IsError, field)
+		output := structuredMap(t, result)
+		require.Equal(t, executeErrorInvalidToolInput, output["code"], data)
+		require.NotContains(t, data, testWorkerInvite, field)
+		require.Nil(t, stub.created, field)
+		for _, entry := range store.entries {
+			require.NotContains(t, entry.Details, testWorkerInvite, field)
+		}
+		require.NotContains(t, logs.String(), testWorkerInvite, field)
+	}
+}
+
+// The address to start from and the suggestions pass the address rule, so
+// the next call does not refuse them.
+func TestAddWorkerAddressOptions(t *testing.T) {
+	t.Parallel()
+
+	report := readyReport()
+	report.Advertise = "10.0.0.5"
+	report.Addresses = []string{"192.168.1.20", "169.254.10.20"}
+	stub := &workerAccessStub{
+		readiness: []coordinator.JoinReadiness{{Report: report}},
+		// An invite made through the REST API for a tunnel.
+		invites: []*coordinatorv1.InviteRecord{{Id: "invite-0", Address: "127.0.0.1:50055"}},
+	}
+	svc, _ := newAddWorkerService(stub)
+
+	result, data := addWorker(t, cloudUser(auth.RoleAdmin), svc, map[string]any{})
+
+	require.False(t, result.IsError, data)
+	require.Equal(t, map[string]any{"initial": "10.0.0.5:50055", "suggestions": []string{"192.168.1.20:50055"}}, structuredMap(t, result)["addressOptions"])
 }
 
 // An address a worker on another host cannot dial is refused before any
@@ -341,7 +443,7 @@ func TestAddWorkerInputValidation(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			_, err := parseExecuteToolInput(json.RawMessage(tc.input))
+			err := inputError(tc.input)
 			require.NotNil(t, err)
 			require.Equal(t, executeErrorInvalidToolInput, err.Code)
 			require.Equal(t, tc.field, err.Field)
@@ -355,17 +457,16 @@ func TestAddWorkerInputValidation(t *testing.T) {
 func TestAddWorkerLabels(t *testing.T) {
 	t.Parallel()
 
-	_, err := parseExecuteToolInput(json.RawMessage(`{"action":"add_worker","labels":["gpu","Zone=Tokyo-1","pool=gpu/a100"]}`))
-	require.Nil(t, err)
+	require.Nil(t, inputError(`{"action":"add_worker","labels":["gpu","Zone=Tokyo-1","pool=gpu/a100"]}`))
 
-	_, err = parseExecuteToolInput(json.RawMessage(`{"action":"add_worker","labels":["gpu=true","` + testWorkerInvite + `"]}`))
+	err := inputError(`{"action":"add_worker","labels":["gpu=true","` + testWorkerInvite + `"]}`)
 	require.NotNil(t, err)
 	require.Equal(t, executeFieldLabels, err.Field)
 	require.Contains(t, err.Message, "label 2")
 	require.NotContains(t, err.Message, "AAAAAAAAAA")
 
 	// A repeated key is named by the label that repeats it.
-	_, err = parseExecuteToolInput(json.RawMessage(`{"action":"add_worker","labels":["zone=a","gpu=1","GPU=2"]}`))
+	err = inputError(`{"action":"add_worker","labels":["zone=a","gpu=1","GPU=2"]}`)
 	require.NotNil(t, err)
 	require.Contains(t, err.Message, "label 3")
 }
@@ -391,8 +492,28 @@ func TestAddWorkerChecksExpiresInFirst(t *testing.T) {
 		}
 	}
 	// The longest expiry the invite API accepts passes.
-	_, err := parseExecuteToolInput(json.RawMessage(`{"action":"add_worker","expiresIn":"2562047h47m16s"}`))
-	require.Nil(t, err)
+	require.Nil(t, inputError(`{"action":"add_worker","expiresIn":"2562047h47m16s"}`))
+}
+
+// The image rule is the one the image workflow applies before it publishes
+// a tag, so a version gets an image exactly when the workflow publishes it.
+func TestWorkerImageFollowsImageWorkflow(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", ".github", "workflows", "docker.yaml"))
+	require.NoError(t, err)
+	var workflow struct {
+		Env map[string]string `yaml:"env"`
+	}
+	require.NoError(t, yaml.Unmarshal(data, &workflow))
+	require.Equal(t, publishedVersionPattern, workflow.Env["PUBLISHED_VERSION"])
+	require.Equal(t, unreleasedSuffixPattern, workflow.Env["UNRELEASED_SUFFIX"])
+	require.Equal(t, strconv.Itoa(maxImageTag), workflow.Env["MAX_TAG_LENGTH"])
+
+	for _, tag := range []string{"v2.28.0-next", "v2.28.0-1-gabc1234"} {
+		_, ok := workerImage(tag)
+		require.False(t, ok, "the workflow refuses %s, so no image exists", tag)
+	}
 }
 
 // A release or prerelease build gets its own image tag. A build that was

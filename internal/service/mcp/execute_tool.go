@@ -259,8 +259,11 @@ func executeToolInputSchema() json.RawMessage {
 }
 
 type executeToolError struct {
-	Code       string
-	Message    string
+	Code    string
+	Message string
+	// Reason is the API's stable name for why the call failed, when it
+	// gives one.
+	Reason     string
 	Action     string
 	TargetType string
 	DAGName    string
@@ -627,7 +630,7 @@ func validateExecuteInput(input *executeInput, provided map[string]bool) *execut
 	case executeActionBackfill, executeActionBackfillResume, executeActionBackfillCancel:
 		return validateBackfillInput(input, provided)
 	case executeActionAddWorker:
-		return validateAddWorkerInput(input, provided)
+		return validateAddWorkerInput(provided)
 	default:
 		return executeInputError("Unsupported execute action.", executeFieldAction)
 	}
@@ -777,6 +780,7 @@ func classifyExecuteToolError(input executeInput, err error) *executeToolError {
 
 	if apiErr, ok := errors.AsType[*frontendapi.Error](err); ok {
 		out.Message = apiErr.Message
+		out.Reason, _ = apiErr.Details["reason"].(string)
 		switch apiErr.HTTPStatus {
 		case http.StatusUnauthorized:
 			out.Code = executeErrorUnauthenticated
@@ -825,6 +829,9 @@ func executeErrorResult(err *executeToolError) *mcpsdk.CallToolResult {
 	}
 	if err.Field != "" {
 		output["field"] = err.Field
+	}
+	if err.Reason != "" {
+		output["reason"] = err.Reason
 	}
 	if err.Details != nil {
 		output["details"] = err.Details

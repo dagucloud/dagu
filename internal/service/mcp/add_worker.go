@@ -20,6 +20,7 @@ import (
 	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -47,6 +48,12 @@ const (
 	maxExpiresIn = time.Duration(math.MaxInt64/int64(time.Second)) * time.Second
 	// maxImageTag is the longest tag an image registry accepts.
 	maxImageTag = 128
+	// publishedVersionPattern and unreleasedSuffixPattern are the rule the
+	// image workflow applies to a tag's version, without its leading v,
+	// before it publishes the image: it publishes a version that matches the
+	// first and not the second. The workflow holds the same patterns.
+	publishedVersionPattern = `^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9_.-]+)?$`
+	unreleasedSuffixPattern = `^0\.0\.0$|-[0-9]+-g[0-9a-f]+$|-next$`
 	// workerLabelRule is the rule a worker applies to its labels at start.
 	workerLabelRule = "a label is key or key=value; a key holds only letters, digits, -, _, and ., " +
 		"at most 63, and a value only those and /, at most 255, each starting with a letter or digit"
@@ -59,14 +66,11 @@ var builtinLabelKeys = []string{"os", "arch"}
 var addWorkerFields = []string{executeFieldAddress, executeFieldReusable, executeFieldExpiresIn, executeFieldLabels}
 
 var (
-	// releaseVersion matches the version of a build from a release tag,
-	// vX.Y.Z or vX.Y.Z-<anything>, whose image the release workflow tags
-	// with the version without the leading v. An image tag holds only
-	// letters, digits, _, ., and -.
-	releaseVersion = regexp.MustCompile(`^v?(\d+\.\d+\.\d+(?:-[\w.-]+)?)$`)
-	// unreleasedSuffix matches what an unreleased build adds to the last
-	// tag: git describe's commit count and hash, or a snapshot's -next.
-	unreleasedSuffix = regexp.MustCompile(`(-\d+-g[0-9a-f]+|-next)$`)
+	publishedVersion = regexp.MustCompile(publishedVersionPattern)
+	// unreleasedSuffix matches the default version and what an unreleased
+	// build adds to the last tag: git describe's commit count and hash, or a
+	// snapshot's -next.
+	unreleasedSuffix = regexp.MustCompile(unreleasedSuffixPattern)
 	// containerID matches a short or full container ID used as a host name.
 	containerID = regexp.MustCompile(`^[0-9a-f]{12}([0-9a-f]{52})?$`)
 	// dnsName matches one DNS name, so a list, a zone, or shell syntax is
@@ -101,16 +105,26 @@ func parseAddWorkerField(input *addWorkerInput, field string, value json.RawMess
 	return err
 }
 
-// validateAddWorkerInput refuses the fields add_worker does not take, an
-// address a worker on another host cannot dial, and a label the worker
-// would refuse at start.
-func validateAddWorkerInput(input *executeInput, provided map[string]bool) *executeToolError {
+// validateAddWorkerInput refuses the fields add_worker does not take.
+func validateAddWorkerInput(provided map[string]bool) *executeToolError {
 	for field := range provided {
 		if field != executeFieldAction && !slices.Contains(addWorkerFields, field) {
 			return executeInputError(fmt.Sprintf("The %s field is not valid for %s.", field, executeActionAddWorker), field)
 		}
 	}
+	return nil
+}
+
+// checkAddWorkerInput refuses an address a worker on another host cannot
+// dial, an expiresIn the invite API would refuse, a label the worker would
+// refuse at start, and invite text in an address or a label, which would
+// reach the invite record or the worker's log. A refusal never repeats the
+// text it refuses.
+func checkAddWorkerInput(input executeInput) *executeToolError {
 	if address := input.AddWorker.Address; address != "" {
+		if holdsInvite(address) {
+			return executeInputError("The address field holds an invite; the invite goes only into the commands.", executeFieldAddress)
+		}
 		if problem := dialAddressProblem(address); problem != "" {
 			return executeInputError("The address field "+problem+".", executeFieldAddress)
 		}
@@ -126,12 +140,18 @@ func validateAddWorkerInput(input *executeInput, provided map[string]bool) *exec
 // workerLabelsProblem refuses labels the worker would refuse at start, by
 // the worker's own parsing and rules. A refusal names a label by its
 // position, never by its text, which may be a pasted invite.
+//
+// The worker parses the joined labels at commas, so with no comma in any
+// label, parsing each label alone and tracking its key gives the worker's
+// result.
 func workerLabelsProblem(labels []string) *executeToolError {
+	keys := make(map[string]bool, len(labels))
 	for i, label := range labels {
 		position := fmt.Sprintf("Worker label %d", i+1)
+		if holdsInvite(label) {
+			return executeInputError(position+" holds an invite; the invite goes only into the commands.", executeFieldLabels)
+		}
 		one := config.ParseWorkerLabels(label)
-		// The parser splits at commas and keeps the last of a repeated key,
-		// so a comma would hide a label from these checks.
 		if strings.Contains(label, ",") || len(one) != 1 {
 			return executeInputError(position+" must be one key or key=value, without a comma.", executeFieldLabels)
 		}
@@ -140,17 +160,21 @@ func workerLabelsProblem(labels []string) *executeToolError {
 			return executeInputError(position+" breaks the worker label rule: "+workerLabelRule+".", executeFieldLabels)
 		}
 		for key := range accepted {
-			if slices.Contains(builtinLabelKeys, key) {
+			switch {
+			case slices.Contains(builtinLabelKeys, key):
 				return executeInputError(position+" sets "+key+", which a worker sets from its own host.", executeFieldLabels)
+			case keys[key]:
+				return executeInputError(position+" sets a key an earlier label sets; keys compare without case.", executeFieldLabels)
 			}
-		}
-		// The command carries the labels joined, as the worker parses them.
-		accepted, err = ir.WorkerLabels(config.ParseWorkerLabels(strings.Join(labels[:i+1], ",")))
-		if err != nil || len(accepted) != i+1 {
-			return executeInputError(position+" sets a key an earlier label sets; keys compare without case.", executeFieldLabels)
+			keys[key] = true
 		}
 	}
 	return nil
+}
+
+// holdsInvite reports whether s holds text shaped like an invite.
+func holdsInvite(s string) bool {
+	return coordinator.RedactInvites(s) != s
 }
 
 // dialAddressProblem says why a worker on another host cannot dial addr, or
@@ -188,16 +212,22 @@ func dialAddressProblem(addr string) string {
 // workerImage returns the published image of the server version, and false
 // for a build that has no published image.
 func workerImage(version string) (string, bool) {
-	match := releaseVersion.FindStringSubmatch(version)
-	if match == nil || match[1] == "0.0.0" || len(match[1]) > maxImageTag || unreleasedSuffix.MatchString(version) {
+	tag := strings.TrimPrefix(version, "v")
+	if !publishedVersion.MatchString(tag) || unreleasedSuffix.MatchString(tag) || len(tag) > maxImageTag {
 		return "", false
 	}
-	return workerImageRepository + ":" + match[1], true
+	return workerImageRepository + ":" + tag, true
 }
 
 // addWorker returns the join readiness and, once every coordinator is ready
 // and an address is given, creates an invite. Only that result holds it.
 func (svc *Service) addWorker(ctx context.Context, input executeInput) (*mcpsdk.CallToolResult, map[string]any, error) {
+	if err := svc.api.RequireWorkerAccess(ctx); err != nil {
+		return nil, nil, err
+	}
+	if err := checkAddWorkerInput(input); err != nil {
+		return nil, nil, err
+	}
 	resp, err := svc.api.GetWorkerJoinReadiness(ctx, daguapi.GetWorkerJoinReadinessRequestObject{})
 	if err != nil {
 		return nil, nil, err
@@ -296,6 +326,9 @@ func joinSteps(entries []daguapi.CoordinatorJoinReadiness) ([]map[string]any, in
 			if entry.Error != nil {
 				step["error"] = *entry.Error
 			}
+			if entry.ErrorReason != nil {
+				step["errorReason"] = *entry.ErrorReason
+			}
 			steps = append(steps, step)
 			continue
 		}
@@ -366,9 +399,13 @@ func environmentIs(report *daguapi.JoinReadinessReport, environment daguapi.Host
 
 // addressOptions returns step 2 of Add worker: the address to start from and
 // the addresses to suggest. It never names a host the coordinators did not
-// report.
+// report, and offers only addresses the address rule accepts.
 func addressOptions(readiness daguapi.GetWorkerJoinReadiness200JSONResponse) map[string]any {
 	step := map[string]any{}
+	usable := func(addr string) bool { return dialAddressProblem(addr) == "" && !holdsInvite(addr) }
+	if readiness.LastInviteAddress != nil && usable(*readiness.LastInviteAddress) {
+		step["initial"] = *readiness.LastInviteAddress
+	}
 	suggestions := []string{}
 	for _, entry := range readiness.Coordinators {
 		report := entry.Report
@@ -377,19 +414,18 @@ func addressOptions(readiness daguapi.GetWorkerJoinReadiness200JSONResponse) map
 		}
 		port := strconv.Itoa(report.Port)
 		if report.Advertise != nil && step["initial"] == nil {
-			step["initial"] = net.JoinHostPort(*report.Advertise, port)
+			if advertised := net.JoinHostPort(*report.Advertise, port); usable(advertised) {
+				step["initial"] = advertised
+			}
 		}
 		for _, addr := range report.Addresses {
-			if suggestion := net.JoinHostPort(addr, port); !slices.Contains(suggestions, suggestion) {
+			if suggestion := net.JoinHostPort(addr, port); usable(suggestion) && !slices.Contains(suggestions, suggestion) {
 				suggestions = append(suggestions, suggestion)
 			}
 		}
 		if environmentIs(report, daguapi.HostEnvironmentContainer) {
 			step["note"] = "The coordinator runs in a container: ask for the address of the machine that runs it."
 		}
-	}
-	if readiness.LastInviteAddress != nil {
-		step["initial"] = *readiness.LastInviteAddress
 	}
 	step["suggestions"] = suggestions
 	return step
