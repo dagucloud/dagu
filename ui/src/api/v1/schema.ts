@@ -12611,6 +12611,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The ID is not an invite ID, a UUID as the invite list shows */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description Requires admin role */
             403: {
                 headers: {

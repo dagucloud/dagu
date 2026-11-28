@@ -1011,7 +1011,7 @@ A coordinator reports, from its own host:
 | --- | --- |
 | `POST /api/v1/workers/invites` | Body `{"reusable": false, "expiresIn": "24h", "address": "192.168.1.20:50055"}`, every field optional. Returns `201` with `{"id", "invite", "expiresAt"}`. Only this response contains the invite |
 | `GET /api/v1/workers/invites` | Lists invites with `id`, `kind`, `createdBy`, `createdAt`, `expiresAt`, `useCount`, `lastUsedAt`, and `address`. No secret |
-| `DELETE /api/v1/workers/invites/{id}` | Deletes the invite. `204`, also when a coordinator's answer is lost: within the same request, the server confirms from the invites that it is gone. `404` when none has the ID, so a second delete answers `404` |
+| `DELETE /api/v1/workers/invites/{id}` | Deletes the invite. `204`, also when a coordinator's answer is lost: within the same request, the server confirms from the invites that it is gone. `400` for a value that is not an invite ID, a UUID, before any coordinator call, so an invite pasted in its place reaches no log or audit entry. `404` when none has the ID, so a second delete answers `404` |
 | `DELETE /api/v1/workers/{workerId}/certificate` | Removes the worker. `?certificateId=`, required, is the `certificateId` the [Workers List](#workers-list) shows. `?runs=finish`, the default, or `?runs=stop`. Returns `{"state": "removing"}` or `{"state": "removed"}`. `400` for another `runs` value. `404` when no worker has the ID |
 | `GET /api/v1/workers/join-readiness` | Returns the reports of [Join Readiness](#join-readiness) |
 

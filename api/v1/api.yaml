@@ -905,6 +905,12 @@ paths:
       responses:
         "204":
           description: "The invite was deleted"
+        "400":
+          description: "The ID is not an invite ID, a UUID as the invite list shows"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "403":
           description: "Requires admin role"
           content:
