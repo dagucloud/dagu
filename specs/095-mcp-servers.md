@@ -2,7 +2,11 @@
 
 ## Status
 
-Implemented.
+Not implemented.
+
+This spec describes planned behavior. No version of Dagu serves the MCP routes, accepts a named MCP
+entry in a step or runs the MCP relay yet. The reserved prefix `ai/`, which covers the refs
+`ai/mcp/`, is already enforced, as Spec 093 states.
 
 This spec is the companion of [Spec 059: Chat Completion](059-chat-completion.md), [Spec 090: Agent
 Tools](090-agent-tools.md), [Spec 091: Agent Node](091-agent-node.md), [Spec 092: Agent

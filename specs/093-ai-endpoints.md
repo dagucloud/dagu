@@ -2,7 +2,11 @@
 
 ## Status
 
-Implemented.
+Not implemented.
+
+This spec describes planned behavior. No version of Dagu serves the AI routes, reads the block `ai`
+or accepts an endpoint in a step yet. One rule is already enforced: the reserved prefix `ai/` of
+[Storage](#storage), as Spec 069 and Spec 103 state.
 
 This spec is the companion of [Spec 059: Chat Completion](059-chat-completion.md), [Spec 090: Agent
 Tools](090-agent-tools.md), [Spec 091: Agent Node](091-agent-node.md), [Spec 092: Agent
