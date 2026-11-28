@@ -171,6 +171,8 @@ type Node struct {
 	// ModelUsage is what the step's calls to models used, over every attempt
 	// of the step in this run.
 	ModelUsage *StepModelUsage `json:"modelUsage,omitempty"`
+	// Connection is the connection the step's latest attempt used.
+	Connection *NodeConnection `json:"connection,omitempty"`
 	// StdoutStart and StderrStart are the sizes of Stdout and Stderr when the
 	// latest execution started, in the status of the process that ran it. A
 	// stored status does not hold them.
@@ -183,6 +185,39 @@ type Node struct {
 	outputsValueFrom     string
 	stepOutputsValueFrom string
 }
+
+// NodeConnection is the connection a step used (Spec 107 §Run Records).
+type NodeConnection struct {
+	Name string `json:"name"`
+	// Account is the account the connection acts as, such as an email
+	// address. It is empty before the connection's first connect.
+	Account string `json:"account,omitempty"`
+	// Failure is set when the latest token request of the step's attempt
+	// failed because the connection could hand out no token.
+	Failure ConnectionFailure `json:"failure,omitempty"`
+}
+
+// Clone returns a copy of c.
+func (c *NodeConnection) Clone() *NodeConnection {
+	if c == nil {
+		return nil
+	}
+	clone := *c
+	return &clone
+}
+
+// ConnectionFailure is why a connection handed a step no token. Either
+// value needs the connection connected again.
+type ConnectionFailure string
+
+const (
+	// ConnectionReconnectRequired is a connection that was never connected,
+	// or that has no refresh token.
+	ConnectionReconnectRequired ConnectionFailure = "reconnect_required"
+	// ConnectionNeedsAttention is a connection that needs reconnecting or
+	// whose app is invalid: the states that send connection.needs_attention.
+	ConnectionNeedsAttention ConnectionFailure = "needs_attention"
+)
 
 // MaskedOutputs names the outputs of a node whose stored text secret masking
 // changed, by how a step reads them. The original text is not stored, so a run

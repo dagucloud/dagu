@@ -327,6 +327,30 @@ func TestNewDAGRunEventDeepClonesData(t *testing.T) {
 	assert.Equal(t, "fetch", event.Data["steps"].([]any)[0].(map[string]any)["name"])
 }
 
+// A run event keeps the connection of each step, so a reader of the event
+// tells a run that a broken connection failed.
+func TestDAGRunEventKeepsConnectionCause(t *testing.T) {
+	t.Parallel()
+
+	status := &ir.DAGRunStatus{
+		Name:      "briefing",
+		DAGRunID:  "run-1",
+		AttemptID: "attempt-1",
+		Status:    ir.Failed,
+		Nodes: []*ir.Node{{
+			Step:       ir.Step{Name: "unread"},
+			Status:     ir.NodeFailed,
+			Connection: &ir.NodeConnection{Name: "work-google", Account: "ops@example.com", Failure: ir.ConnectionNeedsAttention},
+		}},
+	}
+	event := NewDAGRunEvent(Source{Service: SourceServiceServer}, TypeDAGRunFailed, status, nil)
+	require.NotNil(t, event)
+
+	decoded, err := DAGRunStatusFromEvent(event)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"work-google"}, decoded.ConnectionCause())
+}
+
 func TestDAGRunStatusFromEventRejectsInvalidSnapshot(t *testing.T) {
 	t.Parallel()
 

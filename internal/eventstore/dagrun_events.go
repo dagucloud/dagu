@@ -69,6 +69,9 @@ type DAGRunNodeSnapshot struct {
 	RetryCount        int                   `json:"retry_count,omitempty"`
 	DoneCount         int                   `json:"done_count,omitempty"`
 	ApprovalIteration int                   `json:"approval_iteration,omitempty"`
+	// Connection is the step's connection, which decides whether a failed
+	// run was caused by a broken connection.
+	Connection *ir.NodeConnection `json:"connection,omitempty"`
 }
 
 func newDAGRunNodeSnapshot(node *ir.Node) *DAGRunNodeSnapshot {
@@ -88,6 +91,7 @@ func newDAGRunNodeSnapshot(node *ir.Node) *DAGRunNodeSnapshot {
 		RetryCount:        node.RetryCount,
 		DoneCount:         node.DoneCount,
 		ApprovalIteration: node.ApprovalIteration,
+		Connection:        node.Connection.Clone(),
 	}
 }
 
@@ -107,6 +111,7 @@ func (s *DAGRunNodeSnapshot) Node() *ir.Node {
 		RetryCount:        s.RetryCount,
 		DoneCount:         s.DoneCount,
 		ApprovalIteration: s.ApprovalIteration,
+		Connection:        s.Connection.Clone(),
 	}
 }
 

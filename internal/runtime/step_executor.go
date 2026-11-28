@@ -81,6 +81,8 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 	meter := modelusage.NewMeter(node.ModelUsage())
 	ctx = modelusage.WithMeter(ctx, meter)
 	defer func() { node.SetModelUsage(meter.Snapshot()) }()
+	ctx, connectionRecord := watchConnection(ctx, node.Step())
+	defer func() { node.SetConnection(connectionRecord()) }()
 
 	if err := preRunAbortErr(ctx, node); err != nil {
 		return recordPreRunAbort(ctx, node, err, stepTimeout, attemptStarted)

@@ -115,6 +115,7 @@ func TestStoreConnections(t *testing.T) {
 	setToken := func(token string) {
 		_, err := store.UpdateTokenState(ctx, stored, func(st *connection.TokenState) error {
 			st.Status = connection.TokenStatusConnected
+			st.Account = "ops@example.com"
 			st.AccessTokens = map[string]connection.AccessToken{"": {Token: token, ExpiresAt: time.Now().Add(time.Hour)}}
 			return nil
 		})
@@ -134,6 +135,9 @@ func TestStoreConnections(t *testing.T) {
 		require.Equal(t, "at-1", token)
 		setToken("at-2")
 	}
+	account, err := conns.Account(ctx, conn)
+	require.NoError(t, err)
+	require.Equal(t, "ops@example.com", account)
 
 	_, err = checker.Connections("sales").Connection(ctx, "work")
 	require.ErrorIs(t, err, connection.ErrNotFound)
