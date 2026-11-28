@@ -128,8 +128,16 @@ function AddWorkerDialog({
 
   const data = readiness.state === 'loaded' ? readiness.data : undefined;
   const ready = data ? allReady(data.coordinators) : false;
-  const environment = data ? coordinatorEnvironment(data) : undefined;
-  const problem = address ? addressProblem(address, environment) : undefined;
+
+  // A restart quicker than the workers refresh leaves no failed request, but
+  // the admin who restarted Dagu elsewhere comes back to this window.
+  React.useEffect(() => {
+    if (ready) return;
+    const reload = () => void load();
+    window.addEventListener('focus', reload);
+    return () => window.removeEventListener('focus', reload);
+  }, [ready, load]);
+  const problem = address ? addressProblem(address) : undefined;
   const validAddress =
     ready && address && !problem ? joinAddress(address) : undefined;
 

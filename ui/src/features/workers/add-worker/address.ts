@@ -19,9 +19,11 @@ export interface AddressProblem {
   values?: Record<string, string>;
 }
 
-const DNS_NAME =
-  /^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$/;
-const IPV6 = /^[0-9A-Fa-f:.]+$/;
+const IPV4_LOOPBACK = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+const IPV6_LOOPBACK = /^(0{0,4}:){2,7}0{0,3}1$/;
+const IPV6_UNSPECIFIED = /^(0{0,4}:){2,7}0{0,4}$/;
+// A short or full container ID, as a container's host name.
+const CONTAINER_ID = /^[0-9a-f]{12}([0-9a-f]{52})?$/;
 
 /** Splits "host:port" or "[v6]:port". A value without a port keeps it empty. */
 export function splitAddress(address: string): WorkerAddress {
@@ -83,45 +85,32 @@ export function suggestedHosts(readiness: JoinReadiness): string[] {
 
 // "host:port" typed into the host field, bracketed or not.
 const HOST_WITH_PORT = /^(?:\[([^\]]+)\]|([^:[\]]+)):(\d*)$/;
-const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
-// Docker's default bridge: a container's own address there is unreachable
-// from other machines.
-const DOCKER_BRIDGE = /^172\.17\./;
 
-function hostProblem(
-  host: string,
-  environment?: HostEnvironment
-): string | undefined {
-  const lower = host.toLowerCase();
-  const ip = lower.includes(':') || IPV4.test(lower);
-  if (lower.includes(':') ? !IPV6.test(lower) : !DNS_NAME.test(lower)) {
-    return '{host} is not a host name or IP address.';
-  }
-  if (lower === 'localhost' || /^127\./.test(lower) || lower === '::1') {
+// Spec 108 §Add Worker states these rules; the MCP action applies the same.
+function hostProblem(host: string): string | undefined {
+  const name = host.replace(/\.$/, '').toLowerCase();
+  if (
+    name === 'localhost' ||
+    IPV4_LOOPBACK.test(host) ||
+    IPV6_LOOPBACK.test(host)
+  ) {
     return '{host} reaches only the machine it runs on. Enter an address that workers on other hosts can reach.';
   }
-  if (lower === '0.0.0.0' || /^[0:]+$/.test(lower)) {
+  if (host === '0.0.0.0' || IPV6_UNSPECIFIED.test(host)) {
     return '{host} is a listen address. Enter an address that workers can dial.';
   }
-  if (/^169\.254\./.test(lower) || /^fe80:/.test(lower)) {
-    return '{host} is a link-local address that other networks cannot reach. Enter another address of the machine.';
-  }
-  if (environment === HostEnvironment.container && DOCKER_BRIDGE.test(lower)) {
-    return "{host} is the container's own address, which other machines cannot reach. Enter the address of the machine that runs the container.";
-  }
-  if (!ip && !lower.includes('.')) {
-    return '{host} is a bare host name, such as a machine name or a container ID, that other machines may not resolve. Enter an IP address or a full DNS name.';
+  if (CONTAINER_ID.test(host)) {
+    return '{host} looks like a container ID. Enter the address of the machine that runs the container.';
   }
   return undefined;
 }
 
 /**
  * What is wrong with the address fields, or undefined when a worker on
- * another machine can dial them. `environment` is the coordinator's.
+ * another machine can dial them.
  */
 export function addressProblem(
-  address: WorkerAddress,
-  environment?: HostEnvironment
+  address: WorkerAddress
 ): AddressProblem | undefined {
   const raw = address.host.trim();
   if (raw === '') {
@@ -136,7 +125,7 @@ export function addressProblem(
   const host = withPort
     ? (withPort[1] ?? withPort[2] ?? '')
     : raw.replace(/^\[(.*)\]$/, '$1');
-  const problem = hostProblem(host, environment);
+  const problem = hostProblem(host);
   if (problem) return { text: problem, values: { host } };
   if (withPort) return { text: 'Enter the port in the Port field.' };
   const port = address.port.trim();

@@ -1272,7 +1272,9 @@ and prints the message:
 - The dialog reads join readiness when it opens, again when the server is
   back after a restart, and when the admin asks to check again. It does not
   poll. The server is back when System status's `/workers` refresh succeeds
-  after it failed.
+  after it failed. While a coordinator is not ready, the dialog also reads
+  join readiness when its window regains focus, since a restart can be
+  quicker than that refresh.
 - Step 2 is a required address field. It starts with `lastInviteAddress`, or
   with `advertise`, or empty. It suggests `addresses`, and none in a
   container, where it asks for the address of the machine that runs the
@@ -1281,11 +1283,13 @@ and prints the message:
 - The port sits beside the address and starts with the port of
   `lastInviteAddress`, else the reported `port`, since a published port or a
   `NodePort` can differ from it. The address is a host name or an IP
-  address. The dialog refuses `localhost`, a loopback address, a wildcard
-  address such as `0.0.0.0` or `[::]` with or without a port, a link-local
-  address, a host name without a dot such as a machine name or a container
-  ID, an address in `172.17.0.0/16` when the coordinator runs in a
-  container, a scheme or path, and a port outside 1 to 65535.
+  address.
+- Step 2 refuses an address that a worker on another host cannot dial: one
+  that is not `host:port` with a port from 1 to 65535, or whose host is
+  `0.0.0.0`, `[::]`, a loopback address, `localhost`, or a container ID (12
+  or 64 lowercase hexadecimal characters). `POST /api/v1/workers/invites`
+  checks only the `host:port` form, since automation may reach the
+  coordinator through a tunnel.
 - Step 3 shows only after steps 1 and 2. Its tab sets the invite kind:
 
   | Tab | Invite | Command |

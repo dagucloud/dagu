@@ -277,6 +277,19 @@ describe('AddWorker', () => {
     expect(screen.getByText('Ready')).toBeInTheDocument();
   });
 
+  it('reads readiness again when the window regains focus, until ready', async () => {
+    await open(loopback());
+    api.GET.mockResolvedValue(answer(200, readiness()));
+    fireEvent.focus(window);
+    await settle();
+    expect(api.GET).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Ready')).toBeInTheDocument();
+
+    fireEvent.focus(window);
+    await settle();
+    expect(api.GET).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     ['localhost', '', 'localhost reaches only the machine it runs on'],
     ['127.0.0.1', '', '127.0.0.1 reaches only the machine it runs on'],
@@ -284,13 +297,12 @@ describe('AddWorker', () => {
     ['0.0.0.0:50055', '', '0.0.0.0 is a listen address'],
     ['[::]:50055', '', ':: is a listen address'],
     ['[::1]', '', '::1 reaches only the machine it runs on'],
-    ['169.254.10.2', '', '169.254.10.2 is a link-local address'],
-    ['laptop', '', 'laptop is a bare host name'],
-    ['3f2a9c1b7d4e', '', '3f2a9c1b7d4e is a bare host name'],
+    ['localhost.', '', 'localhost. reaches only the machine it runs on'],
+    ['127.1.2.3', '', '127.1.2.3 reaches only the machine it runs on'],
+    ['3f2a9c1b7d4e', '', '3f2a9c1b7d4e looks like a container ID'],
     ['http://192.168.1.20', '', 'without a scheme or path'],
     ['192.168.1.20:50055', '', 'Enter the port in the Port field.'],
     ['192.168.1.20', '70000', 'Enter a port from 1 to 65535.'],
-    ['bad_host', '', 'bad_host is not a host name or IP address.'],
   ])('refuses the address %s', async (host, port, problem) => {
     await open(readiness());
     typeAddress(host, port || undefined);
@@ -303,26 +315,17 @@ describe('AddWorker', () => {
     ).toBeInTheDocument();
   });
 
-  it.each(['192.168.1.20', 'fd00::20', '[fd00::20]', 'coord.example.com'])(
-    'accepts the address %s and moves on to step 3',
-    async (host) => {
-      await open(readiness());
-      typeAddress(host, '30055');
+  it.each([
+    '192.168.1.20',
+    'fd00::20',
+    '[fd00::20]',
+    'coord.example.com',
+    'laptop',
+  ])('accepts the address %s and moves on to step 3', async (host) => {
+    await open(readiness());
+    typeAddress(host, '30055');
 
-      expect(screen.queryByText('Shown after steps 1 and 2')).toBeNull();
-    }
-  );
-
-  // Inside a container, the coordinator's own bridge address is not one a
-  // worker elsewhere can dial; on a host, 172.17.x.x may be a real network.
-  it('refuses the container bridge address only in a container', async () => {
-    await open(
-      readiness({ environment: HostEnvironment.container, addresses: [] })
-    );
-    typeAddress('172.17.0.2');
-    expect(
-      screen.getByText(/172\.17\.0\.2 is the container's own address/)
-    ).toBeInTheDocument();
+    expect(screen.queryByText('Shown after steps 1 and 2')).toBeNull();
   });
 
   it('requires the address once it is cleared', async () => {
