@@ -5,6 +5,7 @@ package spec089_node_targeting_test
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -95,6 +97,42 @@ func (r *retriedRun) replaceNodes(t *testing.T, nodes []inventory.Node) {
 	inv.Nodes = nodes
 	_, err = inventories.Replace(ctx, inv, stored[0].Version)
 	require.NoError(t, err)
+}
+
+// runLockStaleAge is the age at which a DAG's run lock that a stopped
+// process left is taken over (Spec 089 §Retrying a step with nodes).
+const runLockStaleAge = 30 * time.Second
+
+// waitForStaleRunLock waits until no DAG's run lock under dataDir is younger
+// than runLockStaleAge. A process killed while it holds the lock leaves it
+// behind, and a retry before the lock is taken over fails, as the spec
+// states.
+func waitForStaleRunLock(t *testing.T, dataDir string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		return !hasFreshRunLock(dataDir)
+	}, runLockStaleAge+harness.WaitTimeout(t), 200*time.Millisecond, "the run lock was never taken over")
+}
+
+// hasFreshRunLock reports whether a DAG's run lock under dataDir is younger
+// than runLockStaleAge. A run lock is the lock directory of a dag-runs
+// directory.
+func hasFreshRunLock(dataDir string) bool {
+	fresh := false
+	_ = filepath.WalkDir(dataDir, func(path string, d fs.DirEntry, err error) error {
+		// Entries can be removed while the walk reads them.
+		if err != nil || !d.IsDir() || d.Name() != dirlock.LockDirectoryName {
+			return nil
+		}
+		if filepath.Base(filepath.Dir(path)) == "dag-runs" {
+			info, err := d.Info()
+			if err == nil && time.Since(info.ModTime()) <= runLockStaleAge {
+				fresh = true
+			}
+		}
+		return fs.SkipDir
+	})
+	return fresh
 }
 
 // changedFleet is retryFleet after web03 left it, web04 joined it, and web02
@@ -189,7 +227,8 @@ func TestNodeStepRetry(t *testing.T) {
 
 	// The parent run dies while web02 runs. The retry keeps web01's run,
 	// reruns web02, and starts web03. A short heartbeat lets the killed run be
-	// found dead at once.
+	// found dead at once. A kill can land while the run holds its run lock,
+	// so the retry waits until no such lock is left.
 	t.Run("after the parent run is killed", func(t *testing.T) {
 		t.Parallel()
 
@@ -205,6 +244,7 @@ func TestNodeStepRetry(t *testing.T) {
 			status := run.dagu.RunWithEnv(run.env, "status", "--run-id="+run.runID, "retry_killed")
 			return strings.Contains(status.Stdout(), "Result: Failed")
 		}, harness.WaitTimeout(t), 200*time.Millisecond, "the killed run never failed")
+		waitForStaleRunLock(t, run.dataDir)
 
 		run.remove(t, "started-web01")
 		run.touch(t, "go-web02")
