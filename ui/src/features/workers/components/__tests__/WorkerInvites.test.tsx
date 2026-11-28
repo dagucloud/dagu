@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkerInviteKind, type components } from '@/api/v1/schema';
+import { QueryFeedback } from '@/components/QueryFeedback';
 import { useIsAdmin } from '@/contexts/AuthContext';
 import WorkerInvites, { JOIN_REREAD_DELAY_MS } from '../WorkerInvites';
 import {
@@ -368,6 +369,47 @@ describe('WorkerInvites', () => {
   });
 
   // Without a reason the message is only shown, never read for meaning.
+  // A reason the page does not know, even one named like a built-in
+  // property, falls back to the message.
+  it('treats an unknown reason as no reason', async () => {
+    server.invites = refused(503, 'server words', 'internal_error', 'toString');
+
+    renderInvites();
+
+    expect(await screen.findByText('server words')).toBeInTheDocument();
+    expect(
+      screen.getByText('Please try again or check the server connection.')
+    ).toBeInTheDocument();
+  });
+
+  // The list explains a failed read itself; the page's notice of a failed
+  // background read would repeat the server's words.
+  it('raises no page notice for a failed read', async () => {
+    server.invites = refused(
+      503,
+      'the coordinator refused the server: set peer.token, or run the server where it reads the data directory',
+      'internal_error',
+      'peer_token_missing'
+    );
+
+    render(
+      <QueryFeedback>
+        <WorkerInvites workers={[worker('worker-a')]} live refreshes={0} />
+      </QueryFeedback>,
+      { wrapper: Providers }
+    );
+
+    expect(
+      await screen.findByText(
+        'This server has no peer token for the coordinator.'
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText('Background request failed')
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/data directory/)).not.toBeInTheDocument();
+  });
+
   it('shows the message of a refusal without a reason as it is', async () => {
     const words =
       'invites need the built-in CA: this coordinator uses peer.cert_file';

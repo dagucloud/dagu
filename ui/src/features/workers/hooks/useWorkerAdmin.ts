@@ -36,7 +36,8 @@ export interface WorkerErrorAdvice {
 /**
  * Reads the invites. Nothing reads them on its own: no read on mount, no
  * retry, and no read on focus or reconnect. The caller decides when to read
- * with `mutate`.
+ * with `mutate`, and explains a failed read itself: the page's notice of a
+ * failed background read would show the server's words.
  */
 export function useWorkerInvites(enabled: boolean) {
   const remoteNode = useRemoteNode();
@@ -49,6 +50,7 @@ export function useWorkerInvites(enabled: boolean) {
       revalidateOnReconnect: false,
       revalidateIfStale: false,
       revalidateOnMount: false,
+      onError: () => undefined,
     }
   );
   return {
@@ -173,7 +175,7 @@ export function describeWorkerError(
     };
   }
   const known = reason
-    ? (advice.reasons?.[reason] ?? ACCESS_REASONS[reason])
+    ? (ownAdvice(advice.reasons, reason) ?? ownAdvice(ACCESS_REASONS, reason))
     : undefined;
   if (known) return known(ts);
 
@@ -192,6 +194,17 @@ export function describeWorkerError(
     cause: message || ts('The request failed.'),
     change: ts('Please try again or check the server connection.'),
   };
+}
+
+// Looks a reason up among a table's own entries only, so that a name such as
+// "toString" is an unknown reason, not an inherited function.
+function ownAdvice(
+  table: ReasonAdvice | undefined,
+  reason: string
+): ((ts: Translate) => WorkerErrorAdvice) | undefined {
+  return table && Object.prototype.hasOwnProperty.call(table, reason)
+    ? table[reason as WorkerAccessReason]
+    : undefined;
 }
 
 // A list read rejects with the error body, which carries a code and no
