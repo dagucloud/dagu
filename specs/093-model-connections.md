@@ -131,8 +131,9 @@ A model connection has the Spec 107 metadata fields `name`, `project`,
 - `services`, `scopes`, `subject`, `bound_hosts`, and `resource` do not
   apply.
 - `allow_token_export` is always off. No step, `secrets` entry, or route
-  reads the key of a model connection. A `secrets` entry with
-  `provider: connection` that names one fails admission.
+  reads the key of a model connection. Only the steps of [Keys](#keys)
+  use one. Any other consumer that names one, such as `http.request` or a
+  `secrets` entry with `provider: connection`, fails admission.
 
 ### Credentials
 
@@ -168,7 +169,9 @@ This spec adds these transitions to Spec 107, for the grants `api_key` and
 | `connected` | `needs_reconnect` | The provider answers 401 to a request that carried the stored key |
 | `needs_reconnect` | `connected` | The key is rotated |
 
-- A 401 causes no refresh and no retry, since a key has no refresh.
+- A 401 causes no refresh and no retry, since a key has no refresh. It
+  changes the status only when the rejected key is still the stored key,
+  so a late 401 for a rotated key changes nothing.
 - A 403 changes no status. It can deny one model and allow others.
 - For a connection on a shared key, the 401 sets the app's status to
   `invalid` in place of the connection's, and a rotation of the app sets
@@ -206,6 +209,9 @@ This spec adds these transitions to Spec 107, for the grants `api_key` and
   and to the models reader, with one exception: a local-model preset or
   `custom` sends the key over `http` to a base URL that a person entered.
 - A redirect from a request that carries the key fails the request.
+- A change that moves a base URL or the models URL to another host needs
+  the key again in the same request, so no one can send a stored key to a
+  host of their choosing.
 
 ### Presets
 
@@ -314,7 +320,7 @@ serves all of them with one key.
 
 | Key | Rule |
 | --- | --- |
-| `connection` | The name of a model connection of the run's project. A literal: a reference fails validation, as Spec 107 [Declared Connections](107-connections.md#declared-connections) states |
+| `connection` | The name of a model connection of the run's project. A literal: a reference fails validation. `with.connection`, the `connection` of each model entry, and `llm.connection` are sources of Spec 107 [Declared Connections](107-connections.md#declared-connections) |
 | `model` | A model ID of the connection, or an alias that the CLI's adapter lists. May be a `${...}` reference |
 | `effort` | `low`, `medium`, `high`, `xhigh`, or `max`. `chat.completion` keeps `thinking` of Spec 059 instead |
 
@@ -345,10 +351,15 @@ A CLI step takes the first of these that applies:
 - A model list entry of `chat.completion` takes `connection` and `name`,
   beside the entries with `provider` of Spec 059. An entry with
   `connection` rejects `provider`, `base_url`, and `api_key_name`.
-- In `harness.run`, `connection` is a reserved key, never passed as a CLI
-  flag. With `connection`, the adapter handles `model` and `effort`, and
-  passes neither as a flag of its own name. Without it, both keep their
-  Spec 067 behavior. Each `fallback` entry takes the same keys.
+- In `harness.run`, `connection` is a reserved key for a provider with an
+  adapter, never passed as a CLI flag. A custom harness keeps it as a
+  flag, as Spec 067 states. With `connection`, the adapter handles
+  `model` and `effort`, and passes neither as a flag of its own name.
+  Without it, both keep their Spec 067 behavior. Each `fallback` entry
+  takes the same keys.
+- With `connection`, a CLI option that would change the CLI's provider,
+  base URL, credential, or server, such as `attach` for `opencode`, fails
+  validation with `option_conflict`. Each adapter lists such options.
 
 ### Choosing the Protocol
 
@@ -376,7 +387,8 @@ admission with `protocol_mismatch`.
   the old keys of `chat.completion`.
 - With `ai.require_connections: true`, a trusted step that would use a
   CLI's own sign-in, and a `chat.completion` step on the old keys, fail
-  admission with `connection_required`.
+  admission with `connection_required`. The rule applies to each model
+  entry of a chat step and to each `fallback` attempt of `harness.run`.
 - A step that runs as the Dagu user can read `<data_dir>`, which holds
   `auth/encryption_key` by default. That is every trusted step, and an
   untrusted step under `untrusted.isolation: off`, which Spec 092 needs
@@ -446,7 +458,9 @@ conformance test confirms them.
   reach the provider, so a CLI alias such as `sonnet` passes only when
   the ID it resolves to is listed. A CLI that sends some requests with a
   second model, such as a small model for titles, needs that ID too. The
-  error names the model.
+  error names the model. With a list set, the gateway also refuses a
+  request that can select a model it cannot check, such as through the
+  `models` or `fallbacks` fields of OpenRouter.
 - It maps the provider's answer to an unknown model to `model_unknown`,
   and a 401 to `key_rejected`.
 - For a step on an agent worker, it runs in the coordinator, as Specs 092
@@ -561,8 +575,8 @@ The audit log records the changes of Spec 107 for model connections and
 shared keys, and also:
 
 - the fingerprint at a create and at a rotation
-- the old and the new URL at a change of a base URL or of `models_url`,
-  since the key goes to the new host from then on
+- the old and the new URL, without its query, at a change of a base URL
+  or of `models_url`, since the key goes to the new host from then on
 - each Reload, and whether its read was good
 
 No entry holds a key or a prefix.
@@ -577,6 +591,8 @@ No entry holds a key or a prefix.
 - `connection` with no model, when `llm` gives none for that connection
 - `connection` on a CLI with no adapter: `adapter_missing`
 - an effort level that the CLI does not accept: `effort_unsupported`
+- with `connection`, a CLI option that changes the CLI's provider, base
+  URL, credential, or server: `option_conflict`
 
 Admission, at the start of a run and in the editor, fails with:
 

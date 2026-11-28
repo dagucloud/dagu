@@ -82,7 +82,13 @@ fixed headers.
 - The bound host is the host of `resource`. The gateway sends the values
   only there, and follows no redirect.
 - `resource` is write-only past its host, since its query can hold a
-  secret. Responses, errors, and audit entries show only the host.
+  secret. Dagu stores it encrypted, as the values. Responses, errors, and
+  audit entries show only the host.
+- A change of `resource` to another host needs the credential again in
+  the same request, so no one can send a stored value to a host of their
+  choosing.
+- A loopback `resource` names the Dagu host. A run on a worker fails
+  admission with such a connection, since the worker cannot reach it.
 
 ### Connection Status
 

@@ -969,7 +969,8 @@ Token(connection, resource, minTTL) -> (access token, expiresIn)
 - Building a DAG collects every connection it names. The sources are step
   `with.connection`, `mail_accounts.<address>.connection` and
   `smtp.connection` in the DAG or its base config, and `secrets` entries
-  with `provider: connection`. RFC 026 adds sources.
+  with `provider: connection`. RFC 026 and
+  [Spec 093](093-model-connections.md#keys) add sources.
 - A connection name in these fields is a literal. A name taken from a
   parameter, variable, or other reference fails validation. So does a
   step's `server` beside it, which admission checks too.

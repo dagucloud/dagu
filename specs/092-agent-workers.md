@@ -539,8 +539,8 @@ worker:
 
 - The relay listens on `127.0.0.1` and a random port, for one attempt, like the tool bridge of
   Spec 091. The CLI gets the relay secret in a variable. For `mcp_servers`, the CLI gets the
-  gateway token of RFC 026 in the form its adapter takes, never in process arguments. A file that
-  holds a secret of the attempt belongs to the restricted user, with mode `0400`.
+  gateway token of RFC 026 in the form its adapter takes, never in process arguments. Only the step's user
+  can read a file that holds a secret of the attempt.
 - Dagu adds `127.0.0.1` and `localhost` to `NO_PROXY` of a step that uses the relay. The deployment
   does not need to set them for this step.
 - The worker announces the capability `ai_relay.v1`. A run with a step that names a model
