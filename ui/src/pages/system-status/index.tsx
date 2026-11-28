@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { AppBarContext } from '../../contexts/AppBarContext';
 import { useConfig } from '../../contexts/ConfigContext';
 import WorkersSummary from '../../features/dashboard/components/WorkersSummary';
+import WorkerInvites from '../../features/workers/components/WorkerInvites';
 import H2CCallers from '../../features/system-status/components/H2CCallers';
 import PathsCard from '../../features/system-status/components/PathsCard';
 import ResourceChart from '../../features/system-status/components/ResourceChart';
@@ -278,6 +279,7 @@ function SystemStatus() {
           }
         />
       </div>
+      <WorkerInvites workers={workersData?.workers} live={autoRefresh} />
 
       {/* Resource Usage */}
       <h2 className="text-xl font-semibold mt-8 mb-4">

@@ -6,6 +6,7 @@ import { workspaceMessages } from '@/features/workflow-workspace/messages';
 import { connectionMessages } from '@/pages/connections/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
 import { nodeTestMessages, workerNodeMessages } from '@/pages/nodes/messages';
+import { workerAdminMessages } from '@/features/workers/messages';
 import type { BaseStaticMessage, StaticMessage } from './en';
 
 export const baseJapanese = {
@@ -3403,6 +3404,7 @@ export const japanese = {
   ...backfillMessages.ja,
   ...nodeTestMessages.ja,
   ...workerNodeMessages.ja,
+  ...workerAdminMessages.ja,
   ...inventoryMessages.ja,
   ...connectionMessages.ja,
   ...baseJapanese,

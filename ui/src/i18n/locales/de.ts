@@ -6,6 +6,7 @@ import { workspaceMessages } from '@/features/workflow-workspace/messages';
 import { connectionMessages } from '@/pages/connections/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
 import { nodeTestMessages, workerNodeMessages } from '@/pages/nodes/messages';
+import { workerAdminMessages } from '@/features/workers/messages';
 import type { BaseStaticMessage, StaticMessage } from './en';
 
 // German translation by Wolfgang Weinbrecht, with the help of Claude (Anthropic's AI).
@@ -3414,6 +3415,7 @@ export const german = {
   ...backfillMessages.de,
   ...nodeTestMessages.de,
   ...workerNodeMessages.de,
+  ...workerAdminMessages.de,
   ...inventoryMessages.de,
   ...connectionMessages.de,
   ...baseGerman,
