@@ -222,6 +222,27 @@ describe('AddWorker', () => {
     expect(screen.queryByText(/now reports/)).toBeNull();
   });
 
+  // A suggestion taken also makes its reading the one later readings
+  // compare with, as Use this address does.
+  it('offers a move from a suggestion taken', async () => {
+    const reading = (port: number) =>
+      readiness({ port, addresses: ['192.168.1.20'] });
+    const { rerender } = await open(reading(50055));
+    const reread = async (port: number) => {
+      api.GET.mockResolvedValue(answer(200, reading(port)));
+      rerender(view(true));
+      rerender(view(false));
+      await settle();
+    };
+    await reread(50155);
+    fireEvent.click(screen.getByRole('button', { name: '192.168.1.20:50155' }));
+    await reread(50055);
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue('192.168.1.20:50155');
+    expect(
+      screen.getByText('The coordinator now reports 192.168.1.20:50055.')
+    ).toBeInTheDocument();
+  });
+
   // A retained address stays on open, and a reading that still reports it,
   // or reports nothing new, offers nothing.
   it.each([

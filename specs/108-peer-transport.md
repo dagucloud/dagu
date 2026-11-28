@@ -1315,11 +1315,14 @@ and prints the message:
   MCP action trims it, and keeps a pasted line break, which the rule below
   refuses inside the address. Its starting value and each suggestion pass the rule
   below, and an advertised address takes the `port` of the
-  coordinator that reported it. A later reading never changes the field.
-  When the endpoints the coordinators report moved since step 2 started,
-  and the field holds none of them, step 2 says which endpoint the
-  coordinator now reports, compared with the host in lowercase, and **Use
-  this address** puts it in the field.
+  coordinator that reported it. A later reading never changes the field,
+  also when the last pod stops reporting. When the endpoints the
+  coordinators report moved since the reading the field came from, and
+  the field holds none of them, step 2 says which endpoint the
+  coordinator now reports, compared with the host in lowercase; only one
+  that passes the rule below is offered. **Use this address** or a
+  suggestion puts an endpoint in the field and makes its reading the one
+  later readings compare with.
 - Step 2 refuses an address that a worker on another host cannot dial: one
   that is not `host:port` with a port from 1 to 65535 written without a
   sign or leading zero; whose host is not an IPv4 address, an IPv6

@@ -319,7 +319,10 @@ function AddressFields({
   placement?: Placement;
   /** An endpoint the coordinators now report in place of the field's. */
   moved?: string;
-  /** Takes the moved endpoint into the field. */
+  /**
+   * Takes a reported endpoint, a suggestion or the moved one, into the
+   * field, so later readings compare with the reading it came from.
+   */
   onTakeMoved: (address: string) => void;
   onPlace: (placement: Placement) => void;
   problem?: AddressProblem;
@@ -426,7 +429,7 @@ function AddressFields({
                   variant="ghost"
                   className="font-mono"
                   aria-pressed={address === suggestion}
-                  onClick={() => onChange(suggestion)}
+                  onClick={() => onTakeMoved(suggestion)}
                 >
                   {suggestion}
                 </Button>
