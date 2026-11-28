@@ -273,10 +273,15 @@ type sharingCoordinator struct {
 	shared     *sharedInvites
 	loseAnswer bool
 	failFirst  bool
-	deletes    atomic.Int32
+	// failLists is how many list calls fail before one succeeds.
+	failLists atomic.Int32
+	deletes   atomic.Int32
 }
 
 func (c *sharingCoordinator) ListInvites(context.Context, *coordinatorv1.ListInvitesRequest) (*coordinatorv1.ListInvitesResponse, error) {
+	if c.failLists.Add(-1) >= 0 {
+		return nil, status.Error(codes.Internal, "failed to list the invites")
+	}
 	c.shared.mu.Lock()
 	defer c.shared.mu.Unlock()
 	resp := &coordinatorv1.ListInvitesResponse{}
@@ -411,4 +416,15 @@ func TestClientInviteReasonedRefusalWins(t *testing.T) {
 		assert.Equal(t, codes.Unavailable, status.Code(err), "%v", err)
 		assert.Equal(t, "retry_later", coordinator.RefusalReason(err))
 	})
+}
+
+// A read of the invites that fails does not stop a delete that succeeds.
+func TestClientDeleteInviteAfterFailedList(t *testing.T) {
+	t.Parallel()
+
+	shared := newSharedInvites("invite-1")
+	c := &sharingCoordinator{shared: shared}
+	c.failLists.Store(1)
+	require.NoError(t, inviteClientOf(t, serving(c)).DeleteInvite(t.Context(), "invite-1"))
+	assert.False(t, shared.has("invite-1"))
 }
