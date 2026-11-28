@@ -229,6 +229,13 @@ func newCoordinator(
 	if err != nil {
 		return nil, nil, err
 	}
+	// h2c callers come first, so the list also holds the calls that
+	// coordinator.require_tls refuses.
+	h2cCallers := coordinator.NewH2CCallers()
+	serverOpts = append(serverOpts,
+		grpc.ChainUnaryInterceptor(h2cCallers.UnaryInterceptor()),
+		grpc.ChainStreamInterceptor(h2cCallers.StreamInterceptor()),
+	)
 	serverOpts = append(serverOpts, transportOpts...)
 	serverOpts = append(serverOpts,
 		grpc.ChainUnaryInterceptor(peerAuth.UnaryInterceptor()),
@@ -276,6 +283,7 @@ func newCoordinator(
 		AgentSessionCleanupQueue:  persistence.AgentSessionCleanupQueue,
 		WorkerNodeStore:           workerNodes,
 		JoinReadiness:             coordinatorJoinReadiness(cfg, peerCA.ca),
+		H2CCallers:                h2cCallers,
 		PeerCA:                    peerCA.ca,
 		WorkerInviteStore:         workerInvites,
 		WorkerCertificateStore:    workerCertificates,
