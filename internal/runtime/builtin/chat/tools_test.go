@@ -232,6 +232,7 @@ func TestNewToolRegistryRefusesEvaluatedInput(t *testing.T) {
 		{"ParamEval", params + "  - name: X\n    type: string\n    eval: \"`echo $Q`\"\nsteps:\n  - run: echo\n", `the eval of param "X" refers to $Q`},
 		{"PreconditionCommand", params + "preconditions:\n  - condition: test -n ${params.Q}\nsteps:\n  - run: echo\n", `a precondition refers to ${params.Q}`},
 		{"PreconditionEval", params + "steps:\n  - id: s\n    preconditions:\n      - eval: \"`echo $Q`\"\n        expected: x\n    run: echo\n", `a precondition of step "s" refers to $Q`},
+		{"PreconditionShellVariable", params + "preconditions:\n  - condition: test -n \"$Q\"\nsteps:\n  - run: echo\n", `a precondition refers to $Q, which`},
 		{"ShellVariable", params + "steps:\n  - run: echo \"$Q\" \"$DAG_PARAMS_JSON\"\n", ""},
 		{"ValueMatch", params + "preconditions:\n  - condition: ${params.Q}\n    expected: yes\nsteps:\n  - run: echo\n", ""},
 		{"NoInputs", "steps:\n  - run: echo ${params}\n", ""},

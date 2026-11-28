@@ -210,7 +210,7 @@ func checkModelInputs(dag *ir.DAG, params []toolParam) error {
 }
 
 // checkConditions checks the evals of conditions, and the conditions that run
-// as a command.
+// as a command. Dagu fills $NAME into a condition command too.
 func checkConditions(dag *ir.DAG, where string, conditions []*ir.Condition, inputs map[string]bool) error {
 	for _, c := range conditions {
 		if c == nil {
@@ -223,8 +223,8 @@ func checkConditions(dag *ir.DAG, where string, conditions []*ir.Condition, inpu
 			// A value match compares the text and runs nothing.
 			continue
 		}
-		if ref, variable, ok := modelRef(c.Condition, inputs, false); ok {
-			return modelInputError(dag, where, ref, variable, true)
+		if ref, variable, ok := modelRef(c.Condition, inputs, true); ok {
+			return modelInputError(dag, where, ref, variable, false)
 		}
 	}
 	return nil
