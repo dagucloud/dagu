@@ -1484,8 +1484,18 @@ func testKeepsAnotherProcess(t *testing.T, endingPreparedFirst bool) {
 
 // A process that no watcher can follow does not run: its start fails and the
 // process is stopped, with the child that it started and that holds its
-// stdout. Another process of the step that runs is kept.
+// stdout. Another process of the step that runs is kept. A child in its own
+// session stays until End, and the start still returns.
 func TestIsolatedStepStopsAnUnwatchedProcess(t *testing.T) {
+	t.Run("child in the group", func(t *testing.T) {
+		testStopsAnUnwatchedProcess(t, `sleep 1000 & echo > "$1"; wait`)
+	})
+	t.Run("child in its own session", func(t *testing.T) {
+		testStopsAnUnwatchedProcess(t, `setsid /bin/sh -c 'echo > "$0"; exec sleep 1000' "$1" & wait`)
+	})
+}
+
+func testStopsAnUnwatchedProcess(t *testing.T, script string) {
 	requireIsolation(t)
 	ctx := context.Background()
 	workDir := testWorkDir(t)
@@ -1513,7 +1523,7 @@ func TestIsolatedStepStopsAnUnwatchedProcess(t *testing.T) {
 		return -1, unix.EMFILE
 	}
 	t.Cleanup(func() { pidfdOpen = unix.PidfdOpen })
-	unwatched := exec.Command("/bin/sh", "-c", `sleep 1000 & echo > "$1"; wait`, "sh", forked)
+	unwatched := exec.Command("/bin/sh", "-c", script, "sh", forked) //nolint:gosec
 	unwatched.Dir = workDir
 	unwatched.Env = []string{"PATH=/usr/bin:/bin"}
 	unwatched.Stdout = &bytes.Buffer{}

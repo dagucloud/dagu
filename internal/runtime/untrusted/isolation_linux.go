@@ -826,14 +826,17 @@ func (iso *isolation) started(pid int) error {
 	if err != nil {
 		// The process leads its own process group (Setsid), whose ID no other
 		// group takes while the process is not reaped: the signal reaches the
-		// process and what it started, so no child keeps its pipes open.
+		// process and each child that stayed in its group.
 		_ = unix.Kill(-pid, unix.SIGKILL)
 		// A watcher that waits for this start under endMu goes on at once.
 		iso.abandon()
 		iso.endMu.Lock()
 		defer iso.endMu.Unlock()
-		_ = iso.killLeftovers()
-		return stepError(iso.step, "watch the process", "", err)
+		watchErr := stepError(iso.step, "watch the process", "", err)
+		if err := iso.killLeftovers(); err != nil {
+			return errors.Join(watchErr, stepError(iso.step, "stop the processes that the step left", "", err))
+		}
+		return watchErr
 	}
 	// One step moves the process from starting to running, so that no check
 	// in between sees neither.

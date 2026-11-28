@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -225,6 +226,9 @@ func StartManagedProcess(ctx context.Context, cmd *exec.Cmd) (*cmdutil.ManagedPr
 	}
 	if step.iso != nil {
 		if err := step.iso.started(process.PID()); err != nil {
+			// A process that left the process group can hold the pipes of cmd
+			// until End stops it, and End runs only after this returns.
+			cmd.WaitDelay = time.Second
 			_ = process.Wait()
 			_ = process.Release()
 			return nil, err
