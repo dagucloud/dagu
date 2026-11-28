@@ -7,7 +7,7 @@
  * @module features/workers/hooks
  */
 import { useCallback } from 'react';
-import useSWR, { useSWRConfig } from 'swr';
+import useSWR, { unstable_serialize, useSWRConfig } from 'swr';
 import { WorkerAccessReason, type components } from '@/api/v1/schema';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
@@ -89,24 +89,6 @@ const latestReads = new Map<string, Promise<WorkerInvitesList>>();
 // can still answer, and the node's last read is forgotten.
 const pendingReads = new Map<string, number>();
 
-// The reads that wait, by node, for the next read to start.
-const readWaiters = new Map<
-  string,
-  Array<(read: Promise<WorkerInvitesList>) => void>
->();
-
-function nextRead(node: string): Promise<WorkerInvitesList> {
-  return new Promise((resolve) => {
-    readWaiters.set(node, [...(readWaiters.get(node) ?? []), resolve]);
-  });
-}
-
-function startedRead(node: string, read: Promise<WorkerInvitesList>) {
-  const waiting = readWaiters.get(node);
-  readWaiters.delete(node);
-  waiting?.forEach((resolve) => resolve(read));
-}
-
 // Counts the changes to the invites of each node. A read that started
 // before a change cannot answer for after it.
 const inviteGenerations = new Map<string, number>();
@@ -133,6 +115,7 @@ export function invitesChanged(node: string) {
  */
 export function useWorkerInvites(enabled: boolean) {
   const client = useClient();
+  const { cache } = useSWRConfig();
   const remoteNode = useRemoteNode();
   const { data, error, mutate } = useSWR<WorkerInvitesList, unknown>(
     enabled ? invitesKey(remoteNode) : null,
@@ -141,12 +124,14 @@ export function useWorkerInvites(enabled: boolean) {
       const running = readsInFlight.get(remoteNode);
       if (running && running.generation === generation) return running.read;
       // A read the invites changed under, as by a join or a delete, cannot
-      // answer at all: it takes the outcome of a later read, waiting for one
-      // to start if none has, also while the tab is hidden.
+      // answer at all: it takes the outcome of a later read, or, before one
+      // starts, leaves the list as it is, loading if it showed nothing yet.
       const changed = () => inviteGeneration(remoteNode) !== generation;
       const later = () => {
         const latest = latestReads.get(remoteNode);
-        return latest && latest !== read ? latest : nextRead(remoteNode);
+        if (latest && latest !== read) return latest;
+        return cache.get(unstable_serialize(invitesKey(remoteNode)))
+          ?.data as WorkerInvitesList;
       };
       const read: Promise<WorkerInvitesList> = (async () => {
         const { data, error, response } = await client.GET('/workers/invites', {
@@ -182,7 +167,6 @@ export function useWorkerInvites(enabled: boolean) {
         });
       readsInFlight.set(remoteNode, { read, generation });
       latestReads.set(remoteNode, read);
-      startedRead(remoteNode, read);
       pendingReads.set(remoteNode, (pendingReads.get(remoteNode) ?? 0) + 1);
       return read;
     },
@@ -358,6 +342,51 @@ const ACCESS_REASONS: Record<WorkerAccessReason, Advise> = {
  * cause; it is the detail of a coordinator refusal and of a reason the page
  * does not know, whose cause only the server names.
  */
+// On a remote node, the selected node calls its coordinator, so the reasons
+// that name the caller name that node instead of this server.
+const REMOTE_REASONS: ReasonAdvice = {
+  [WorkerAccessReason.peer_token_missing]: (ts) => ({
+    cause: ts('The selected node has no peer token for its coordinator.'),
+    change: ts(
+      'Set peer.token on the selected node to the peer token of its coordinator.'
+    ),
+  }),
+  [WorkerAccessReason.peer_token_mismatch]: (ts) => ({
+    cause: ts(
+      'The selected node and its coordinator have different peer tokens.'
+    ),
+    change: ts(
+      'Give the selected node the same peer.token as its coordinator.'
+    ),
+  }),
+  [WorkerAccessReason.require_tls]: (ts) => ({
+    cause: ts(
+      'The coordinator requires TLS, and the selected node called it over plaintext.'
+    ),
+    change: ts(
+      'Clear {insecure} or {skipVerify} in the config of the selected node if set, and set {caFile} there to the CA certificate of the coordinator if it has none. If both are in order, check that the network path from the selected node to the coordinator passes TLS.',
+      {
+        insecure: 'peer.insecure: true',
+        skipVerify: 'peer.skip_tls_verify: true',
+        caFile: 'peer.ca_cert_file',
+      }
+    ),
+  }),
+  [WorkerAccessReason.coordinator_refused]: (ts) => ({
+    cause: ts('The coordinator refused the selected node.'),
+    change: ts(
+      'Check the coordinator log for the reason, or run {command} on the host of the selected node, then try again.',
+      { command: 'dagu worker --check' }
+    ),
+  }),
+  [WorkerAccessReason.no_coordinator]: (ts) => ({
+    cause: ts('No coordinator is running or reachable.'),
+    change: ts(
+      'Start the coordinator, or check that the selected node can reach it, then try again.'
+    ),
+  }),
+};
+
 export function describeWorkerError(
   error: unknown,
   advice: {
@@ -371,7 +400,9 @@ export function describeWorkerError(
   const failure = error instanceof WorkerRequestError ? error : undefined;
   const reason = failure?.reason;
   const known = reason
-    ? (ownAdvice(advice.reasons, reason) ?? ownAdvice(ACCESS_REASONS, reason))
+    ? (ownAdvice(advice.reasons, reason) ??
+      (advice.remoteNode ? ownAdvice(REMOTE_REASONS, reason) : undefined) ??
+      ownAdvice(ACCESS_REASONS, reason))
     : undefined;
   const detail =
     reason && (!known || reason === WorkerAccessReason.coordinator_refused)

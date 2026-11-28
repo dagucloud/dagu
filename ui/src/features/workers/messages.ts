@@ -96,6 +96,24 @@ export const workerAdminMessages = defineMessages({
     'Give those credentials the admin role on the selected node.':
       'Give those credentials the admin role on the selected node.',
     'Invite {id} was not deleted.': 'Invite {id} was not deleted.',
+    'The selected node has no peer token for its coordinator.':
+      'The selected node has no peer token for its coordinator.',
+    'Set peer.token on the selected node to the peer token of its coordinator.':
+      'Set peer.token on the selected node to the peer token of its coordinator.',
+    'The selected node and its coordinator have different peer tokens.':
+      'The selected node and its coordinator have different peer tokens.',
+    'Give the selected node the same peer.token as its coordinator.':
+      'Give the selected node the same peer.token as its coordinator.',
+    'The coordinator requires TLS, and the selected node called it over plaintext.':
+      'The coordinator requires TLS, and the selected node called it over plaintext.',
+    'Clear {insecure} or {skipVerify} in the config of the selected node if set, and set {caFile} there to the CA certificate of the coordinator if it has none. If both are in order, check that the network path from the selected node to the coordinator passes TLS.':
+      'Clear {insecure} or {skipVerify} in the config of the selected node if set, and set {caFile} there to the CA certificate of the coordinator if it has none. If both are in order, check that the network path from the selected node to the coordinator passes TLS.',
+    'The coordinator refused the selected node.':
+      'The coordinator refused the selected node.',
+    'Check the coordinator log for the reason, or run {command} on the host of the selected node, then try again.':
+      'Check the coordinator log for the reason, or run {command} on the host of the selected node, then try again.',
+    'Start the coordinator, or check that the selected node can reach it, then try again.':
+      'Start the coordinator, or check that the selected node can reach it, then try again.',
   },
   'zh-CN': {
     'Only admins can manage workers and invites.':
@@ -185,6 +203,24 @@ export const workerAdminMessages = defineMessages({
     'Give those credentials the admin role on the selected node.':
       '请在所选节点上为这些凭据授予管理员角色。',
     'Invite {id} was not deleted.': '邀请 {id} 未被删除。',
+    'The selected node has no peer token for its coordinator.':
+      '所选节点没有其 Coordinator 的 peer token。',
+    'Set peer.token on the selected node to the peer token of its coordinator.':
+      '在所选节点上将 peer.token 设置为其 Coordinator 的 peer token。',
+    'The selected node and its coordinator have different peer tokens.':
+      '所选节点与其 Coordinator 的 peer token 不同。',
+    'Give the selected node the same peer.token as its coordinator.':
+      '为所选节点设置与其 Coordinator 相同的 peer.token。',
+    'The coordinator requires TLS, and the selected node called it over plaintext.':
+      'Coordinator 要求 TLS，而所选节点以明文调用了它。',
+    'Clear {insecure} or {skipVerify} in the config of the selected node if set, and set {caFile} there to the CA certificate of the coordinator if it has none. If both are in order, check that the network path from the selected node to the coordinator passes TLS.':
+      '如果所选节点的配置中设置了 {insecure} 或 {skipVerify}，请将其清除；如果该节点没有 Coordinator 的 CA 证书，请在该节点上将 {caFile} 设置为该证书。如果两者都没有问题，请检查从所选节点到 Coordinator 的网络路径是否允许 TLS 通过。',
+    'The coordinator refused the selected node.':
+      'Coordinator 拒绝了所选节点。',
+    'Check the coordinator log for the reason, or run {command} on the host of the selected node, then try again.':
+      '请查看 Coordinator 日志了解原因，或在所选节点的主机上运行 {command}，然后重试。',
+    'Start the coordinator, or check that the selected node can reach it, then try again.':
+      '请启动 Coordinator，或检查所选节点能否访问它，然后重试。',
   },
   ja: {
     'Only admins can manage workers and invites.':
@@ -278,6 +314,24 @@ export const workerAdminMessages = defineMessages({
     'Give those credentials the admin role on the selected node.':
       '選択中のノードで、その認証情報に管理者ロールを付与してください。',
     'Invite {id} was not deleted.': '招待 {id} は削除されませんでした。',
+    'The selected node has no peer token for its coordinator.':
+      '選択したノードには、そのコーディネーターの peer token がありません。',
+    'Set peer.token on the selected node to the peer token of its coordinator.':
+      '選択したノードの peer.token に、そのコーディネーターの peer token を設定してください。',
+    'The selected node and its coordinator have different peer tokens.':
+      '選択したノードとそのコーディネーターの peer token が異なります。',
+    'Give the selected node the same peer.token as its coordinator.':
+      '選択したノードに、そのコーディネーターと同じ peer.token を設定してください。',
+    'The coordinator requires TLS, and the selected node called it over plaintext.':
+      'コーディネーターは TLS を必要としますが、選択したノードは平文で呼び出しました。',
+    'Clear {insecure} or {skipVerify} in the config of the selected node if set, and set {caFile} there to the CA certificate of the coordinator if it has none. If both are in order, check that the network path from the selected node to the coordinator passes TLS.':
+      '選択したノードの設定に {insecure} や {skipVerify} があれば外し、そのノードにコーディネーターの CA 証明書がなければ、そこで {caFile} にそれを設定してください。どちらも問題なければ、選択したノードからコーディネーターまでのネットワーク経路が TLS を通すか確認してください。',
+    'The coordinator refused the selected node.':
+      'コーディネーターが選択したノードを拒否しました。',
+    'Check the coordinator log for the reason, or run {command} on the host of the selected node, then try again.':
+      'コーディネーターのログで理由を確認するか、選択したノードのホストで {command} を実行してから、もう一度お試しください。',
+    'Start the coordinator, or check that the selected node can reach it, then try again.':
+      'コーディネーターを起動するか、選択したノードから到達できるか確認してから、もう一度お試しください。',
   },
   de: {
     'Only admins can manage workers and invites.':
@@ -371,6 +425,24 @@ export const workerAdminMessages = defineMessages({
     'Give those credentials the admin role on the selected node.':
       'Geben Sie diesen Zugangsdaten auf dem ausgewählten Knoten die Admin-Rolle.',
     'Invite {id} was not deleted.': 'Die Einladung {id} wurde nicht gelöscht.',
+    'The selected node has no peer token for its coordinator.':
+      'Der ausgewählte Knoten hat kein Peer-Token für seinen Coordinator.',
+    'Set peer.token on the selected node to the peer token of its coordinator.':
+      'Setzen Sie peer.token auf dem ausgewählten Knoten auf das Peer-Token seines Coordinators.',
+    'The selected node and its coordinator have different peer tokens.':
+      'Der ausgewählte Knoten und sein Coordinator haben unterschiedliche Peer-Tokens.',
+    'Give the selected node the same peer.token as its coordinator.':
+      'Geben Sie dem ausgewählten Knoten dasselbe peer.token wie seinem Coordinator.',
+    'The coordinator requires TLS, and the selected node called it over plaintext.':
+      'Der Coordinator verlangt TLS, und der ausgewählte Knoten hat ihn im Klartext aufgerufen.',
+    'Clear {insecure} or {skipVerify} in the config of the selected node if set, and set {caFile} there to the CA certificate of the coordinator if it has none. If both are in order, check that the network path from the selected node to the coordinator passes TLS.':
+      'Entfernen Sie {insecure} oder {skipVerify} aus der Konfiguration des ausgewählten Knotens, falls gesetzt, und setzen Sie dort {caFile} auf das CA-Zertifikat des Coordinators, falls er keines hat. Ist beides in Ordnung, prüfen Sie, ob der Netzwerkpfad vom ausgewählten Knoten zum Coordinator TLS durchlässt.',
+    'The coordinator refused the selected node.':
+      'Der Coordinator hat den ausgewählten Knoten abgelehnt.',
+    'Check the coordinator log for the reason, or run {command} on the host of the selected node, then try again.':
+      'Prüfen Sie das Protokoll des Coordinators auf den Grund, oder führen Sie {command} auf dem Host des ausgewählten Knotens aus, und versuchen Sie es dann erneut.',
+    'Start the coordinator, or check that the selected node can reach it, then try again.':
+      'Starten Sie den Coordinator, oder prüfen Sie, ob der ausgewählte Knoten ihn erreichen kann, und versuchen Sie es dann erneut.',
   },
   fr: {
     'Only admins can manage workers and invites.':
@@ -463,5 +535,23 @@ export const workerAdminMessages = defineMessages({
     'Give those credentials the admin role on the selected node.':
       'Donnez à ces identifiants le rôle admin sur le nœud sélectionné.',
     'Invite {id} was not deleted.': 'L’invitation {id} n’a pas été supprimée.',
+    'The selected node has no peer token for its coordinator.':
+      'Le nœud sélectionné n’a pas de jeton de pair pour son coordinateur.',
+    'Set peer.token on the selected node to the peer token of its coordinator.':
+      'Définissez peer.token sur le nœud sélectionné avec le jeton de pair de son coordinateur.',
+    'The selected node and its coordinator have different peer tokens.':
+      'Le nœud sélectionné et son coordinateur ont des jetons de pair différents.',
+    'Give the selected node the same peer.token as its coordinator.':
+      'Donnez au nœud sélectionné le même peer.token que son coordinateur.',
+    'The coordinator requires TLS, and the selected node called it over plaintext.':
+      'Le coordinateur exige TLS, et le nœud sélectionné l’a appelé en clair.',
+    'Clear {insecure} or {skipVerify} in the config of the selected node if set, and set {caFile} there to the CA certificate of the coordinator if it has none. If both are in order, check that the network path from the selected node to the coordinator passes TLS.':
+      'Retirez {insecure} ou {skipVerify} de la configuration du nœud sélectionné s’ils y figurent, et définissez-y {caFile} sur le certificat d’AC du coordinateur s’il n’en a pas. Si les deux sont en ordre, vérifiez que le chemin réseau du nœud sélectionné vers le coordinateur laisse passer TLS.',
+    'The coordinator refused the selected node.':
+      'Le coordinateur a refusé le nœud sélectionné.',
+    'Check the coordinator log for the reason, or run {command} on the host of the selected node, then try again.':
+      'Consultez le journal du coordinateur pour en connaître la raison, ou exécutez {command} sur l’hôte du nœud sélectionné, puis réessayez.',
+    'Start the coordinator, or check that the selected node can reach it, then try again.':
+      'Démarrez le coordinateur, ou vérifiez que le nœud sélectionné peut le joindre, puis réessayez.',
   },
 });

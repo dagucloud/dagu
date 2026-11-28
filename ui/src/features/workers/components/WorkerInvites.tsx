@@ -138,24 +138,27 @@ interface DeleteOutcomes {
   /** The late failures, one per invite. */
   failures: LateFailure[];
   failed: (failure: LateFailure) => void;
-  /** The invite is gone, so no failure to delete it holds, then or later. */
-  deleted: (inviteId: string) => void;
-  /** The admin no longer needs to see the failure. */
+  /** Clears the failure of an invite, as once it is gone. */
   dismiss: (inviteId: string) => void;
+  /** The invites with a delete under way; each has one at most. */
+  pending: ReadonlySet<string>;
+  begin: (inviteId: string) => void;
+  end: (inviteId: string) => void;
 }
 
 function useDeleteOutcomes(): DeleteOutcomes {
   const [failures, setFailures] = React.useState<LateFailure[]>([]);
-  // The invites known to be gone. A delete of one that was still under way
-  // when another deleted it cannot fail it afterwards.
-  const gone = React.useRef(new Set<string>());
-  const failed = React.useCallback((failure: LateFailure) => {
-    if (gone.current.has(failure.invite.id)) return;
-    setFailures((current) => [
-      ...current.filter((other) => other.invite.id !== failure.invite.id),
-      failure,
-    ]);
-  }, []);
+  const [pending, setPending] = React.useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  const failed = React.useCallback(
+    (failure: LateFailure) =>
+      setFailures((current) => [
+        ...current.filter((other) => other.invite.id !== failure.invite.id),
+        failure,
+      ]),
+    []
+  );
   const dismiss = React.useCallback(
     (inviteId: string) =>
       setFailures((current) =>
@@ -165,14 +168,21 @@ function useDeleteOutcomes(): DeleteOutcomes {
       ),
     []
   );
-  const deleted = React.useCallback(
-    (inviteId: string) => {
-      gone.current.add(inviteId);
-      dismiss(inviteId);
-    },
-    [dismiss]
+  const begin = React.useCallback(
+    (inviteId: string) =>
+      setPending((current) => new Set(current).add(inviteId)),
+    []
   );
-  return { failures, failed, deleted, dismiss };
+  const end = React.useCallback(
+    (inviteId: string) =>
+      setPending((current) => {
+        const next = new Set(current);
+        next.delete(inviteId);
+        return next;
+      }),
+    []
+  );
+  return { failures, failed, dismiss, pending, begin, end };
 }
 
 // A confirmation, with its own number so that a delete that ends after its
@@ -291,6 +301,9 @@ function InviteList({
                   ? () => setDeleting({ invite, request: ++requests.current })
                   : undefined
               }
+              // A second delete waits for the first to settle, also after
+              // its dialog was closed.
+              deletePending={outcomes.pending.has(invite.id)}
             />
           ))}
         </ul>
@@ -341,7 +354,9 @@ function InviteList({
           key={deleting.request}
           invite={deleting.invite}
           onClose={() => closeDialog(deleting.request)}
-          onDeleted={() => outcomes.deleted(deleting.invite.id)}
+          onDeleted={() => outcomes.dismiss(deleting.invite.id)}
+          onStarted={() => outcomes.begin(deleting.invite.id)}
+          onSettled={() => outcomes.end(deleting.invite.id)}
           onLateFailure={(error) =>
             outcomes.failed({ invite: deleting.invite, error })
           }
@@ -459,10 +474,12 @@ function InviteRow({
   invite,
   now,
   onDelete,
+  deletePending = false,
 }: {
   invite: WorkerInvite;
   now: number;
   onDelete?: () => void;
+  deletePending?: boolean;
 }) {
   const { ts } = useI18n();
   // Turns at the expiry itself, on the shared second clock, so the expiry
@@ -508,6 +525,7 @@ function InviteRow({
             variant="ghost"
             aria-label={deleteLabel}
             title={deleteLabel}
+            disabled={deletePending}
             onClick={onDelete}
           >
             <Trash2 />
@@ -596,11 +614,16 @@ function DeleteInviteDialog({
   onClose,
   onDeleted,
   onLateFailure,
+  onStarted,
+  onSettled,
 }: {
   invite: WorkerInvite;
   onClose: () => void;
   onDeleted: () => void;
   onLateFailure: (error: unknown) => void;
+  /** The delete request starts and settles, whether or not the dialog is open. */
+  onStarted: () => void;
+  onSettled: () => void;
 }) {
   const { ts } = useI18n();
   const { deleteInvite, rereadInvites } = useWorkerActions();
@@ -619,6 +642,7 @@ function DeleteInviteDialog({
     if (submitting || gone) return;
     setSubmitting(true);
     setError(null);
+    onStarted();
     try {
       await deleteInvite(invite.id);
       onDeleted();
@@ -634,6 +658,7 @@ function DeleteInviteDialog({
       }
     } finally {
       setSubmitting(false);
+      onSettled();
       // The server deletes on its own coordinators, so the local list is
       // read again, also after a switch to another node and back.
       rereadInvites('local');

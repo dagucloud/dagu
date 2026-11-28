@@ -551,28 +551,33 @@ describe('WorkerInvites', () => {
     ).not.toBeInTheDocument();
   });
 
-  // An older delete of an invite that a newer one deleted cannot fail it
-  // afterwards.
-  it('drops the late failure of an invite a retry deleted', async () => {
+  // An invite has one delete under way at most: its Delete waits for the
+  // first request to settle, also after that dialog was closed.
+  it('sends one delete at a time for an invite', async () => {
     server.invites = invitesAnswer([invite('inv-1')]);
     const pending = heldDeletes();
     renderInvites();
     await startDelete('inv-1');
     await userEvent.keyboard('{Escape}');
-    server.invites = invitesAnswer([]);
-    await startDelete('inv-1');
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    );
 
-    await act(async () => pending[1]!({ status: 204 }));
-    await screen.findByText('No invites');
+    const row = screen.getByRole('button', { name: /^Delete invite inv-1/ });
+    expect(row).toBeDisabled();
+    await userEvent.click(row);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(requests('DELETE', '/workers/invites/inv-1')).toHaveLength(1);
+
     await act(async () =>
       pending[0]!(refused(503, '', 'internal_error', 'no_coordinator'))
     );
-    await act(() => Promise.resolve());
-
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Invite inv-1 was not deleted.'
+    );
     expect(
-      screen.queryByText('Invite inv-1 was not deleted.')
-    ).not.toBeInTheDocument();
+      screen.getByRole('button', { name: /^Delete invite inv-1/ })
+    ).toBeEnabled();
   });
 
   // A bad ID is refused before any coordinator call. The words of that
@@ -1313,6 +1318,43 @@ describe('WorkerInvites', () => {
     ).toBeInTheDocument();
     expect(screen.queryByText(/Sign in/)).not.toBeInTheDocument();
   });
+
+  // On a remote node the selected node calls its coordinator: the remedies
+  // name that node, not this server.
+  it.each([
+    [
+      'peer_token_missing',
+      'The selected node has no peer token for its coordinator.',
+      'Set peer.token on the selected node to the peer token of its coordinator.',
+    ],
+    [
+      'peer_token_mismatch',
+      'The selected node and its coordinator have different peer tokens.',
+      'Give the selected node the same peer.token as its coordinator.',
+    ],
+    [
+      'require_tls',
+      'The coordinator requires TLS, and the selected node called it over plaintext.',
+      'Clear peer.insecure: true or peer.skip_tls_verify: true in the config of the selected node if set, and set peer.ca_cert_file there to the CA certificate of the coordinator if it has none. If both are in order, check that the network path from the selected node to the coordinator passes TLS.',
+    ],
+    [
+      'no_coordinator',
+      'No coordinator is running or reachable.',
+      'Start the coordinator, or check that the selected node can reach it, then try again.',
+    ],
+  ])(
+    'names the selected node in the remedy for %s',
+    async (reason, cause, change) => {
+      server.node = 'node-b';
+      server.invites = refused(503, '', 'internal_error', reason);
+
+      renderInvites();
+
+      expect(await screen.findByText(cause)).toBeInTheDocument();
+      expect(screen.getByText(change)).toBeInTheDocument();
+      expect(document.body).not.toHaveTextContent(/this server/i);
+    }
+  );
 
   // A read that a delete superseded cannot show its failure over the newer
   // list: only the last read publishes a list or an error.
