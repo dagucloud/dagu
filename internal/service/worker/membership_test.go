@@ -923,7 +923,7 @@ var removedAnswer = status.Error(codes.Unauthenticated, "this worker was removed
 // A worker whose certificate a coordinator refused while it ran keeps the
 // refusal with its certificate, so a restart with the same invite, or with
 // none, exits with the same message without calling a coordinator. A
-// different invite enrolls again with a new key (Spec 108 §Removed Worker,
+// different invite enrolls the worker again (Spec 108 §Removed Worker,
 // §Worker Start).
 func TestMembershipRemoved(t *testing.T) {
 	ca := newTestCA(t)

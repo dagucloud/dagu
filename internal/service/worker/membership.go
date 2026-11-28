@@ -296,7 +296,7 @@ func keptUseOf(cred *credential, invite *coordinator.Invite) keptUse {
 		// Another CA's certificate gives way to a new enrollment.
 		return keptUnused
 	case cred.removed && cred.inviteDigest != invite.Digest():
-		// A different invite brings a removed worker back with a new key.
+		// A different invite enrolls a removed worker again.
 		return keptUnused
 	}
 	// A certificate from the invite's CA makes a restart keep it, so a
