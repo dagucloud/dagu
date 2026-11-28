@@ -118,10 +118,11 @@ var errNoCoordinator = &Error{
 // CreateWorkerInvite implements the createWorkerInvite operation. Its
 // response is the only one that contains the invite.
 func (a *API) CreateWorkerInvite(ctx context.Context, request api.CreateWorkerInviteRequestObject) (api.CreateWorkerInviteResponseObject, error) {
-	client, err := a.workerAccess(ctx)
-	if err != nil {
+	if err := a.requireAdmin(ctx); err != nil {
 		return nil, err
 	}
+	// The request is checked before the coordinator client, so an invalid
+	// one answers 400 also on a server without a coordinator.
 	req := &coordinatorv1.CreateInviteRequest{}
 	if user, ok := auth.UserFromContext(ctx); ok && user != nil {
 		req.CreatedBy = user.Username
@@ -139,10 +140,16 @@ func (a *API) CreateWorkerInvite(ctx context.Context, request api.CreateWorkerIn
 			}
 		}
 		if body.ExpiresIn != nil {
-			if req.ExpiresInSeconds, err = expiresInSeconds(*body.ExpiresIn); err != nil {
+			seconds, err := expiresInSeconds(*body.ExpiresIn)
+			if err != nil {
 				return nil, err
 			}
+			req.ExpiresInSeconds = seconds
 		}
+	}
+	client, err := a.workerAccess(ctx)
+	if err != nil {
+		return nil, err
 	}
 	resp, err := client.CreateInvite(ctx, req)
 	if err != nil {

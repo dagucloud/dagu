@@ -483,3 +483,21 @@ func TestCreateWorkerInviteInviteAsAddress(t *testing.T) {
 	assert.Nil(t, stub.created)
 	assert.Empty(t, store.entries)
 }
+
+// An invalid create answers 400 also on a server without a coordinator.
+func TestCreateWorkerInviteInvalidWithoutCoordinator(t *testing.T) {
+	t.Parallel()
+
+	a, _ := rolesAPI(nil)
+	for name, body := range map[string]*openapiv1.CreateWorkerInviteRequest{
+		"invite as address": {Address: new(testInvite + ":50055")},
+		"expiresIn":         {ExpiresIn: new("soon")},
+	} {
+		_, err := a.CreateWorkerInvite(userContext(auth.RoleAdmin), openapiv1.CreateWorkerInviteRequestObject{Body: body})
+		assert.Equal(t, http.StatusBadRequest, httpStatus(t, err), name)
+	}
+	_, err := a.CreateWorkerInvite(userContext(auth.RoleViewer), openapiv1.CreateWorkerInviteRequestObject{
+		Body: &openapiv1.CreateWorkerInviteRequest{ExpiresIn: new("soon")},
+	})
+	assert.Equal(t, http.StatusForbidden, httpStatus(t, err), "the role is checked first")
+}
