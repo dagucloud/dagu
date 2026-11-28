@@ -3,8 +3,8 @@
 ## Status
 
 Partially implemented. Implemented: the unset default of `peer.insecure`,
-[Client Transport](#client-transport) and the
-[Start Line](#start-line) except worker invites and certificates, the
+[Client Transport](#client-transport), the
+[Start Line](#start-line), the
 [Per Coordinator](#per-coordinator) line, the warnings of
 [Ignored Settings](#ignored-settings),
 [Bring Your Own Certificates](#bring-your-own-certificates), the
@@ -24,12 +24,18 @@ their [Coordinator Calls](#coordinator-calls), the
 [Coordinator Side](#coordinator-side) of enrollment with the
 [Worker Certificate](#worker-certificate) and its record, the coordinator
 side of [Revocation](#revocation), and [Removal](#removal) of a worker that
-is not connected, and
+is not connected, the [Worker Side](#worker-side) of enrollment, the
+[Worker Files](#worker-files), the [Worker Start](#worker-start) except a
+certificate refused as revoked, the [Worker Lock](#worker-lock), the
+[Environment](#environment) in the heartbeat and in `GetWorkers`, the rows
+of [Configuration Conflicts](#configuration-conflicts) for `worker.invite`,
+the [Messages](#messages) of an enrolling worker, and
 [`dagu worker --check`](#dagu-worker---check) without the lines of invite
 workers. Clients that share a coordinator's data directory use built-in
-TLS. No client enrolls yet. A removal of a connected worker fails with
-`FailedPrecondition` and says to stop the worker on its host first, and a
-worker does not yet act on its removal as
+TLS. A worker that holds a certificate logs the message for a coordinator
+of a different Dagu, but does not exit on it yet. A removal of a connected
+worker fails with `FailedPrecondition` and says to stop the worker on its
+host first, and a worker does not yet act on its removal as
 [Removed Worker](#removed-worker) states.
 
 Behavior lands in parts, tracked in #4292. Each part that implements a
@@ -1179,6 +1185,7 @@ A worker prints the cause and the next step:
 | --- | --- |
 | The address does not answer | `Cannot reach coordinator at <host>:<port>`<br>`Check that the coordinator accepts workers from other hosts, that port <port> is open on the way, and that the address is right.` |
 | `Enroll` refuses the invite | `The invite is invalid, expired, or already used`<br>`Get a new command from "Add worker". For several hosts, use a reusable invite.` |
+| A coordinator without built-in TLS, for a worker that enrolls | `Coordinator at <host>:<port> does not serve built-in TLS, so this worker cannot join it`<br>`Upgrade the coordinator, and check that its start line reads "Coordinator transport: built-in TLS".` |
 | The CA in the handshake does not have the invite's pin | `<host>:<port> belongs to a different Dagu (its CA does not match the invite)`<br>`Check the coordinator address.` |
 | A worker with a certificate and no `worker.invite` meets a coordinator whose CA did not sign that certificate | `<host>:<port> belongs to a different Dagu than the one this worker joined`<br>`Get a new command from "Add worker" to join it.` |
 | The worker certificate is refused as revoked | `This worker was removed from the coordinator`<br>`Get a new command from "Add worker" to add it again.` |
