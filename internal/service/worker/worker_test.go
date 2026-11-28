@@ -654,10 +654,18 @@ func freeTCPPort(t *testing.T) int {
 	return port
 }
 
+// readinessWait bounds how long the readiness test waits for an answer,
+// each request included.
+const readinessWait = 5 * time.Second
+
 // httpStatus returns the status that url answers now.
 func httpStatus(t *testing.T, url string) int {
 	t.Helper()
-	resp, err := http.Get(url) //nolint:gosec // A loopback URL the test builds.
+	ctx, cancel := context.WithTimeout(t.Context(), readinessWait)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	return resp.StatusCode
@@ -666,10 +674,13 @@ func httpStatus(t *testing.T, url string) int {
 // waitForStatus waits until url answers want.
 func waitForStatus(t *testing.T, url string, want int) {
 	t.Helper()
-	deadline := time.After(5 * time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), readinessWait)
+	defer cancel()
 	for {
 		got := 0
-		resp, err := http.Get(url) //nolint:gosec // A loopback URL the test builds.
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		require.NoError(t, err)
+		resp, err := http.DefaultClient.Do(req)
 		if err == nil {
 			_ = resp.Body.Close()
 			if got = resp.StatusCode; got == want {
@@ -677,7 +688,7 @@ func waitForStatus(t *testing.T, url string, want int) {
 			}
 		}
 		select {
-		case <-deadline:
+		case <-ctx.Done():
 			t.Fatalf("%s did not answer %d (last %d): %v", url, want, got, err)
 		case <-time.After(20 * time.Millisecond):
 		}
