@@ -246,6 +246,25 @@ func TestAddWorkerCreatesInvite(t *testing.T) {
 	require.Contains(t, actions["mcp.tool_call.succeeded"], `"invite_id":"invite-1"`)
 }
 
+// The commands carry each label without the space and line breaks around
+// it, which the worker drops anyway, and an address without its padding.
+func TestAddWorkerTrimsCommandInput(t *testing.T) {
+	t.Parallel()
+
+	stub := &workerAccessStub{readiness: []coordinator.JoinReadiness{{Report: readyReport()}}}
+	svc, _ := newAddWorkerService(stub)
+
+	result, data := addWorker(t, cloudUser(auth.RoleAdmin), svc, map[string]any{
+		"address": "\t192.168.1.20:50055\n",
+		"labels":  []string{" gpu=true\n", "zone=a"},
+	})
+
+	require.False(t, result.IsError, data)
+	require.Equal(t, "dagu worker --worker.coordinators=192.168.1.20:50055 --worker.labels=gpu=true,zone=a --worker.invite="+testWorkerInvite,
+		structuredMap(t, result)["commands"].(map[string]string)["linux"])
+	require.Equal(t, "192.168.1.20:50055", stub.created.GetAddress())
+}
+
 // A reusable invite has no expiry by default. The command quotes the IPv6
 // address, whose brackets a shell would expand.
 func TestAddWorkerReusableInvite(t *testing.T) {

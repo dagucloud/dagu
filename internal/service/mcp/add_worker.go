@@ -186,6 +186,16 @@ func workerLabelsProblem(labels []string) *executeToolError {
 	return nil
 }
 
+// commandLabels returns labels as the commands carry them, without the
+// space and line breaks around each one, which the worker drops anyway.
+func commandLabels(labels []string) []string {
+	trimmed := make([]string, 0, len(labels))
+	for _, label := range labels {
+		trimmed = append(trimmed, strings.TrimSpace(label))
+	}
+	return trimmed
+}
+
 // holdsInvite reports whether s holds text shaped like an invite.
 func holdsInvite(s string) bool {
 	return coordinator.RedactInvites(s) != s
@@ -293,7 +303,7 @@ func (svc *Service) addWorker(ctx context.Context, input executeInput) (*mcpsdk.
 		output["expiresAt"] = *invite.ExpiresAt
 	}
 	image, published := workerImage(config.Version)
-	output["commands"] = workerCommands(in.Address, input.Labels, invite.Id, invite.Invite, image, in.Reusable)
+	output["commands"] = workerCommands(in.Address, commandLabels(input.Labels), invite.Id, invite.Invite, image, in.Reusable)
 	message := "Invite " + invite.Id + " created. Show the user one of commands; no other result contains the invite. " +
 		"A worker that joins with it lists inviteId " + invite.Id + "."
 	switch {

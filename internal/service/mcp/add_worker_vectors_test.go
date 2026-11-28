@@ -100,6 +100,8 @@ func vectorCases() []vectorCase {
 		byAddress("DNS name", "coord.example.com:50055"),
 		byAddress("single-label name", "laptop:50055"),
 		byAddress("underscore name and NodePort", "worker_1.example:30055"),
+		byAddress("padded with spaces", "  192.168.1.20:50055 "),
+		byAddress("padded with a tab and a line break", "\t192.168.1.20:50055\n"),
 		byLabels("empty label", " "),
 		byLabels("same key twice", "gpu=a,gpu=b"),
 		byLabels("same key in two cases", "GPU=true,gpu=false"),
@@ -117,6 +119,8 @@ func vectorCases() []vectorCase {
 		byLabels("space after a comma", "gpu=true, region=eu"),
 		byLabels("empty middle entry", "gpu=true,,region=eu"),
 		byLabels("spaces around =", "gpu = true,team=data/eng"),
+		byLabels("line break inside a value", "zone=a\nb"),
+		byLabels("line break after a label", "gpu=true\n,zone=a"),
 		byLabels("no-break space before =", "gpu =true"),
 		{Name: "IPv6 with a label, reusable", Input: vectorInput{Address: "[2001:db8::1]:50055", Labels: "team=data-eng", Reusable: true, Version: version, InviteID: vectorInviteID}},
 		{Name: "no-break space label, reusable", Input: vectorInput{Address: address, Labels: "gpu =true", Reusable: true, Version: version, InviteID: vectorInviteID}},
@@ -131,29 +135,43 @@ func vectorCases() []vectorCase {
 		cases = append(cases, byVersion(v))
 	}
 
-	position := regexp.MustCompile(`Worker label (\d+)`)
 	for i := range cases {
-		c := &cases[i]
-		var labels []string
-		if c.Input.Labels != "" {
-			labels = strings.Split(c.Input.Labels, ",")
-		}
-		input := executeInput{AddWorker: addWorkerInput{Address: c.Input.Address, Reusable: c.Input.Reusable}, Labels: labels}
-		if err := checkAddWorkerInput(input); err != nil {
-			c.Result = vectorResult{Field: err.Field}
-			if m := position.FindStringSubmatch(err.Message); m != nil {
-				c.Result.Position, _ = strconv.Atoi(m[1])
-			}
-			continue
-		}
-		image, _ := workerImage(c.Input.Version)
-		c.Result = vectorResult{
-			Accepted: true,
-			Image:    image,
-			Commands: workerCommands(c.Input.Address, labels, c.Input.InviteID, testWorkerInvite, image, c.Input.Reusable),
-		}
+		cases[i].Result = vectorResultOf(cases[i].Input)
 	}
 	return cases
+}
+
+// vectorPosition finds the position a label refusal names.
+var vectorPosition = regexp.MustCompile(`Worker label (\d+)`)
+
+// vectorResultOf returns what add_worker makes of in, through the tool's
+// own input parsing, so a value the parser trims is trimmed here too.
+func vectorResultOf(in vectorInput) vectorResult {
+	args := map[string]any{executeFieldAction: executeActionAddWorker, executeFieldAddress: in.Address, executeFieldReusable: in.Reusable}
+	if in.Labels != "" {
+		args[executeFieldLabels] = strings.Split(in.Labels, ",")
+	}
+	raw, err := json.Marshal(args)
+	if err != nil {
+		panic(err)
+	}
+	input, refusal := parseExecuteToolInput(raw)
+	if refusal == nil {
+		refusal = checkAddWorkerInput(input)
+	}
+	if refusal != nil {
+		result := vectorResult{Field: refusal.Field}
+		if m := vectorPosition.FindStringSubmatch(refusal.Message); m != nil {
+			result.Position, _ = strconv.Atoi(m[1])
+		}
+		return result
+	}
+	image, _ := workerImage(in.Version)
+	return vectorResult{
+		Accepted: true,
+		Image:    image,
+		Commands: workerCommands(input.AddWorker.Address, commandLabels(input.Labels), in.InviteID, testWorkerInvite, image, input.AddWorker.Reusable),
+	}
 }
 
 // encodeVectors returns the vectors file, one case per line, so a diff names

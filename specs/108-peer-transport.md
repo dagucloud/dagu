@@ -1037,7 +1037,10 @@ and prints the message:
   and `.`, a value only those and `/`, and each key appears once, compared
   without case. They also refuse `os` and `arch`, which a worker sets from
   its own host. A label entry holds no comma. A refusal names the label by
-  its position, the later one for a repeated key, never by its text.
+  its position, the later one for a repeated key, never by its text. A
+  line break inside a label breaks the rules. The commands carry the
+  address and each label without the space and line breaks around them,
+  which the worker drops.
 - Step 3 shows only after steps 1 and 2. Its tab sets the invite kind:
 
   | Tab | Invite | Command |
