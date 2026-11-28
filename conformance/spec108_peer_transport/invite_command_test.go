@@ -104,6 +104,29 @@ func TestWorkerInviteClosedStdout(t *testing.T) {
 	assert.Empty(t, coordinator.invites(t, peer))
 }
 
+// On a host that shares the data directory of a coordinator with a
+// generated CA, the invite command logs no peer transport line, even at
+// the debug level, so its output says nothing of where that CA is kept
+// (Spec 108 §dagu worker invite).
+func TestWorkerInviteDebugLog(t *testing.T) {
+	dagu := harness.NewRunner(t)
+	env := []string{"DAGU_HOME=" + dagu.ProjectPath("home")}
+	port := harness.FreePort(t)
+	coordinator := dagu.StartWithEnv(env,
+		"coordinator",
+		"--coordinator.host=0.0.0.0",
+		"--coordinator.advertise=127.0.0.1",
+		"--coordinator.port="+strconv.Itoa(port),
+		"--coordinator.health-port=0",
+	)
+	waitForOutput(t, coordinator, "Coordinator transport: built-in TLS and h2c (from the generated CA)", "Starting to serve on coordinator service")
+
+	result := dagu.RunWithEnv(append(env, "DEBUG=1"), "worker", "invite", "--address", "192.168.1.20:50055")
+
+	result.ExpectExitCode(0)
+	result.ExpectStderrNotContains("Peer transport", "data directory")
+}
+
 // inviteTestCoordinator is a coordinator that dagu worker invite finds in
 // the service registry.
 type inviteTestCoordinator struct {

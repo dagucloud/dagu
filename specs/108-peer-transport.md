@@ -944,15 +944,18 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
   coordinator that fails to generate or store the invite gets that failure
   and its log as the place to look. Any other failure gets only its kind
   and that `dagu worker --check` on the calling host shows why.
-- `--address` must be valid UTF-8, hold no invite, and be one `host:port`
-  without a comma or surrounding spaces, which would change how the worker
-  reads the printed `--worker.coordinators`. It takes the addresses the Add
+- `--address` loses surrounding spaces, as in the Add worker dialog. It
+  must be valid UTF-8, hold no invite, and be one `host:port` without a
+  comma, which would split the printed `--worker.coordinators`. It takes the addresses the Add
   worker dialog takes: a port from 1 to 65535, and a host that is a DNS
   name other than `localhost` or a container ID, or an IP address without
   a zone that is not unspecified, loopback, link-local, multicast, or
   broadcast. An IPv6 host is in brackets.
-- When the output cannot be written, it deletes the invite it created, and
-  exits with code 1, naming the invite by its ID only.
+- When the output cannot be written, it tries to delete the invite it
+  created and exits with code 1. It says, naming the invite by its ID only,
+  that the invite was deleted, or that the delete failed and the invite
+  must be deleted before it is used.
+- It logs no peer transport line, even at the debug level.
 - On success it prints the invite kind and expiry, the invite, and the
   command to run on the worker host, and exits with code 0. The command
   quotes an address that a POSIX shell would change, such as an IPv6
