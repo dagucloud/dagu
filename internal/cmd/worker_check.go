@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
@@ -30,7 +31,7 @@ func isWorkerCheck(cmd *cobra.Command) bool {
 // worker.coordinators it checks the coordinators in the service registry,
 // and fails since the worker does not start without them.
 func runWorkerCheck(ctx *Context) error {
-	clientConfig, err := worker.CoordinatorClientConfig(ctx.Config)
+	clientConfig, err := worker.CoordinatorClientConfig(ctx.Config, ctx.serverStores.ServiceRegistry)
 	if err != nil {
 		return err
 	}
@@ -93,6 +94,15 @@ func workerCheckMembers(ctx *Context) ([]serviceregistry.HostInfo, error) {
 // Spec 108.
 func printWorkerCheck(w io.Writer, result coordinator.CheckResult) {
 	_, _ = fmt.Fprintf(w, "Coordinator %s\n", result.Address)
+	if result.TransportErr != nil {
+		_, _ = fmt.Fprintf(w, "  Transport: none (%v)\n", result.TransportErr)
+		return
+	}
+	_, _ = fmt.Fprintf(w, "  Transport: %s\n", result.Transport)
+	if fallback := result.Fallback; fallback != nil {
+		_, _ = fmt.Fprintf(w, "    h2c until %s, after built-in TLS failed: %s\n",
+			fallback.Until.Format(time.RFC3339), fallback.Err)
+	}
 	through := ""
 	if result.Proxy != "" {
 		through = ", through proxy " + result.Proxy
@@ -113,7 +123,10 @@ func printWorkerCheck(w io.Writer, result coordinator.CheckResult) {
 		_, _ = fmt.Fprintf(w, "  Handshake: failed, %v\n", result.TLS.Err)
 		_, _ = fmt.Fprintf(w, "    Address dialed: %s\n", result.Address)
 		printServerCertificate(w, result.TLS.Certificate)
-		return
+		if result.TLS.Fallback == "" {
+			return
+		}
+		_, _ = fmt.Fprintf(w, "    The worker falls back to h2c (from %s) for 10 minutes\n", result.TLS.Fallback)
 	case !result.TLS.Verified:
 		_, _ = fmt.Fprintln(w, "  Handshake: TLS, certificate not verified (peer.skip_tls_verify: true)")
 		printServerCertificate(w, result.TLS.Certificate)

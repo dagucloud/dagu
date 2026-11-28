@@ -78,6 +78,10 @@ const (
 	h2cReasonOlderVersion = "older version"
 )
 
+// requireTLSClientMessage is what a client says when coordinator.require_tls
+// refuses its call over h2c.
+const requireTLSClientMessage = "The coordinator requires TLS. Upgrade this process, or remove peer.insecure: true."
+
 // transportChoice is a transport and the source that selected it.
 type transportChoice struct {
 	transport string
@@ -264,16 +268,8 @@ func (t *clientTransport) use(address string, choice transportChoice) {
 // unlisted address, opens an h2c window for the address. The client that
 // opens a window logs its warning.
 func (t *clientTransport) failed(address string, plan connectionPlan, conn *handshakeConn, err error) {
-	if !t.config.InsecureUnset {
-		return
-	}
-	var source string
-	switch {
-	case conn.transportLevelFailure(err):
-		source = sourceNetworkPath
-	case plan.unlisted && isUnknownAuthority(err):
-		source = sourceNoTLS
-	default:
+	source := t.config.fallbackSource(plan, conn, err)
+	if source == "" {
 		return
 	}
 	now := t.now()
@@ -287,6 +283,23 @@ func (t *clientTransport) failed(address string, plan connectionPlan, conn *hand
 		logger.Warn(ctx, "Built-in TLS failed on the network path; using h2c for 10 minutes",
 			tag.Addr(address), tag.Error(err))
 	})
+}
+
+// fallbackSource returns the source of the h2c a client falls back to after
+// a built-in TLS handshake on plan ended with err, or "" when it does not
+// fall back: only a client with peer.insecure unset falls back, after a
+// transport-level failure, or after a certificate on an unlisted address
+// that does not chain to the published CA certificate.
+func (c *Config) fallbackSource(plan connectionPlan, conn *handshakeConn, err error) string {
+	switch {
+	case !c.InsecureUnset:
+		return ""
+	case conn.transportLevelFailure(err):
+		return sourceNetworkPath
+	case plan.unlisted && isUnknownAuthority(err):
+		return sourceNoTLS
+	}
+	return ""
 }
 
 // awaitReady waits, at most DialTimeout, until cc connects again.
@@ -334,7 +347,7 @@ func (t *clientTransport) report(ctx context.Context, link *connLink, method str
 	if fellBack && window.Source == sourceNetworkPath {
 		attrs = append(attrs, slog.String("tls-error", window.Error))
 	}
-	logger.Error(ctx, "The coordinator requires TLS. Upgrade this process, or remove peer.insecure: true.", attrs...)
+	logger.Error(ctx, requireTLSClientMessage, attrs...)
 }
 
 func isRequireTLSRefusal(err error) bool {

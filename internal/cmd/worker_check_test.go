@@ -43,7 +43,7 @@ func TestWorkerCheck(t *testing.T) {
 			name:         "Passes",
 			coordinators: reachable,
 			want: []string{
-				"Peer transport: h2c (from no TLS source)\nCoordinator " + reachable + "\n  Reachable: yes\n",
+				"Peer transport: h2c (from no TLS source)\nCoordinator " + reachable + "\n  Transport: h2c (from no TLS source)\n  Reachable: yes\n",
 				"  Coordinator answered: serving, and it accepted the call\n",
 				"Every coordinator passed the check\n",
 			},
@@ -52,7 +52,7 @@ func TestWorkerCheck(t *testing.T) {
 			name:         "Unreachable",
 			coordinators: reachable + "," + unreachable,
 			want: []string{
-				"Coordinator " + reachable + "\n  Reachable: yes\n",
+				"Coordinator " + reachable + "\n  Transport: h2c (from no TLS source)\n  Reachable: yes\n",
 				"  Cannot reach coordinator at " + unreachable + "\n",
 			},
 			wantErr: "1 of 2 coordinators did not pass the check",
@@ -90,7 +90,7 @@ func TestWorkerCheckWithoutCoordinators(t *testing.T) {
 		out, err := runWorkerCheckIn(t, home)
 
 		require.EqualError(t, err, "worker.coordinators is required: set it to the address of a coordinator above that passed")
-		assert.Contains(t, out, "Coordinator "+addr+"\n  Reachable: yes\n")
+		assert.Contains(t, out, "Coordinator "+addr+"\n  Transport: h2c (from no TLS source)\n  Reachable: yes\n")
 		assert.Contains(t, out, "  Coordinator answered: serving, and it accepted the call\n")
 	})
 

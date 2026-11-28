@@ -16,6 +16,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/test/peercert"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
 var loopback = []net.IP{net.IPv4(127, 0, 0, 1)}
@@ -70,13 +72,21 @@ func TestCheckNotServing(t *testing.T) {
 
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
-	server, addr := startMockServerWithHealth(t, coordinator.NewHandler(coordinator.HandlerConfig{}), healthServer)
+	var workerLists atomic.Int32
+	service := &mockCoordinatorService{
+		getWorkersFunc: func(context.Context, *coordinatorv1.GetWorkersRequest) (*coordinatorv1.GetWorkersResponse, error) {
+			workerLists.Add(1)
+			return &coordinatorv1.GetWorkersResponse{}, nil
+		},
+	}
+	server, addr := startMockServerWithHealth(t, service, healthServer)
 	t.Cleanup(server.Stop)
 
 	result := coordinator.Check(t.Context(), coordinator.DefaultConfig(), checkMember(t, addr))
 
 	assert.False(t, result.Passed())
 	assert.EqualError(t, result.AnswerErr, "the coordinator is not serving (not_serving), so the call with the credential was not tried")
+	assert.Zero(t, workerLists.Load())
 }
 
 // A dial that runs out of time reads as no answer, as a dropped connection
@@ -149,6 +159,9 @@ func TestCheckTLS(t *testing.T) {
 		Name: "client-only", IPAddresses: loopback, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	})
 	other, _ := peercert.Write(t, dir, peercert.Options{Name: "other", IPAddresses: loopback})
+	expired, expiredKey := peercert.Write(t, dir, peercert.Options{
+		Name: "expired", IPAddresses: loopback, NotAfter: time.Now().Add(-30 * time.Minute),
+	})
 
 	for _, tc := range []struct {
 		name         string
@@ -177,6 +190,13 @@ func TestCheckTLS(t *testing.T) {
 		{name: "NoServerAuthOtherCA", certFile: clientOnly, keyFile: clientOnlyKey, caFile: other,
 			wantErr: "the certificate does not allow server authentication; the certificate does not chain to a CA this client trusts",
 			wantIPs: []string{"127.0.0.1"}, wantCA: "client-only"},
+		{name: "Expired", certFile: expired, keyFile: expiredKey, caFile: expired,
+			wantErr: "the certificate has expired or is not valid yet", wantIPs: []string{"127.0.0.1"}, wantCA: "expired"},
+		// The validity check runs before the chain check, which still
+		// reports the untrusted CA.
+		{name: "ExpiredOtherCA", certFile: expired, keyFile: expiredKey, caFile: other,
+			wantErr: "the certificate has expired or is not valid yet; the certificate does not chain to a CA this client trusts",
+			wantIPs: []string{"127.0.0.1"}, wantCA: "expired"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -218,11 +238,13 @@ func TestCheckClientCertificate(t *testing.T) {
 	serverCert, serverKey := peercert.Write(t, dir, peercert.Options{Name: "server", IPAddresses: loopback})
 	clientCert, clientKey := peercert.Write(t, dir, peercert.Options{Name: "client"})
 	otherCert, otherKey := peercert.Write(t, dir, peercert.Options{Name: "other-client"})
+	expiredCert, expiredKey := peercert.Write(t, dir, peercert.Options{Name: "expired-client", NotAfter: time.Now().Add(-30 * time.Minute)})
 
 	for _, tc := range []struct {
 		name       string
 		clientAuth tls.ClientAuthType
 		maxVersion uint16
+		caFile     string
 		certFile   string
 		keyFile    string
 		wantErr    string
@@ -236,13 +258,18 @@ func TestCheckClientCertificate(t *testing.T) {
 		{name: "NoneTLS12", maxVersion: tls.VersionTLS12,
 			wantErr: "the coordinator requires a client certificate, and the worker sends none"},
 		{name: "OptionalOtherCA", clientAuth: tls.VerifyClientCertIfGiven, certFile: otherCert, keyFile: otherKey},
+		// A certificate from the coordinator's CA that it refuses keeps the
+		// coordinator's reason.
+		{name: "Expired", caFile: expiredCert, certFile: expiredCert, keyFile: expiredKey,
+			wantErr: "the coordinator refused the client certificate " + expiredCert + " (tls: "},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			clientAuth := cmp.Or(tc.clientAuth, tls.RequireAndVerifyClientCert)
 			maxVersion := cmp.Or(tc.maxVersion, tls.VersionTLS13)
-			addr := startCheckServer(t, mutualTLSCreds(t, serverCert, serverKey, clientCert, clientAuth, maxVersion))
+			clientCA := cmp.Or(tc.caFile, clientCert)
+			addr := startCheckServer(t, mutualTLSCreds(t, serverCert, serverKey, clientCA, clientAuth, maxVersion))
 			config := coordinator.DefaultConfig()
 			config.Insecure = false
 			config.CAFile = serverCert
