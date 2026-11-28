@@ -78,13 +78,15 @@ func TestReportCarriesWorkers(t *testing.T) {
 
 // The worker list stops at maxWorkersBytes however long labels and the
 // connection make each worker, so the report stays under what Dagu Console
-// accepts, while workers_total still counts every live worker.
+// accepts, while workers_total still counts every live worker. The short
+// notes make the connection fields a large share of each entry, so the list
+// passes the cap if they go uncounted.
 func TestReportBoundsWorkerBytes(t *testing.T) {
 	t.Parallel()
 
 	sentAt := testClockStart.Add(maxStartDelay / 2)
-	note := strings.Repeat("x", 4<<10)
-	records := make([]dispatch.WorkerHeartbeatRecord, 100)
+	note := strings.Repeat("x", 256)
+	records := make([]dispatch.WorkerHeartbeatRecord, maxWorkers)
 	for i := range records {
 		records[i] = dispatch.WorkerHeartbeatRecord{WorkerID: fmt.Sprintf("w-%03d", i),
 			Labels: map[string]string{"note": note}, LastHeartbeatAt: sentAt.UnixMilli(),
@@ -92,7 +94,7 @@ func TestReportBoundsWorkerBytes(t *testing.T) {
 	}
 
 	health := firstReportHealth(t, config.ReportRuns, coordinatorRegistry(), &stubWorkers{records: records}, false)
-	assert.JSONEq(t, "100", string(health["workers_total"]))
+	assert.JSONEq(t, fmt.Sprint(maxWorkers), string(health["workers_total"]))
 	assert.LessOrEqual(t, len(health["workers"]), maxWorkersBytes+1)
 	var workers []workerHealth
 	require.NoError(t, json.Unmarshal(health["workers"], &workers))
