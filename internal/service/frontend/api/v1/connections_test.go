@@ -599,9 +599,11 @@ func auditActions(store *recordingAuditStore) []string {
 }
 
 // The attention count covers only the workspaces the caller can see, and
-// only the connections that need reconnecting.
+// only the connections that need reconnecting. A removal and a reported
+// status change each read the connections again.
 func TestConnectionAttention(t *testing.T) {
-	f := newConnectionsFixture(t)
+	removed := 0
+	f := newConnectionsFixture(t, apiv1.WithConnectionRemovedNotifier(func() { removed++ }))
 	admin := f.admin()
 	require.NoError(t, f.workspaces.Create(t.Context(), workspace.NewWorkspace("dev", "")))
 	app := f.createApp(t, admin)
@@ -609,21 +611,32 @@ func TestConnectionAttention(t *testing.T) {
 		f.createConnection(t, admin, c.ws, c.name, app.Id)
 		f.connect(t, c.ws, c.name)
 	}
-	for _, key := range []connection.Key{{Workspace: "ops", Name: "work"}, {Workspace: "dev", Name: "other"}} {
-		conn, err := f.store.Get(t.Context(), key)
+	setStatus := func(ws, name string, status connection.TokenStatus) {
+		conn, err := f.store.Get(t.Context(), connection.Key{Workspace: ws, Name: name})
 		require.NoError(t, err)
 		_, err = f.store.UpdateTokenState(t.Context(), conn, func(st *connection.TokenState) error {
-			st.Status = connection.TokenStatusNeedsReconnect
+			st.Status = status
 			return nil
 		})
 		require.NoError(t, err)
 	}
-	count := func(ctx context.Context) int {
+	setStatus("ops", "work", connection.TokenStatusNeedsReconnect)
+	setStatus("dev", "other", connection.TokenStatusNeedsReconnect)
+	attention := func(ctx context.Context) apigen.ConnectionAttention {
 		resp, err := f.api.GetConnectionAttention(ctx, apigen.GetConnectionAttentionRequestObject{})
 		require.NoError(t, err)
-		return resp.(apigen.GetConnectionAttention200JSONResponse).NeedsReconnect
+		return apigen.ConnectionAttention(resp.(apigen.GetConnectionAttention200JSONResponse))
 	}
 
-	assert.Equal(t, 2, count(admin))
-	assert.Equal(t, 1, count(viewerIn("ops")))
+	assert.Equal(t, apigen.ConnectionAttention{NeedsReconnect: 2, Workspaces: []string{"dev", "ops"}}, attention(admin))
+	assert.Equal(t, apigen.ConnectionAttention{NeedsReconnect: 1, Workspaces: []string{"ops"}}, attention(viewerIn("ops")))
+
+	delResp, err := f.api.DeleteConnection(admin, apigen.DeleteConnectionRequestObject{Name: "work", Params: apigen.DeleteConnectionParams{Workspace: new("ops")}})
+	require.NoError(t, expectResponse[apigen.DeleteConnection204Response](delResp, err))
+	assert.Equal(t, 1, removed)
+	assert.Equal(t, apigen.ConnectionAttention{NeedsReconnect: 1, Workspaces: []string{"dev"}}, attention(admin))
+
+	setStatus("dev", "other", connection.TokenStatusConnected)
+	f.api.ConnectionsChanged()
+	assert.Equal(t, apigen.ConnectionAttention{Workspaces: []string{}}, attention(admin))
 }

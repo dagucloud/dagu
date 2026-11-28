@@ -118,6 +118,7 @@ type API struct {
 	connectEngine        *connect.Engine
 	toolCatalog          *toolcatalog.Reader
 	connectionStatus     func(context.Context, broker.StatusChange)
+	attention            attentionCounts
 	publicURL            func() string // The server's usable public URL, or empty
 	profileStore         profilepkg.Store
 	viewStore            view.Store

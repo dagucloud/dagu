@@ -7,10 +7,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"slices"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/connection"
+	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 )
+
+// connectionAttentionMaxAge bounds how long one read of the connections
+// serves callers, for a status change that no wake reported. It is shorter
+// than the attention topic's maximum refresh interval, so that refresh
+// reads again.
+const connectionAttentionMaxAge = 5 * time.Minute
 
 // GetConnectionAttention counts the connections that need reconnecting in
 // the workspaces the caller can see.
@@ -28,47 +42,129 @@ func (a *API) GetConnectionAttentionData(ctx context.Context, _ string) (any, er
 	return a.connectionAttention(ctx)
 }
 
-// connectionAttention counts the visible connections in needs_reconnect.
-// It reads the token state of each, which is where the status is kept,
-// with the store's plain read: a missing or undecodable state is not one
-// that needs reconnecting.
+// ConnectionsChanged tells the API that a connection's status may have
+// changed, so the next count reads the connections again.
+func (a *API) ConnectionsChanged() {
+	a.attention.invalidate()
+}
+
+// connectionAttention sums, over the workspaces the caller can see, the
+// counts that one shared read of the connections found.
 func (a *API) connectionAttention(ctx context.Context) (api.ConnectionAttention, error) {
-	var attention api.ConnectionAttention
+	attention := api.ConnectionAttention{Workspaces: []string{}}
 	if a.connectionStore == nil {
 		return attention, nil
 	}
-	conns, err := a.connectionStore.ListAll(ctx)
+	// The read serves other callers too, so one caller's cancel must not
+	// end it.
+	readCtx := context.WithoutCancel(ctx)
+	counts, err := a.attention.get(func() (map[string]int, error) { return a.readNeedsReconnect(readCtx) })
 	if err != nil {
-		return attention, fmt.Errorf("failed to list connections: %w", err)
+		return attention, err
 	}
-	visible := make(map[string]bool)
-	for _, conn := range conns {
-		// The notification connection belongs to no workspace.
-		if conn.Workspace == "" {
-			continue
-		}
-		seen, ok := visible[conn.Workspace]
-		if !ok {
-			role, found, err := a.effectiveRoleForWorkspace(ctx, conn.Workspace)
-			if err != nil {
-				return attention, err
-			}
-			seen = found && role.IsSet()
-			visible[conn.Workspace] = seen
-		}
-		if !seen {
-			continue
-		}
-		state, err := a.connectionStore.TokenState(ctx, conn)
-		if errors.Is(err, connection.ErrCorrupt) {
-			continue
-		}
+	for ws, n := range counts {
+		role, ok, err := a.effectiveRoleForWorkspace(ctx, ws)
 		if err != nil {
-			return attention, fmt.Errorf("failed to read connection status: %w", err)
+			return attention, err
 		}
-		if state.Status == connection.TokenStatusNeedsReconnect {
-			attention.NeedsReconnect++
+		if !ok || !role.IsSet() {
+			continue
+		}
+		attention.NeedsReconnect += n
+		attention.Workspaces = append(attention.Workspaces, connectionWorkspaceToAPI(ws))
+	}
+	slices.Sort(attention.Workspaces)
+	return attention, nil
+}
+
+// readNeedsReconnect counts the connections in needs_reconnect per
+// workspace. It lists each workspace with the store's tolerant List, so an
+// unreadable record hides only itself, and reads each status with the
+// plain token state read: a missing or undecodable state is not one that
+// needs reconnecting. The notification connection belongs to no workspace
+// and is left out.
+func (a *API) readNeedsReconnect(ctx context.Context) (map[string]int, error) {
+	workspaces := []string{secretpkg.GlobalWorkspace}
+	if a.workspaceStore != nil {
+		list, err := a.workspaceStore.List(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list workspaces: %w", err)
+		}
+		for _, ws := range list {
+			workspaces = append(workspaces, ws.Name)
 		}
 	}
-	return attention, nil
+	counts := make(map[string]int)
+	for _, ws := range workspaces {
+		conns, err := a.connectionStore.List(ctx, ws)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list connections: %w", err)
+		}
+		for _, conn := range conns {
+			state, err := a.connectionStore.TokenState(ctx, conn)
+			if errors.Is(err, connection.ErrCorrupt) {
+				logger.Warn(ctx, "Skipped an unreadable connection status",
+					slog.String("connection", connectionLabel(conn)), tag.Error(err))
+				continue
+			}
+			if err != nil {
+				return nil, fmt.Errorf("failed to read connection status: %w", err)
+			}
+			if state.Status == connection.TokenStatusNeedsReconnect {
+				counts[ws]++
+			}
+		}
+	}
+	return counts, nil
+}
+
+// attentionCounts shares one read of the connections' statuses among the
+// callers that ask for it until a change invalidates the read or it grows
+// older than connectionAttentionMaxAge. A wake of the attention topic then
+// costs one read, however many tabs subscribe.
+type attentionCounts struct {
+	// generation increases on each invalidation, without waiting for a
+	// read in progress.
+	generation atomic.Uint64
+	// readMu lets one read run at a time; callers that wait reuse it.
+	readMu sync.Mutex
+
+	mu      sync.Mutex
+	counts  map[string]int
+	readGen uint64
+	readAt  time.Time
+}
+
+func (c *attentionCounts) invalidate() {
+	c.generation.Add(1)
+}
+
+func (c *attentionCounts) get(read func() (map[string]int, error)) (map[string]int, error) {
+	if counts, ok := c.current(); ok {
+		return counts, nil
+	}
+	c.readMu.Lock()
+	defer c.readMu.Unlock()
+	if counts, ok := c.current(); ok {
+		return counts, nil
+	}
+	// A change during the read invalidates it, as it may have missed it.
+	gen := c.generation.Load()
+	counts, err := read()
+	if err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	c.counts, c.readGen, c.readAt = counts, gen, time.Now()
+	c.mu.Unlock()
+	return counts, nil
+}
+
+func (c *attentionCounts) current() (map[string]int, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.readAt.IsZero() || c.readGen != c.generation.Load() || time.Since(c.readAt) >= connectionAttentionMaxAge {
+		return nil, false
+	}
+	return c.counts, true
 }

@@ -14701,7 +14701,7 @@ paths:
   /connection-attention:
     get:
       summary: "Count the connections that need attention"
-      description: "Counts the connections in the workspaces where the caller is viewer or above that need reconnecting. The navigation badge reads it, and the connectionattention SSE topic streams the same body."
+      description: "Counts the connections in the workspaces where the caller is viewer or above that need reconnecting, and names their workspaces. The navigation badge reads it, and the connectionattention SSE topic streams the same body."
       operationId: "getConnectionAttention"
       tags:
         - "connections"
@@ -25094,10 +25094,16 @@ components:
       type: object
       required:
         - needsReconnect
+        - workspaces
       properties:
         needsReconnect:
           type: integer
           description: "Connections in needs_reconnect status in the workspaces the caller can see."
+        workspaces:
+          type: array
+          description: "The workspaces of those connections, sorted, with global for the connections of DAGs without a workspace label."
+          items:
+            type: string
 
     ConnectionListResponse:
       type: object
