@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -341,6 +342,30 @@ steps:
 `, port))
 
 	result := dagu.Run("start", "http_reference_status.yaml")
+	result.ExpectExitCode(0)
+}
+
+// TestWaitHTTPSkipTLSVerify proves with.skip_tls_verify lets the step reach
+// a server whose self-signed certificate the client does not trust.
+func TestWaitHTTPSkipTLSVerify(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+
+	dagu := harness.NewRunner(t)
+	dagu.WriteFile("http_skip_tls_verify.yaml", fmt.Sprintf(`steps:
+  - action: wait.http
+    timeout_sec: 10
+    with:
+      url: %s/
+      skip_tls_verify: true
+      poll_interval: 100ms
+`, server.URL))
+
+	result := dagu.Run("start", "http_skip_tls_verify.yaml")
 	result.ExpectExitCode(0)
 }
 

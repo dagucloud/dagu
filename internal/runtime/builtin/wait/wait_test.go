@@ -265,6 +265,24 @@ func TestHTTPRequestErrorLoggedToStderr(t *testing.T) {
 	requireOneLine(t, stderr, "wait: http GET request failed: tls: failed to verify certificate: ")
 }
 
+func TestHTTPSkipTLSVerify(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	exec := newHTTPWait(t, map[string]any{"url": server.URL, "skip_tls_verify": true})
+	var stderr bytes.Buffer
+	exec.SetStderr(&stderr)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, exec.Run(ctx))
+	require.Empty(t, stderr.String())
+}
+
 // A reset connection's error carries the local port, which changes on every
 // poll. The line must still be logged once.
 func TestHTTPConnResetLoggedOnce(t *testing.T) {

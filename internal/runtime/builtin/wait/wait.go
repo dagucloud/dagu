@@ -282,6 +282,9 @@ func (e *executorImpl) waitFile(ctx context.Context) error {
 func (e *executorImpl) waitHTTP(ctx context.Context) error {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = e.proxy
+	if e.cfg.SkipTLSVerify {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // explicit opt-in
+	}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{
 		Transport: transport,
