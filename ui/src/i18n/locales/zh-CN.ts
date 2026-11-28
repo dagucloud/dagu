@@ -2507,6 +2507,10 @@ export const baseChinese = {
   saved: '已保存',
   'HMAC secret configured': 'HMAC 密钥已配置',
   'HMAC secret': 'HMAC 密钥',
+  'A new URL drops the saved headers and HMAC secret. Enter them again to keep them.':
+    '更改 URL 会丢弃已保存的请求头和 HMAC 密钥。如需保留，请重新输入。',
+  'A new host or port drops the saved password. Enter it again to keep it.':
+    '更改主机或端口会丢弃已保存的密码。如需保留，请重新输入。',
   'Webhook URL configured ({preview})': 'Webhook URL 已配置（{preview}）',
   'Slack webhook URL': 'Slack Webhook URL',
   'Bot token configured ({preview})': '机器人令牌已配置（{preview}）',

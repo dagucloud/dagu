@@ -2603,6 +2603,10 @@ export const baseJapanese = {
   saved: '保存済み',
   'HMAC secret configured': 'HMAC シークレット設定済み',
   'HMAC secret': 'HMAC シークレット',
+  'A new URL drops the saved headers and HMAC secret. Enter them again to keep them.':
+    '新しい URL では保存済みのヘッダーと HMAC シークレットが破棄されます。残すには再入力してください。',
+  'A new host or port drops the saved password. Enter it again to keep it.':
+    'ホストまたはポートを変えると保存済みのパスワードが破棄されます。残すには再入力してください。',
   'Webhook URL configured ({preview})': 'Webhook URL 設定済み（{preview}）',
   'Slack webhook URL': 'Slack Webhook URL',
   'Bot token configured ({preview})': 'Bot トークン設定済み（{preview}）',

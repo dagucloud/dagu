@@ -6931,8 +6931,9 @@ paths:
       description: |
         Updates workspace-level notification settings. SMTP passwords are accepted
         in the request but are never returned. Omit password on updates to preserve
-        the existing password, or set clearPassword to remove it. Developer,
-        manager, or admin only.
+        the existing password, or set clearPassword to remove it. A new host or
+        port drops the stored password unless the same request sets it again.
+        Developer, manager, or admin only.
       operationId: "updateNotificationSettings"
       tags:
         - "notifications"
@@ -7274,7 +7275,9 @@ paths:
       summary: "Update notification channel"
       description: |
         Replaces a notification channel. Existing secret values
-        are preserved when omitted. Developer, manager, or admin only.
+        are preserved when omitted. A new webhook URL drops the stored
+        headers and HMAC secret unless the same request sets them again.
+        Developer, manager, or admin only.
       operationId: "updateNotificationChannel"
       tags:
         - "notifications"
@@ -8759,7 +8762,8 @@ paths:
         Creates or replaces server-side notification settings for a DAG.
         Secret values are accepted in the request but are never returned.
         Existing secret values are preserved when omitted for an existing target.
-        Developer, manager, or admin only.
+        A new webhook URL drops the stored headers and HMAC secret unless the
+        same request sets them again. Developer, manager, or admin only.
       operationId: "updateDAGNotifications"
       tags:
         - "notifications"
@@ -17665,7 +17669,7 @@ components:
           description: "SMTP username"
         password:
           type: string
-          description: "SMTP password. Omit on updates to preserve the existing password."
+          description: "SMTP password. Omit on updates to preserve the existing password while the host and port stay the same."
         clearPassword:
           type: boolean
           description: "Clear the stored SMTP password."
@@ -17857,13 +17861,13 @@ components:
           type: object
           additionalProperties:
             type: string
-          description: "Additional request headers. Values are encrypted at rest. When provided, this replaces the stored header set."
+          description: "Additional request headers. Values are encrypted at rest. When provided, this replaces the stored header set. Omit on updates to preserve the stored headers while the URL stays the same."
         clearHeaders:
           type: boolean
           description: "Clear all stored webhook headers."
         hmacSecret:
           type: string
-          description: "Optional HMAC secret for X-Dagu-Signature. Omit on updates to preserve the existing secret."
+          description: "Optional HMAC secret for X-Dagu-Signature. Omit on updates to preserve the existing secret while the URL stays the same."
         clearHmacSecret:
           type: boolean
           description: "Clear the stored HMAC secret."

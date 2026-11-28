@@ -338,6 +338,79 @@ func TestNotificationChannels_TestDelivery(t *testing.T) {
 	assert.EqualValues(t, 1, deliveries.Load())
 }
 
+// A webhook channel's stored headers and HMAC secret go only to the URL
+// they were entered for. A developer who may edit the channel but cannot
+// read its secrets must not be able to point it at another server and
+// receive them there.
+func TestNotificationChannels_RetargetDropsSecrets(t *testing.T) {
+	t.Parallel()
+
+	type delivery struct{ authorization, signature string }
+	deliveries := make(chan delivery, 4)
+	newDestination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		deliveries <- delivery{r.Header.Get("Authorization"), r.Header.Get("X-Dagu-Signature")}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(newDestination.Close)
+
+	server := setupWebhookTestServer(t)
+	adminToken := getWebhookAdminToken(t, server)
+	developerToken := createRuntimeProfileUserToken(t, server, adminToken, "developer-user", "developer1", api.UserRoleDeveloper)
+	webhook := func(url *string, headers *map[string]string, hmacSecret *string) *api.NotificationWebhookTargetInput {
+		return &api.NotificationWebhookTargetInput{
+			Url:                 url,
+			Headers:             headers,
+			HmacSecret:          hmacSecret,
+			AllowInsecureHttp:   new(true),
+			AllowPrivateNetwork: new(true),
+		}
+	}
+	channelInput := func(name string, target *api.NotificationWebhookTargetInput) api.NotificationChannelInput {
+		return api.NotificationChannelInput{Name: name, Type: api.NotificationProviderTypeWebhook, Enabled: true, Webhook: target}
+	}
+	var channel api.NotificationChannel
+	server.Client().Post("/api/v1/notification-channels", channelInput("Ops", webhook(
+		new("https://hooks.example.com/ops"),
+		&map[string]string{"Authorization": "Bearer stored-secret"},
+		new("stored-hmac"),
+	))).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t).Unmarshal(t, &channel)
+	update := func(input api.NotificationChannelInput) api.NotificationChannel {
+		var saved api.NotificationChannel
+		server.Client().Put("/api/v1/notification-channels/"+channel.Id, input).
+			WithBearerToken(developerToken).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &saved)
+		require.NotNil(t, saved.Webhook)
+		return saved
+	}
+	testSend := func() delivery {
+		var result api.TestDAGNotificationResponse
+		server.Client().Post("/api/v1/notification-channels/"+channel.Id+"/test", nil).
+			WithBearerToken(developerToken).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &result)
+		require.Len(t, result.Results, 1)
+		require.True(t, result.Results[0].Delivered, testValue(result.Results[0].Error))
+		return <-deliveries
+	}
+
+	// An update that keeps the URL keeps the stored secrets.
+	saved := update(channelInput("Ops renamed", webhook(nil, nil, nil)))
+	assert.Contains(t, testValue(saved.Webhook.Headers), "Authorization")
+	assert.True(t, saved.Webhook.HmacSecretConfigured)
+
+	saved = update(channelInput("Ops renamed", webhook(new(newDestination.URL), nil, nil)))
+	assert.Empty(t, testValue(saved.Webhook.Headers))
+	assert.False(t, saved.Webhook.HmacSecretConfigured)
+	assert.Equal(t, delivery{}, testSend())
+
+	// Secrets entered with the new URL are kept and sent.
+	update(channelInput("Ops renamed", webhook(
+		new(newDestination.URL),
+		&map[string]string{"Authorization": "Bearer new-secret"},
+		new("new-hmac"),
+	)))
+	got := testSend()
+	assert.Equal(t, "Bearer new-secret", got.authorization)
+	assert.NotEmpty(t, got.signature)
+}
+
 func TestNotificationChannels_TestMissing(t *testing.T) {
 	t.Parallel()
 	server := test.SetupServer(t)
@@ -507,7 +580,23 @@ func TestNotificationSettings_SMTPTransportIsNotReusableChannelLicensed(t *testi
 	response.Unmarshal(t, &settings)
 	require.NotNil(t, settings.Smtp)
 	assert.Equal(t, "smtp2.example.com", testValue(settings.Smtp.Host))
-	assert.True(t, settings.Smtp.PasswordConfigured)
+	// The stored password goes only to the host it was entered for.
+	assert.False(t, settings.Smtp.PasswordConfigured)
+
+	for _, password := range []*string{new("smtp-secret"), nil} {
+		response = server.Client().Put("/api/v1/notification-settings", api.NotificationWorkspaceSettingsInput{
+			Smtp: &api.NotificationSMTPSettingsInput{
+				Host:     new("smtp2.example.com"),
+				Port:     new("2525"),
+				Username: new("smtp-user"),
+				Password: password,
+				From:     new("dagu@example.com"),
+			},
+		}).ExpectStatus(http.StatusOK).Send(t)
+		response.Unmarshal(t, &settings)
+		require.NotNil(t, settings.Smtp)
+		assert.True(t, settings.Smtp.PasswordConfigured)
+	}
 
 	response = server.Client().Put("/api/v1/notification-settings", api.NotificationWorkspaceSettingsInput{
 		Smtp: &api.NotificationSMTPSettingsInput{

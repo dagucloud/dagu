@@ -2728,8 +2728,9 @@ export interface paths {
          * Update notification settings
          * @description Updates workspace-level notification settings. SMTP passwords are accepted
          *     in the request but are never returned. Omit password on updates to preserve
-         *     the existing password, or set clearPassword to remove it. Developer,
-         *     manager, or admin only.
+         *     the existing password, or set clearPassword to remove it. A new host or
+         *     port drops the stored password unless the same request sets it again.
+         *     Developer, manager, or admin only.
          *
          */
         put: operations["updateNotificationSettings"];
@@ -2849,7 +2850,9 @@ export interface paths {
         /**
          * Update notification channel
          * @description Replaces a notification channel. Existing secret values
-         *     are preserved when omitted. Developer, manager, or admin only.
+         *     are preserved when omitted. A new webhook URL drops the stored
+         *     headers and HMAC secret unless the same request sets them again.
+         *     Developer, manager, or admin only.
          *
          */
         put: operations["updateNotificationChannel"];
@@ -3431,7 +3434,8 @@ export interface paths {
          * @description Creates or replaces server-side notification settings for a DAG.
          *     Secret values are accepted in the request but are never returned.
          *     Existing secret values are preserved when omitted for an existing target.
-         *     Developer, manager, or admin only.
+         *     A new webhook URL drops the stored headers and HMAC secret unless the
+         *     same request sets them again. Developer, manager, or admin only.
          *
          */
         put: operations["updateDAGNotifications"];
@@ -6583,7 +6587,7 @@ export interface components {
             port?: string;
             /** @description SMTP username */
             username?: string;
-            /** @description SMTP password. Omit on updates to preserve the existing password. */
+            /** @description SMTP password. Omit on updates to preserve the existing password while the host and port stay the same. */
             password?: string;
             /** @description Clear the stored SMTP password. */
             clearPassword?: boolean;
@@ -6684,13 +6688,13 @@ export interface components {
              * @description HTTP or HTTPS endpoint to POST notification payloads to. Omit on updates to preserve the existing URL.
              */
             url?: string;
-            /** @description Additional request headers. Values are encrypted at rest. When provided, this replaces the stored header set. */
+            /** @description Additional request headers. Values are encrypted at rest. When provided, this replaces the stored header set. Omit on updates to preserve the stored headers while the URL stays the same. */
             headers?: {
                 [key: string]: string;
             };
             /** @description Clear all stored webhook headers. */
             clearHeaders?: boolean;
-            /** @description Optional HMAC secret for X-Dagu-Signature. Omit on updates to preserve the existing secret. */
+            /** @description Optional HMAC secret for X-Dagu-Signature. Omit on updates to preserve the existing secret while the URL stays the same. */
             hmacSecret?: string;
             /** @description Clear the stored HMAC secret. */
             clearHmacSecret?: boolean;

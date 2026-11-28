@@ -2575,6 +2575,10 @@ export const baseEnglish = {
   saved: 'saved',
   'HMAC secret configured': 'HMAC secret configured',
   'HMAC secret': 'HMAC secret',
+  'A new URL drops the saved headers and HMAC secret. Enter them again to keep them.':
+    'A new URL drops the saved headers and HMAC secret. Enter them again to keep them.',
+  'A new host or port drops the saved password. Enter it again to keep it.':
+    'A new host or port drops the saved password. Enter it again to keep it.',
   'Webhook URL configured ({preview})': 'Webhook URL configured ({preview})',
   'Slack webhook URL': 'Slack webhook URL',
   'Bot token configured ({preview})': 'Bot token configured ({preview})',

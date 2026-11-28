@@ -1541,10 +1541,10 @@ func TestService_SaveWorkspaceSettingsPreservesCreatedAtAndPassword(t *testing.T
 
 	updated, err := svc.SaveWorkspaceSettings(context.Background(), &notificationmodel.WorkspaceSettings{
 		SMTP: &notificationmodel.SMTPConfig{
-			Host:     "smtp2.example.com",
-			Port:     "2525",
+			Host:     "smtp.example.com",
+			Port:     "587",
 			Username: "smtp-user",
-			From:     "dagu@example.com",
+			From:     "alerts@example.com",
 		},
 	}, "updater")
 	require.NoError(t, err)

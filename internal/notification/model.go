@@ -1155,7 +1155,12 @@ func PreserveWorkspaceSecrets(next, existing *WorkspaceSettings) {
 	if next == nil || existing == nil || next.SMTP == nil || existing.SMTP == nil {
 		return
 	}
-	if next.SMTP.OAuth == nil && existing.SMTP.OAuth == nil && next.SMTP.Password == "" && !next.SMTP.ClearPassword {
+	// The stored password goes only to the host and port it was entered for.
+	// An OAuth provider fixes its own host and port, so its secrets follow the
+	// OAuth identity.
+	sameServer := strings.EqualFold(strings.TrimSpace(next.SMTP.Host), strings.TrimSpace(existing.SMTP.Host)) &&
+		strings.TrimSpace(next.SMTP.Port) == strings.TrimSpace(existing.SMTP.Port)
+	if sameServer && next.SMTP.OAuth == nil && existing.SMTP.OAuth == nil && next.SMTP.Password == "" && !next.SMTP.ClearPassword {
 		next.SMTP.Password = existing.SMTP.Password
 	}
 	if !sameSMTPOAuthIdentity(next.SMTP, existing.SMTP) {
@@ -1187,10 +1192,13 @@ func preserveTargetSecrets(next *Target, prev Target) {
 		if next.Webhook.URL == "" {
 			next.Webhook.URL = prev.Webhook.URL
 		}
-		if next.Webhook.HMACSecret == "" && !next.Webhook.ClearHMACSecret {
+		// Stored headers and the HMAC secret go only to the URL they were
+		// entered for; a new URL needs them entered again.
+		sameURL := strings.TrimSpace(next.Webhook.URL) == strings.TrimSpace(prev.Webhook.URL)
+		if sameURL && next.Webhook.HMACSecret == "" && !next.Webhook.ClearHMACSecret {
 			next.Webhook.HMACSecret = prev.Webhook.HMACSecret
 		}
-		if next.Webhook.Headers == nil && !next.Webhook.ClearHeaders {
+		if sameURL && next.Webhook.Headers == nil && !next.Webhook.ClearHeaders {
 			next.Webhook.Headers = prev.Webhook.Headers
 		}
 	}

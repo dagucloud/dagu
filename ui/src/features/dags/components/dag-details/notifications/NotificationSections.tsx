@@ -238,6 +238,16 @@ function ProviderFieldsBody({ draft, onChange }: ProviderFieldsProps) {
     const hasSlackURL =
       isSlackIncomingWebhookURL(draft.webhook.url) ||
       isSlackIncomingWebhookURL(draft.webhook.urlPreview || '');
+    const dropsSavedHeaders =
+      Object.keys(draft.webhook.headerPreviews || {}).length > 0 &&
+      !draft.webhook.headers.trim() &&
+      !draft.webhook.clearHeaders;
+    const dropsSavedHMAC =
+      !!draft.webhook.hmacSecretConfigured &&
+      !draft.webhook.hmacSecret.trim() &&
+      !draft.webhook.clearHmacSecret;
+    const dropsSavedSecrets =
+      draft.webhook.url.trim() !== '' && (dropsSavedHeaders || dropsSavedHMAC);
     return (
       <div className="space-y-3">
         <div className="space-y-2">
@@ -260,6 +270,15 @@ function ProviderFieldsBody({ draft, onChange }: ProviderFieldsProps) {
               })
             }
           />
+          {dropsSavedSecrets && (
+            <p className="text-xs text-muted-foreground">
+              <I18nText
+                text={
+                  'A new URL drops the saved headers and HMAC secret. Enter them again to keep them.'
+                }
+              />
+            </p>
+          )}
         </div>
         {hasSlackURL && (
           <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
