@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { backfillMessages } from '@/features/backfills/messages';
+import { addWorkerMessages } from '@/features/workers/add-worker/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
 import { connectionMessages } from '@/pages/connections/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
@@ -3413,6 +3414,7 @@ export const baseGerman = {
 export const german = {
   ...workspaceMessages.de,
   ...backfillMessages.de,
+  ...addWorkerMessages.de,
   ...nodeTestMessages.de,
   ...workerNodeMessages.de,
   ...workerAdminMessages.de,

@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { backfillMessages } from '@/features/backfills/messages';
 import { workspaceModules } from '@/features/workflow-workspace/messages';
+import { addWorkerMessages } from '@/features/workers/add-worker/messages';
 import { workerAdminMessages } from '@/features/workers/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
 import { nodeTestMessages, workerNodeMessages } from '@/pages/nodes/messages';
@@ -23,6 +24,7 @@ interface MessageModule {
 const MODULES: Readonly<Record<string, MessageModule>> = {
   ...workspaceModules,
   backfills: backfillMessages,
+  addWorker: addWorkerMessages,
   nodes: nodeTestMessages,
   workerNodes: workerNodeMessages,
   inventories: inventoryMessages,

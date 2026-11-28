@@ -1252,31 +1252,91 @@ and prints the message:
 - Step 1 shows each coordinator whose join readiness is not ready. `<port>`
   below is the reported `port`:
   - While `loopbackOnly`, the change for how Dagu was started:
-    - in Kubernetes: set `coordinator.host` to `0.0.0.0` through the
-      chart's values
-    - in a container: recreate it with
-      `-p <port>:<port> -e DAGU_COORDINATOR_HOST=0.0.0.0`
+    - in Kubernetes: for `hostSource` `env` or `flag`, the change below;
+      otherwise `DAGU_COORDINATOR_HOST=0.0.0.0` on the coordinator's
+      workload. A coordinator in its own pod shares its storage with the
+      scheduler and the web UI, so all three need a volume they can each
+      write; worker pods keep their own volumes. With the
+      Helm chart, that is `deploymentMode: distributed`: an existing
+      `ReadWriteOnce` claim cannot change its access mode, so its data moves
+      to a `ReadWriteMany` claim, and `persistence.existingClaim` and
+      `persistence.accessMode: ReadWriteMany` are set before the upgrade, as
+      the chart's README describes
+    - in a container: recreate it with `-p <port>:<port>`, and with
+      `-e <variable>=0.0.0.0`, where `<variable>` is the `hostSource`
+      variable or `DAGU_COORDINATOR_HOST`. A flag wins over a variable, and
+      a variable over a config file, so for `hostSource` `flag` the change
+      to that flag replaces `-e`
     - for `hostSource` `env` or `flag`: that variable or flag with the
       value `0.0.0.0`
-    - otherwise: `configFile` and the lines `coordinator:` and
-      `  host: 0.0.0.0` to add to it
+    - otherwise: the file `hostSource` names, else `configFile`, and to set
+      `host: 0.0.0.0` inside its `coordinator:` block, adding the block if
+      the file has none. It offers no block to append, which could repeat
+      the key
   - Without `builtinTLS`, that invites need the built-in CA, and for
     `builtinTLSReason` `ownCertificates`, that the coordinator uses
     `peer.cert_file` and `peer.key_file`, or for `caUnavailable`, that it
     could not create or read its CA and to see its start warning.
   - Each change needs a restart.
+- The dialog explains a refused call by `details.reason`, and a coordinator
+  that did not report by `errorReason`, in its own words with the change to
+  make. It never shows the message of the server or of a coordinator.
 - Step 1 keeps, even when ready, the reminder to publish port `<port>` in a
   container, and in Kubernetes the statement that workers outside the
   cluster need the coordinator Service to be of type `LoadBalancer` or
   `NodePort`.
-- The dialog reads join readiness when it opens and again when the server
-  is back after a restart. It does not poll.
-- Step 2 is a required address field. It starts with `lastInviteAddress`, or
-  with `advertise`, or empty. It suggests `addresses`, and none in a
+- The dialog reads join readiness when it opens, again when the server is
+  back after a restart, and when the admin asks to check again. It does not
+  poll. The server is back when System status's `/workers` refresh succeeds
+  after it failed. The dialog also reads join readiness each time the
+  admin returns to its window, once for the return's focus and visibility
+  events, also when ready, since a restart can be quicker than that
+  refresh and change the port. The newest reading wins over one still
+  running. Step 3 waits for each reading.
+- Step 2 is a required address field. It starts once, when the first
+  reading arrives, with `lastInviteAddress`, or with `advertise`, or
+  empty. It suggests `addresses`, and none in a
   container, where it asks for the address of the machine that runs the
-  container. It never fills in a host name, a container ID, or the
-  browser's host.
-- Step 3 shows only after steps 1 and 2. Its tab sets the invite kind:
+  container. It never guesses a host from the machine's name, a container
+  ID, or the browser's host; an explicit `advertise` may be a DNS name.
+- In Kubernetes, step 2 first asks where the workers run, with neither
+  answer chosen, since an advertised address is often a Service name that
+  only pods in the cluster resolve. Inside this cluster starts with the
+  address a pod advertises, or empty when none does. It asks the admin to
+  check that worker pods can reach the address, and says that workers in
+  another namespace need the namespace-qualified Service address, such as
+  `dagu-coordinator.<namespace>.svc:50055`.
+  Outside the cluster empties the field and asks for the load balancer's
+  address, or a node's address and the assigned node port. Either answer's
+  hint replaces the container hint of a container that reports beside the
+  pod. Step 3 waits for the answer. The field's description names the
+  hint and any refusal.
+- The field holds `host:port`, trimmed of surrounding white space as the
+  MCP action trims it, and keeps a pasted line break, which the rule below
+  refuses inside the address. Its starting value and each suggestion pass the rule
+  below, and an advertised address takes the `port` of the
+  coordinator that reported it. A later reading never changes the field,
+  also when the last pod stops reporting. When the endpoints the
+  coordinators report moved since the reading the field came from, and
+  the field holds none of them, step 2 says which endpoint the
+  coordinator now reports, compared with the host in lowercase; only one
+  that passes the rule below is offered. **Use this address** or a
+  suggestion puts an endpoint in the field and makes its reading the one
+  later readings compare with.
+- Step 2 refuses an address that a worker on another host cannot dial: one
+  that is not `host:port` with a port from 1 to 65535 written without a
+  sign or leading zero; whose host is not an IPv4 address, an IPv6
+  address in brackets without a zone, or a host name of dot-separated
+  labels of letters, digits, underscores, and inner hyphens, at most 63
+  characters each and 253 in all, with no trailing dot; or whose host is `0.0.0.0`,
+  `[::]`, a loopback, link-local, multicast, or broadcast address,
+  `localhost`, a container ID (12 or 64 lowercase hexadecimal
+  characters), or text shaped like an invite.
+  `POST /api/v1/workers/invites` checks only the form, the same
+  `host:port` rule without the reachability checks, since automation may
+  reach the coordinator through a tunnel.
+- Step 3 shows only after steps 1 and 2, and not while a reading of step
+  1 runs, as after a restart. Its tab sets the invite kind:
 
   | Tab | Invite | Command |
   | --- | --- | --- |
@@ -1459,8 +1519,10 @@ The Workers page is the list of workers on System status.
 - A coordinator with a peer CA checks that the published CA certificate
   exists each time it refreshes its registry entry, which it does already.
   It adds no timer.
-- Join readiness is read only when the dialog opens, when the server comes
-  back while it is open, and by `dagu worker invite`.
+- Join readiness is read only by the dialog, at the times
+  [Add Worker](#add-worker) lists, and by `dagu worker invite`. Each read
+  also reads the invite records for `lastInviteAddress`, so its cost grows
+  with the invites that have not been pruned.
 - The clients on a host that fell back try TLS again at most once per
   coordinator address per 10 minutes, or after a refusal of
   `coordinator.require_tls`. They write the window record only when a

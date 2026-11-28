@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { backfillMessages } from '@/features/backfills/messages';
+import { addWorkerMessages } from '@/features/workers/add-worker/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
 import { connectionMessages } from '@/pages/connections/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
@@ -3276,6 +3277,7 @@ export const baseChinese = {
 export const chinese = {
   ...workspaceMessages['zh-CN'],
   ...backfillMessages['zh-CN'],
+  ...addWorkerMessages['zh-CN'],
   ...nodeTestMessages['zh-CN'],
   ...workerNodeMessages['zh-CN'],
   ...workerAdminMessages['zh-CN'],
