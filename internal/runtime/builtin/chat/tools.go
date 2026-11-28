@@ -17,6 +17,7 @@ import (
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/llm/toolschema"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
 // toolParam represents a parsed parameter definition.
@@ -179,7 +180,11 @@ func checkModelInputs(ctx context.Context, dag *ir.DAG, params []toolParam) erro
 	// Both variables hold every param as JSON.
 	inputs[runenv.EnvKeyDAGParamsJSON] = true
 	inputs[runenv.EnvKeyDAGParamsJSONCompat] = true
-	inputs = withEnvCopies(inputs, dag.Env)
+	env, err := rawEnv(ctx, dag)
+	if err != nil {
+		return err
+	}
+	inputs = withEnvCopies(inputs, env)
 
 	for _, def := range dag.ParamDefs {
 		if ref, variable, ok := modelRef(def.Eval, inputs, true); ok {
@@ -226,6 +231,19 @@ func checkModelInputs(ctx context.Context, dag *ir.DAG, params []toolParam) erro
 		}
 	}
 	return nil
+}
+
+// rawEnv returns the env entries of the tool DAG as written. The loaded DAG
+// holds them with the param defaults filled in, which hides a copy of an input.
+func rawEnv(ctx context.Context, dag *ir.DAG) ([]string, error) {
+	if len(dag.YamlData) == 0 {
+		return dag.Env, nil
+	}
+	raw, err := spec.LoadYAML(ctx, dag.YamlData, spec.WithoutEval())
+	if err != nil {
+		return nil, fmt.Errorf("tool DAG %q: failed to read its env: %w", dag.Name, err)
+	}
+	return raw.Env, nil
 }
 
 // withEnvCopies returns inputs with the names of the env entries whose value
