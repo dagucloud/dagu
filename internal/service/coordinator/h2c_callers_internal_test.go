@@ -68,6 +68,40 @@ func TestH2CCallersRecord(t *testing.T) {
 	assert.Equal(t, []string{"10.0.0.1 older version", "10.0.0.1 peer.insecure"}, listedCallers(callers))
 }
 
+// nonWorkerMethods are the calls that processes other than workers make, so
+// the h2c callers list them.
+var nonWorkerMethods = map[string]bool{
+	coordinatorv1.CoordinatorService_Dispatch_FullMethodName:           true,
+	coordinatorv1.CoordinatorService_GetWorkers_FullMethodName:         true,
+	coordinatorv1.CoordinatorService_GetH2CCallers_FullMethodName:      true,
+	coordinatorv1.CoordinatorService_PutWorkspaceBundle_FullMethodName: true,
+	coordinatorv1.CoordinatorService_HasWorkspaceBundle_FullMethodName: true,
+	coordinatorv1.CoordinatorService_GetDAGRunStatus_FullMethodName:    true,
+	coordinatorv1.CoordinatorService_RequestCancel_FullMethodName:      true,
+	coordinatorv1.CoordinatorService_GetJoinReadiness_FullMethodName:   true,
+	coordinatorv1.CoordinatorService_CreateInvite_FullMethodName:       true,
+	coordinatorv1.CoordinatorService_ListInvites_FullMethodName:        true,
+	coordinatorv1.CoordinatorService_DeleteInvite_FullMethodName:       true,
+}
+
+// Every coordinator call is either a worker's call or another process's, so
+// a new call needs a decision before the h2c callers list or skip it.
+func TestH2CCallersClassifyEveryMethod(t *testing.T) {
+	desc := coordinatorv1.CoordinatorService_ServiceDesc
+	var methods []string
+	for _, method := range desc.Methods {
+		methods = append(methods, "/"+desc.ServiceName+"/"+method.MethodName)
+	}
+	for _, stream := range desc.Streams {
+		methods = append(methods, "/"+desc.ServiceName+"/"+stream.StreamName)
+	}
+	for _, method := range methods {
+		assert.NotEqual(t, workerMethods[method], nonWorkerMethods[method],
+			"%s must be in exactly one of workerMethods and nonWorkerMethods", method)
+	}
+	assert.Len(t, methods, len(workerMethods)+len(nonWorkerMethods), "a listed method is not a coordinator call")
+}
+
 // A caller leaves the list 10 minutes after its last call, with no timer.
 func TestH2CCallersExpire(t *testing.T) {
 	callers, advance := newTestH2CCallers()

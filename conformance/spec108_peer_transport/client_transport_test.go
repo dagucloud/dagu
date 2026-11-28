@@ -18,7 +18,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -139,6 +141,9 @@ func (s startAll) get(ctx context.Context, path string, body any) error {
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
 	if err := json.NewDecoder(resp.Body).Decode(body); err != nil {
 		return fmt.Errorf("status %d: %w", resp.StatusCode, err)
 	}
@@ -169,8 +174,9 @@ func (s startAll) h2cCallers(t *testing.T) []string {
 
 // After the upgrade, start-all with no setting serves built-in TLS, and its
 // server and a worker that shares its data directory use it: both keep
-// working under coordinator.require_tls, which refuses a worker on h2c
-// (Spec 108 §start-all After the Upgrade, §Require TLS).
+// working under coordinator.require_tls, which refuses a worker on h2c.
+// System status still lists a refused caller (Spec 108 §start-all After the
+// Upgrade, §Require TLS, §h2c Callers).
 func TestStartAllBuiltinTLS(t *testing.T) {
 	dagu := harness.NewRunner(t)
 	services := startStartAll(t, dagu, "DAGU_COORDINATOR_REQUIRE_TLS=true")
@@ -185,6 +191,11 @@ func TestStartAllBuiltinTLS(t *testing.T) {
 	plaintext := services.startSharedWorker(t, dagu, "h2c-worker", services.coordinator, "--peer.insecure")
 	waitForOutput(t, plaintext, h2cInsecure,
 		"The coordinator requires TLS. Upgrade this process, or remove peer.insecure: true.")
+
+	client := coordinatorv1.NewCoordinatorServiceClient(dialCoordinator(t, services.coordinator, insecure.NewCredentials()))
+	_, err := client.GetWorkers(callContext(t), &coordinatorv1.GetWorkersRequest{}, grpc.WaitForReady(true))
+	require.Equal(t, codes.Unauthenticated, status.Code(err), "%v", err)
+	assert.Equal(t, []string{"127.0.0.1 older version"}, services.h2cCallers(t))
 }
 
 // A worker on h2c, as every worker before Spec 108 is, is still served,

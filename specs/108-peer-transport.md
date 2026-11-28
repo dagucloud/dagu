@@ -770,6 +770,7 @@ or `stop`:
 - A worker's call is one that only workers and their runs make: `Poll`,
   `Heartbeat`, `AckTaskClaim`, `RunHeartbeat`, `ReportStatus`,
   `StreamLogs`, `StreamArtifacts`, `GetWorkspaceBundle`, `GetDAG`, the
+  state calls (`GetState`, `PutState`, `DeleteState`, `ListState`), the
   agent session cleanup calls, the `Resolve` calls, and `Enroll`. The
   [Workers List](#workers-list) shows how workers connect.
 - The list holds the calls that `coordinator.require_tls` refuses too.
