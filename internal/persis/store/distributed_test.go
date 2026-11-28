@@ -187,6 +187,13 @@ func TestDAGRunLeaseStore_RequestStop(t *testing.T) {
 	lease, err := s.Get(ctx, "named")
 	require.NoError(t, err)
 	assert.True(t, lease.StopRequested)
+	// Renewals keep the request: a touch, and a write of the lease without
+	// it, as a heartbeat makes.
+	require.NoError(t, s.Touch(ctx, "named", time.Now()))
+	require.NoError(t, s.Upsert(ctx, named))
+	lease, err = s.Get(ctx, "named")
+	require.NoError(t, err)
+	assert.True(t, lease.StopRequested, "a renewal keeps the stop request")
 
 	raced := dispatch.DAGRunLease{AttemptKey: "raced", WorkerID: "worker-1", CertificateID: "cert-a"}
 	require.NoError(t, s.Upsert(ctx, raced))

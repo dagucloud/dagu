@@ -2880,27 +2880,42 @@ func TestStopDeadlineBlockedRevocation(t *testing.T) {
 
 // The stop request reaches the worker from the lease it was recorded on:
 // the heartbeat that lists the run returns its cancel even while the run's
-// status cannot be read (Spec 108 §Removal).
+// status cannot be read, also on another coordinator that has not reread
+// the removals since the stop (Spec 108 §Removal).
 func TestStopRequestReachesHeartbeat(t *testing.T) {
-	f := newRemovalFixture(t)
-	w := f.enroll(t, "worker-a")
-	attempt := f.runs.addAttempt(ir.DAGRunRef{Name: "dag", ID: "run-1"},
-		&ir.DAGRunStatus{Name: "dag", DAGRunID: "run-1", AttemptID: "attempt-1", Status: ir.Running})
-	attempt.readStatusError = errors.New("unreadable status")
-	f.heartbeat(t, f.h, w, "run-1")
-	f.lease(t, w, "run-1")
-	f.removeStop(t, w)
-	require.True(t, f.stopRequested(t, "run-1"))
+	for _, tc := range []struct {
+		name  string
+		other bool
+	}{
+		{name: "same coordinator"},
+		{name: "another coordinator", other: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRemovalFixture(t)
+			w := f.enroll(t, "worker-a")
+			attempt := f.runs.addAttempt(ir.DAGRunRef{Name: "dag", ID: "run-1"},
+				&ir.DAGRunStatus{Name: "dag", DAGRunID: "run-1", AttemptID: "attempt-1", Status: ir.Running})
+			attempt.readStatusError = errors.New("unreadable status")
+			f.heartbeat(t, f.h, w, "run-1")
+			f.lease(t, w, "run-1")
+			beats := f.h
+			if tc.other {
+				beats = f.coordinator(t)
+			}
+			f.removeStop(t, w)
+			require.True(t, f.stopRequested(t, "run-1"))
 
-	resp, err := f.h.Heartbeat(w.ctx, &coordinatorv1.HeartbeatRequest{WorkerId: w.id, Host: "host-" + w.id, Stats: &coordinatorv1.WorkerStats{
-		RunningTasks: []*coordinatorv1.RunningTask{{DagName: "dag", DagRunId: "run-1", AttemptKey: attemptKeyOf("run-1")}},
-	}})
-	require.NoError(t, err)
-	var cancelled []string
-	for _, run := range resp.CancelledRuns {
-		cancelled = append(cancelled, run.AttemptKey)
+			resp, err := beats.Heartbeat(w.ctx, &coordinatorv1.HeartbeatRequest{WorkerId: w.id, Host: "host-" + w.id, Stats: &coordinatorv1.WorkerStats{
+				RunningTasks: []*coordinatorv1.RunningTask{{DagName: "dag", DagRunId: "run-1", AttemptKey: attemptKeyOf("run-1")}},
+			}})
+			require.NoError(t, err)
+			var cancelled []string
+			for _, run := range resp.CancelledRuns {
+				cancelled = append(cancelled, run.AttemptKey)
+			}
+			assert.Contains(t, cancelled, attemptKeyOf("run-1"))
+		})
 	}
-	assert.Contains(t, cancelled, attemptKeyOf("run-1"))
 }
 
 // blockFirstListAll holds the first lease listing until release closes.
