@@ -260,6 +260,7 @@ Both routes give an object with these fields:
 | `count` | The number of names in the last good list. |
 | `models` | The names of the last good list, in the order of the provider. |
 | `modelInfo` | One item for each name of `models`, in the same order. See below. |
+| `truncated` | `true` when the read that made the last good list stopped at a limit: 5000 names or 10 pages. The model check then accepts a name that the list lacks. |
 | `refreshedAt` | The time of the last good read. It is absent before the first good read. |
 | `error` | The text of the error of the last read. It is absent when the last read was good. |
 | `errorAt` | The time of the error. It is present with `error`. |
@@ -278,8 +279,8 @@ The server always sends the fields `models` and `modelInfo`.
 
 The route of choices takes the workspace of the DAG from the query `workspace`: this is the value of
 the label `workspace` of the DAG. It gives the name, the protocol, the preset and the scope of each
-endpoint. The field `models` holds the names of the last good list. The field `modelInfo` has the rule
-above. Both fields are empty when the endpoint has no list. The route gives no key data and no base URL. A role that edits DAGs can read the models of an
+endpoint. The field `models` holds the names of the last good list. The fields `modelInfo` and
+`truncated` have the rules above. Both `models` and `modelInfo` are empty when the endpoint has no list. The route gives no key data and no base URL. A role that edits DAGs can read the models of an
 endpoint that its DAG may use, and it needs no other route for them.
 
 An endpoint request never has the key in its response. It has the key in the body of `POST` and `PUT`
@@ -391,8 +392,8 @@ Rules of the table:
 For each endpoint, the server keeps a list of model names and the date of its last good read. The
 list gives the author suggestions, and it decides if a step runs: once a read gave a list with a name,
 a step can name only a model of the list, or a name that the check accepts for the CLI `claude`. A
-miss refreshes the list first, at most once a minute for an endpoint. With no such list, a step can
-name any model. See [The model check](#the-model-check).
+list that a read cut short at a limit does not restrict the model. A miss refreshes the list first,
+at most once a minute for an endpoint. With no such list, a step can name any model. See [The model check](#the-model-check).
 
 ### Read
 
@@ -561,7 +562,8 @@ rule.
 The form suggests the models of the endpoint, and a free text stays typeable. The Model node lists them.
 A name that the list lacks is not an error of the form. The form shows a muted line, and the node shows an
 amber marker. Both say that the step fails when it starts, unless a refresh of the list finds the name. A
-reference and an alias of the CLI never get this line. See [The step forms](#the-step-forms).
+reference, an alias of the CLI and a name that a list with `truncated` true lacks never get this line
+or this marker. See [The step forms](#the-step-forms).
 
 `dagu validate` does not check the model. It does not read the store.
 
@@ -686,9 +688,10 @@ writes `endpoint.effort`. For a step of `chat.completion` on the old method, the
 - A step with an endpoint and no model shows the error `agent.run needs a model; choose one that the
   endpoint lists`, or the same error of `chat.completion`, on the field.
 - A name that the list lacks is not an error of the form. A muted line says that the step fails when it
-  starts, unless a refresh of the list finds the name. A `${...}` reference and, for `agent.run` with the
-  provider `claude`, an alias of the CLI get no line. An endpoint with no list gets a muted line, and a
-  link to the AI page for an administrator, who can reload the list there.
+  starts, unless a refresh of the list finds the name. A `${...}` reference, a name that a list with
+  `truncated` true lacks and, for `agent.run` with the provider `claude`, an alias of the CLI get no
+  line. An endpoint with no list gets a muted line, and a link to the AI page for an administrator, who
+  can reload the list there.
 - The Effort field has the first item "Default", which removes the key, and the levels of the chosen
   model from `efforts`. For `agent.run`, a model with no `efforts` gets the five levels of the CLI:
   `low`, `medium`, `high`, `xhigh` and `max`. For `chat.completion`, a model with no `efforts` gets no
@@ -707,8 +710,9 @@ The form and the Model node make the same edits. One undo step reverts each edit
   edit, it writes `with.endpoint.name`, moves the model to `with.endpoint.model`, and moves
   `thinking.effort` to `with.endpoint.effort`.
 - When the endpoint name of a step changes, the editor removes the model if the new endpoint has a models
-  list that lacks it. A `${...}` reference and an alias of the CLI claude stay. The editor removes no model
-  before the choices arrive, and none for a server that sends no `cliModelAliases`.
+  list that lacks it and that has `truncated` false. A `${...}` reference and an alias of the CLI
+  claude stay. The editor removes no model before the choices arrive, and none for a server that sends
+  no `cliModelAliases`.
 - When the endpoint name changes and the model stays, the editor removes `endpoint.effort` if the model
   does not support the level. A pick of a model that does not support the level removes it too.
 - A row of a model list keeps its model when its endpoint changes. An entry of a list is a map, and the
@@ -736,10 +740,11 @@ reaches them:
 - The Model select. It lists the models of the endpoint, and for `agent.run` with the provider `claude` the
   aliases of the CLI. Each item shows the display name of the model from `modelInfo`, or the name when the
   model has no display name. The name stays visible as a muted second text, because the YAML holds the
-  name, and a pick writes the name. A `${...}` reference that the YAML holds stays as an item. The closed
-  select shows the muted text "(choose a model)" in two cases: the step has no endpoint, or the model
-  is not in the list. "(choose a model)" is never an item. With no list, the control is the free text field of
-  the form, with the same rule: it writes on blur.
+  name, and a pick writes the name. A `${...}` reference that the YAML holds stays as an item, and so
+  does a model that a list with `truncated` true lacks. The closed select shows the muted text "(choose
+  a model)" in two cases: the step has no endpoint, or the model is not an item. "(choose a model)" is
+  never an item. With no list, the control is the free text field of the form, with the same rule: it
+  writes on blur.
 - The Effort select, for a step with one model. It works as the Effort field of the form. A model with no
   level shows a disabled select.
 
@@ -759,7 +764,8 @@ server:
   the step does not accept.
 - The endpoint has a models list, the model is a literal, and the list lacks it. An alias of the CLI claude
   and a `${...}` reference never get this marker. The marker makes no claim before the choices have
-  arrived, for an endpoint with no list, and for a server that sends no `cliModelAliases`.
+  arrived, for an endpoint with no list, for a list with `truncated` true, and for a server that sends no
+  `cliModelAliases`.
 
 An amber marker also shows on a step of `chat.completion` that uses the old method with a provider. The
 tooltip says that the provider is deprecated, and that an endpoint keeps its key in the server.
@@ -821,7 +827,7 @@ The response of a read:
   "keyPrefix": "sk-ant",
   "keyFingerprint": "0123456789ab",
   "keyUpdatedAt": "2026-11-04T10:00:00Z",
-  "models": { "supported": true, "count": 14, "refreshedAt": "2026-11-04T10:00:05Z" },
+  "models": { "supported": true, "count": 14, "truncated": false, "refreshedAt": "2026-11-04T10:00:05Z" },
   "createdAt": "2026-11-04T10:00:00Z",
   "updatedAt": "2026-11-04T10:00:00Z"
 }
@@ -918,7 +924,7 @@ held no model key, and the proxy had no model route. These facts are measured.
 | Risk | Note |
 | --- | --- |
 | An OAuth token of a subscription can lack the right to list models. | On 2026-11-04 the Anthropic API accepted such a token for the models list. The provider can refuse it in the future. The page then shows the error and a sentence that says why, and the model stays free text. |
-| A list of more than 5000 models. | The server keeps the first 5000 names and shows no error. The field `model` stays free text. |
+| A list of more than 5000 models. | The server keeps the first 5000 names, sets `truncated` and shows no error. The check accepts a name that the list lacks. The field `model` stays free text. |
 | Two servers on one data directory refresh the same list. | The period counts from the stored time of the last read, so the calls are rare. A short race can give two reads. The server has no lock for it. |
 | A local model host. `localhost` is the host of the coordinator. | The preset says so. A deployment gives a name that the coordinator resolves. |
 | A key that a person pasted can be wrong, and the save does not test it. | The first models read shows the error. |
