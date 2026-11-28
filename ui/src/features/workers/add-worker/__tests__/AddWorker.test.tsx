@@ -957,17 +957,22 @@ describe('AddWorker', () => {
     expect(writeText).toHaveBeenCalledWith(command);
   });
 
+  // The whole ID names the objects, so IDs that share a prefix do not.
   it('gives Kubernetes a reusable invite named after it', async () => {
     await open(readiness());
     typeAddress('192.168.1.20:30055');
     fireEvent.click(screen.getByRole('tab', { name: 'Kubernetes' }));
     expect(screen.queryByRole('radio')).toBeNull();
-    await createInvite('');
+    const id = '3f2a9c1e-7b4d-4e8a-9c0f-1a2b3c4d5e6f';
+    api.POST.mockResolvedValue(answer(201, { id, invite: INVITE }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
+    await settle();
 
     expect(api.POST).toHaveBeenCalledWith('/workers/invites', {
       body: { reusable: true, address: '192.168.1.20:30055' },
     });
-    expect(shownCommand()).toContain('  name: dagu-worker-invite-inv1\n');
+    expect(shownCommand()).toContain(`  name: dagu-worker-invite-${id}\n`);
+    expect(shownCommand()).toContain(`  name: dagu-worker-${id}\n`);
     expect(
       screen.getByText(/Reusable invite, until deleted./)
     ).toBeInTheDocument();
@@ -993,11 +998,16 @@ describe('AddWorker', () => {
     ).toBeDisabled();
   });
 
+  // The text-only panel takes the focus after its tab.
   it('offers no container command for a development build', async () => {
+    const user = userEvent.setup();
     config.version = 'dev';
     await open(readiness());
     typeAddress('192.168.1.20:50055');
     fireEvent.click(screen.getByRole('tab', { name: 'Docker' }));
+    screen.getByRole('tab', { name: 'Docker' }).focus();
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole('tabpanel'));
 
     expect(
       screen.getByText(/no published image matches it/)
@@ -1088,6 +1098,51 @@ describe('AddWorker', () => {
 
   // The command dials the address the invite was made for, even when a new
   // reading or the admin changes the field while it is being created.
+  // Escape while an invite is pending would drop the invite it returns.
+  it('stays open until a pending invite settles', async () => {
+    await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    const created = deferred<unknown>();
+    api.POST.mockReturnValue(created.promise);
+    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    await settle();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    created.resolve(answer(201, { id: 'inv-1', invite: INVITE }));
+    await settle();
+    expect(shownCommand()).toContain(INVITE);
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    await settle();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  // A replacement invite for a new address keeps the first one and its
+  // wait; going back to the first address shows the first invite again.
+  it('keeps each invite and its own read', async () => {
+    vi.useFakeTimers();
+    await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    const second = 'dagu1.second.invite';
+    api.POST.mockResolvedValueOnce(answer(201, { id: 'a', invite: INVITE }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
+    await settle();
+    typeAddress('192.168.1.21:50055');
+    api.POST.mockResolvedValueOnce(answer(201, { id: 'b', invite: second }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
+    await settle();
+    expect(shownCommand()).toContain(second);
+
+    typeAddress('192.168.1.20:50055');
+    expect(shownCommand()).toContain(`--worker.invite=${INVITE}`);
+    api.GET.mockResolvedValue(answer(200, { workers: [], errors: [] }));
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    const reads = api.GET.mock.calls.filter(([path]) => path === '/workers');
+    expect(reads).toHaveLength(2);
+  });
+
   it('keeps the command on the address the invite was made for', async () => {
     const { rerender } = await open(
       readiness({ advertise: 'coord.example.com' })
@@ -1220,13 +1275,13 @@ describe('AddWorker', () => {
     // it dials after the worker joined too. checkCommand.test.ts runs it.
     [
       'Linux',
-      `d="$(mktemp -d)" && env $(env | sed -n 's/^\\(DAGU[A-Za-z0-9_.]*\\)=.*/-u \\1/p') DAGU_HOME="$d" dagu worker --check --worker.coordinators=192.168.1.20:50055`,
+      `d="$(mktemp -d)" && (env $(env | sed -n 's/^\\(DAGU[A-Za-z0-9_.]*\\)=.*/-u \\1/p') DAGU_HOME="$d" dagu worker --check --worker.coordinators=192.168.1.20:50055; s=$?; rm -rf "$d"; exit $s)`,
     ],
     [
       'Docker',
       'docker run --rm ghcr.io/dagucloud/dagu:2.28.0 dagu worker --check --worker.coordinators=192.168.1.20:50055',
     ],
-    ['Kubernetes', 'kubectl logs deployment/dagu-worker-inv1'],
+    ['Kubernetes', 'kubectl logs deployment/dagu-worker-inv-1'],
   ])('lists the usual causes after 60 seconds on %s', async (tab, check) => {
     vi.useFakeTimers();
     await open(readiness());

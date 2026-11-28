@@ -1365,9 +1365,11 @@ and prints the message:
   write each `$` as `$$`, so no argument expands a variable such as
   `DAGU_WORKER_INVITE`, and only the Secret holds the invite.
 - The manifest names its Secret `dagu-worker-invite-<id>` and its
-  Deployment and pod label `dagu-worker-<id>`, where `<id>` is the first 8
-  lowercase letters and digits of the invite ID, so another invite's
-  manifest in the same namespace adds a worker instead of replacing one.
+  Deployment and pod label `dagu-worker-<id>`, where `<id>` is the whole
+  invite ID in lowercase, so another invite's manifest in the same
+  namespace adds a worker instead of replacing one. An ID that is not a
+  UUID keeps only its letters, digits, and hyphens, without a hyphen at
+  either end, and at most 44 characters, so each name fits Kubernetes.
 - The container commands run `ghcr.io/dagucloud/dagu:<tag>`, where `<tag>`
   is the server's version without its leading `v`. A release tagged
   `vX.Y.Z` or `vX.Y.Z-<prerelease>` publishes that image. A version has a
@@ -1383,8 +1385,11 @@ and prints the message:
 - The dialog waits on the page's existing `/workers` refresh for a worker
   with the invite's ID, and then shows its ID and labels. Closing the dialog
   keeps the invite.
-- The dialog keeps each invite and its wait until it closes, across tabs
-  and readings. At 60 seconds without a worker it reads `/workers` once
+- The dialog keeps each invite and its wait until it closes, across tabs,
+  readings, and replacement invites. Each tab shows the newest invite of
+  its kind made for the field's address, else the newest of its kind, so
+  going back to an earlier address shows that address's invite. The
+  dialog stays open while an invite request is pending. At 60 seconds without a worker it reads `/workers` once
   itself, since the page's refresh may be paused; a failed or partial read
   says the list could not be read.
 - When no worker arrives within 60 seconds and a complete read of
@@ -1393,11 +1398,12 @@ and prints the message:
   not reachable from the worker) and a diagnostic for the tab, built from
   the invite's address and ID: `dagu worker --check` on the worker host
   for Linux and Docker, and `kubectl logs` for the invite's Deployment in
-  Kubernetes. On Linux the check runs with each
-  inherited `DAGU*` variable removed by `env -u` and a new empty
-  `DAGU_HOME`, and starts only once that directory exists, so no inherited invite, data directory, or other Dagu
-  setting stops it before it dials, while the shell's proxy settings
-  stay.
+  Kubernetes. On Linux the check runs with each inherited `DAGU*`
+  variable removed by `env -u` and a new empty `DAGU_HOME`, so no
+  inherited invite, data directory, or other Dagu setting stops it before
+  it dials, while the shell's proxy settings stay. It starts only once
+  that directory exists, and removes it on exit, keeping the check's
+  exit status.
 
 #### Workers Page
 

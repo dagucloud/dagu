@@ -66,6 +66,21 @@ describe.skipIf(process.platform === 'win32')('Linux check command', () => {
     }
   });
 
+  // The new directory goes on exit, and the check's status stays.
+  it.each(['sh', 'bash'])(
+    'in %s removes its directory and keeps the status',
+    (sh) => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dagu-check-tmp-'));
+      // A mktemp stub makes the directory where the test can see it.
+      const mktemp = 'mkdir "$TMPDIR/home" && echo "$TMPDIR/home"';
+      const run = runCheck(sh, { TMPDIR: tmp }, { dagu: 'exit 3', mktemp });
+      const left = fs.readdirSync(tmp);
+      fs.rmSync(tmp, { recursive: true, force: true });
+      expect(run.status).toBe(3);
+      expect(left).toEqual([]);
+    }
+  );
+
   // Without its directory, an empty DAGU_HOME would read the usual config.
   it.each(['sh', 'bash'])('in %s never starts Dagu when mktemp fails', (sh) => {
     const run = runCheck(sh, {}, { mktemp: 'exit 1' });

@@ -27,8 +27,9 @@ const IMAGE = 'ghcr.io/dagucloud/dagu';
 const INVITE_ENV = 'DAGU_WORKER_INVITE';
 // The image's data directory.
 const DATA_DIR = '/var/lib/dagu';
-// How much of the invite ID names the manifest's objects.
-const MANIFEST_SUFFIX_LENGTH = 8;
+// The longest invite ID part of a manifest's names, so that
+// dagu-worker-invite-<id> fits a Kubernetes name. A UUID fits whole.
+const MAX_MANIFEST_SUFFIX = 63 - 'dagu-worker-invite-'.length;
 
 // The label rules a worker applies at start.
 const LABEL_KEY = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
@@ -221,12 +222,18 @@ function dockerCommand(args: string[], invite: string, image: string): string {
   ]);
 }
 
-// The first lowercase letters and digits of the invite ID, which a
-// Kubernetes name and label value may hold.
+// The invite ID as its manifest's objects name it, so two invites never
+// share them: in lowercase, with only the letters, digits, and hyphens a
+// Kubernetes name and label value may hold, no hyphen at either end, and
+// short enough for dagu-worker-invite-<id> to fit a name's 63 characters.
 function manifestSuffix(inviteId: string): string {
-  return (inviteId.toLowerCase().match(/[a-z0-9]/g) ?? [])
-    .slice(0, MANIFEST_SUFFIX_LENGTH)
-    .join('');
+  const suffix = inviteId
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/^-+|-+$/g, '');
+  return suffix.length > MAX_MANIFEST_SUFFIX
+    ? suffix.slice(0, MAX_MANIFEST_SUFFIX).replace(/-+$/, '')
+    : suffix;
 }
 
 // Each invite names its own Secret and Deployment, so a second worker added
@@ -305,9 +312,11 @@ export function checkCommand(
   // either spelling of the invite or a data directory, so the check dials
   // on a host where the worker already joined. The rest of the shell's
   // environment, such as its proxies, stays. Dagu runs only once the
-  // directory exists, since an empty DAGU_HOME reads the usual config.
+  // directory exists, since an empty DAGU_HOME reads the usual config. A
+  // subshell removes the directory and keeps the check's exit status
+  // without ending the admin's shell.
   if (tab === WorkerTab.linux) {
-    return `d="$(mktemp -d)" && env $(env | sed -n 's/^\\(DAGU[A-Za-z0-9_.]*\\)=.*/-u \\1/p') DAGU_HOME="$d" ${shellCommand(args)}`;
+    return `d="$(mktemp -d)" && (env $(env | sed -n 's/^\\(DAGU[A-Za-z0-9_.]*\\)=.*/-u \\1/p') DAGU_HOME="$d" ${shellCommand(args)}; s=$?; rm -rf "$d"; exit $s)`;
   }
   if (!input.image) return undefined;
   return shellCommand(['docker', 'run', '--rm', input.image, ...args]);

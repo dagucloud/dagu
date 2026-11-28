@@ -41,7 +41,7 @@ import {
   type RequestProblem,
 } from './parts';
 import { allReady, ReadinessBody } from './ReadinessStep';
-import { WorkerStep, type CreatedInvites } from './WorkerStep';
+import { WorkerStep, type CreatedInvite } from './WorkerStep';
 
 type Worker = components['schemas']['Worker'];
 type JoinReadiness = components['schemas']['WorkerJoinReadinessResponse'];
@@ -126,7 +126,9 @@ export function AddWorkerDialog({
   const [address, setAddress] = React.useState<string>();
   const [placement, setPlacement] = React.useState<Placement>();
   // Kept here, so an invite stays on screen when readiness changes later.
-  const [invites, setInvites] = React.useState<CreatedInvites>({});
+  const [invites, setInvites] = React.useState<CreatedInvite[]>([]);
+  // A pending invite request keeps the dialog open, so its invite shows.
+  const creating = React.useRef(false);
   const touched = React.useRef(false);
   // The reading the field's address came from: the first one, or the one
   // whose endpoint the admin took. A later reading never rewrites the
@@ -248,7 +250,10 @@ export function AddWorkerDialog({
   if (!checking) step1State = ready ? 'Ready' : 'Needs change';
 
   return (
-    <Dialog open onOpenChange={(next) => !next && onClose()}>
+    <Dialog
+      open
+      onOpenChange={(next) => !next && !creating.current && onClose()}
+    >
       <DialogContent
         className="flex max-h-[90dvh] max-w-2xl flex-col gap-5 overflow-y-auto"
         onFocusCapture={(e) => (lastFocus.current = e.target as HTMLElement)}
@@ -333,7 +338,7 @@ export function AddWorkerDialog({
           number={3}
           title="Worker"
           state={
-            validAddress || Object.keys(invites).length > 0
+            validAddress || invites.length > 0
               ? undefined
               : 'Shown after steps 1 and 2'
           }
@@ -342,9 +347,8 @@ export function AddWorkerDialog({
             address={validAddress}
             workers={workers}
             invites={invites}
-            onInvite={(kind, invite) =>
-              setInvites((prev) => ({ ...prev, [kind]: invite }))
-            }
+            onInvite={(invite) => setInvites((prev) => [...prev, invite])}
+            onCreating={(pending) => (creating.current = pending)}
           />
         </Step>
       </DialogContent>

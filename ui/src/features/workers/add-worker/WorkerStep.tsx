@@ -32,17 +32,15 @@ type Worker = components['schemas']['Worker'];
 /** How long the dialog waits before it lists the usual causes. */
 export const ARRIVAL_TIMEOUT_MS = 60_000;
 
-/** An invite this dialog created, with the address it was made for. */
+/** An invite this dialog created, with its kind and the address it was made for. */
 export interface CreatedInvite {
   id: string;
   invite: string;
   expiresAt?: string;
   createdAt: number;
   address: string;
+  kind: WorkerInviteKind;
 }
-
-/** The invites of one opening of the dialog, one per kind. */
-export type CreatedInvites = Partial<Record<WorkerInviteKind, CreatedInvite>>;
 
 const LOCAL_NODE = 'local';
 const TAB_PREFIX = 'add-worker-tab';
@@ -85,12 +83,16 @@ export function WorkerStep({
   workers,
   invites,
   onInvite,
+  onCreating,
 }: {
   /** The validated host:port; undefined while step 2 is not done. */
   address?: string;
   workers: Worker[];
-  invites: CreatedInvites;
-  onInvite: (kind: WorkerInviteKind, invite: CreatedInvite) => void;
+  /** Every invite of this opening of the dialog, oldest first. */
+  invites: CreatedInvite[];
+  onInvite: (invite: CreatedInvite) => void;
+  /** Whether an invite request is pending, so the dialog stays open. */
+  onCreating: (creating: boolean) => void;
 }) {
   const { ts } = useI18n();
   const client = useClient();
@@ -103,11 +105,14 @@ export function WorkerStep({
   const [creating, setCreating] = React.useState(false);
   const [problem, setProblem] = React.useState<RequestProblem>();
 
-  if (!address && Object.keys(invites).length === 0) return null;
+  if (!address && invites.length === 0) return null;
 
   const kind =
     tab === WorkerTab.kubernetes ? WorkerInviteKind.reusable : chosenKind;
-  const invite = invites[kind];
+  // The newest invite of the kind made for the field's address, else the
+  // newest of the kind, so going back to an earlier address shows its own.
+  const ofKind = invites.filter((i) => i.kind === kind).reverse();
+  const invite = ofKind.find((i) => i.address === address) ?? ofKind[0];
   const labels = normalizeLabels(labelsInput);
   const image = publishedImage(version);
   const panelId = `${TAB_PREFIX}-panel`;
@@ -128,13 +133,14 @@ export function WorkerStep({
   const create = async () => {
     if (!address) return;
     setCreating(true);
+    onCreating(true);
     setProblem(undefined);
     try {
       const { data, error, response } = await client.POST('/workers/invites', {
         body: { reusable: kind === WorkerInviteKind.reusable, address },
       });
       if (data) {
-        onInvite(kind, { ...data, createdAt: Date.now(), address });
+        onInvite({ ...data, createdAt: Date.now(), address, kind });
       } else {
         setProblem(
           requestProblem(
@@ -148,6 +154,7 @@ export function WorkerStep({
       setProblem({ text: 'The request failed.' });
     } finally {
       setCreating(false);
+      onCreating(false);
     }
   };
 
@@ -165,6 +172,9 @@ export function WorkerStep({
         role="tabpanel"
         id={panelId}
         aria-labelledby={tabStripTabId(TAB_PREFIX, tab)}
+        // Only text shows on a development build's container tabs, so the
+        // panel itself takes the focus after the tab.
+        tabIndex={panelShowsInvite ? undefined : 0}
         className="space-y-3"
       >
         {tab !== WorkerTab.linux && !image ? (
@@ -191,7 +201,7 @@ export function WorkerStep({
         )}
         {/* Every invite keeps its wait for the life of the dialog, so a
             join is not forgotten when the admin switches tabs. */}
-        {Object.values(invites).map((made) => (
+        {invites.map((made) => (
           <Arrival
             key={made.id}
             hidden={!panelShowsInvite || made.id !== invite?.id}
