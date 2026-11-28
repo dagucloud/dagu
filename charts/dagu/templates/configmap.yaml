@@ -235,8 +235,8 @@ data:
 {{- end }}
 {{- end }}
 
-{{- if eq .Values.deploymentMode "distributed" }}
+{{- if include "dagu.peerCASecret" . }}
     # Peer communication
     peer:
-      insecure: true
+      ca_cert_file: {{ printf "%s/ca.crt" (include "dagu.peerCADir" .) | quote }}
 {{- end }}

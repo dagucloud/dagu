@@ -85,3 +85,43 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{ toYaml . }}
 {{- end }}
 {{- end }}
+
+{{- /*
+The CA Secret applies to distributed mode only: start-all runs no coordinator.
+dig keeps an upgrade that reuses an older chart's values working.
+*/}}
+{{- define "dagu.peerCASecret" -}}
+{{- if eq .Values.deploymentMode "distributed" -}}
+{{- dig "peer" "existingCASecret" "" .Values.AsMap -}}
+{{- end -}}
+{{- end }}
+
+{{- define "dagu.peerCADir" -}}
+/etc/dagu-peer-ca
+{{- end }}
+
+{{- define "dagu.peerCAVolumeMount" -}}
+{{- if include "dagu.peerCASecret" . -}}
+- name: peer-ca
+  mountPath: {{ include "dagu.peerCADir" . }}
+  readOnly: true
+{{- end }}
+{{- end }}
+
+{{- /* Only the coordinator, called with withKey, gets ca.key. */}}
+{{- define "dagu.peerCAVolume" -}}
+{{- with include "dagu.peerCASecret" .root -}}
+- name: peer-ca
+  secret:
+    secretName: {{ . | quote }}
+    # 0400. Kubernetes adds read for the pod's fsGroup, the Dagu user's group.
+    defaultMode: 256
+    items:
+      - key: ca.crt
+        path: ca.crt
+      {{- if $.withKey }}
+      - key: ca.key
+        path: ca.key
+      {{- end }}
+{{- end }}
+{{- end }}

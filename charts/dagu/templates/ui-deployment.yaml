@@ -100,6 +100,9 @@ spec:
               mountPath: /data
             - name: config
               mountPath: /etc/dagu
+{{- with include "dagu.peerCAVolumeMount" . }}
+{{- . | nindent 12 }}
+{{- end }}
 {{- with .Values.extraVolumeMounts }}
 {{ toYaml . | nindent 12 }}
 {{- end }}
@@ -149,6 +152,9 @@ spec:
         - name: config
           configMap:
             name: {{ include "dagu.componentName" (dict "root" . "component" "config") }}
+{{- with include "dagu.peerCAVolume" (dict "root" .) }}
+{{- . | nindent 8 }}
+{{- end }}
 {{- with .Values.extraVolumes }}
 {{ toYaml . | nindent 8 }}
 {{- end }}

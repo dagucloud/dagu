@@ -59,6 +59,10 @@ spec:
               value: "0.0.0.0"
             - name: DAGU_COORDINATOR_ADVERTISE
               value: {{ include "dagu.componentName" (dict "root" . "component" "coordinator") | quote }}
+{{- if include "dagu.peerCASecret" . }}
+            - name: DAGU_PEER_CA_KEY_FILE
+              value: {{ printf "%s/ca.key" (include "dagu.peerCADir" .) | quote }}
+{{- end }}
 {{- with include "dagu.extraEnv" . }}
 {{ . | nindent 12 }}
 {{- end }}
@@ -74,6 +78,9 @@ spec:
               mountPath: /data
             - name: config
               mountPath: /etc/dagu
+{{- with include "dagu.peerCAVolumeMount" . }}
+{{- . | nindent 12 }}
+{{- end }}
 {{- with .Values.extraVolumeMounts }}
 {{ toYaml . | nindent 12 }}
 {{- end }}
@@ -113,6 +120,9 @@ spec:
         - name: config
           configMap:
             name: {{ include "dagu.componentName" (dict "root" . "component" "config") }}
+{{- with include "dagu.peerCAVolume" (dict "root" . "withKey" true) }}
+{{- . | nindent 8 }}
+{{- end }}
 {{- with .Values.extraVolumes }}
 {{ toYaml . | nindent 8 }}
 {{- end }}

@@ -338,11 +338,39 @@
           "minimum": 1,
           "maximum": 65535
         },
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["ClusterIP", "NodePort", "LoadBalancer"]
+            },
+            "annotations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "resources": {
           "$ref": "#/definitions/resources"
         }
       },
       "required": ["replicas", "healthPort", "resources"]
+    },
+    "peer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "existingCASecret": {
+          "type": "string",
+          "description": "Secret with the peer CA in ca.crt and ca.key, for distributed mode.",
+          "maxLength": 253,
+          "pattern": "^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+        }
+      }
     },
     "worker": {
       "type": "object",

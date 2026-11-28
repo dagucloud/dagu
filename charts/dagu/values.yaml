@@ -107,6 +107,13 @@ scheduler:
 coordinator:
   replicas: 1
   healthPort: 8091
+  # Service that workers dial on port 50055. LoadBalancer or NodePort exposes
+  # that port to workers outside the cluster. The UI Ingress does not carry
+  # this traffic. A load balancer passes TCP through and needs no certificate.
+  service:
+    type: ClusterIP
+    # Use provider-specific annotations for an internal load balancer when needed.
+    annotations: {}
   resources:
     requests:
       memory: "128Mi"
@@ -114,6 +121,17 @@ coordinator:
     limits:
       memory: "256Mi"
       cpu: "200m"
+
+# Peer connections in distributed mode. The coordinator keeps its CA in the
+# data volume, so the scheduler and UI, which share that volume, use TLS with
+# no value set. Worker pods do not share it, so they connect without TLS
+# until existingCASecret names a Secret in the release namespace with the CA
+# in ca.crt and ca.key, such as the files `dagu peer init` writes. Coordinator
+# pods then mount both keys; scheduler, UI, and worker pods mount ca.crt
+# only. Leave it empty when peer.cert_file supplies your own certificates.
+# Dagu releases after 2.27.0 use these files.
+peer:
+  existingCASecret: ""
 
 # Worker configuration for distributed mode.
 # Each pool creates a separate Kubernetes Deployment.
