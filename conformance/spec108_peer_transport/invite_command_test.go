@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -38,8 +39,8 @@ func TestWorkerInvite(t *testing.T) {
 	dagu := harness.NewRunner(t)
 	peer := newPeerFixture(t, dagu)
 	// The later --coordinator.host wins over the loopback default of
-	// startInviteCoordinator.
-	coordinator := startInviteCoordinator(t, dagu, peer, "--coordinator.host=0.0.0.0")
+	// startCommandCoordinator.
+	coordinator := startCommandCoordinator(t, dagu, peer, "--coordinator.host=0.0.0.0")
 
 	result := dagu.RunWithEnv(coordinator.env, "worker", "invite", "--address", "192.168.1.20:50055")
 	result.ExpectExitCode(0)
@@ -67,13 +68,68 @@ func TestWorkerInvite(t *testing.T) {
 	assert.NotContains(t, coordinator.process.Output(), invite)
 }
 
+// A worker started with exactly the printed command enrolls and connects
+// with its certificate. The worker dials an address of this machine other
+// than loopback, which the address rule refuses (Spec 108
+// §dagu worker invite).
+func TestWorkerInviteJoinsWorker(t *testing.T) {
+	host := machineAddress(t)
+	dagu := harness.NewRunner(t)
+	peer := newPeerFixture(t, dagu)
+	coordinator := startCommandCoordinator(t, dagu, peer, "--coordinator.host=0.0.0.0")
+	_, port, err := net.SplitHostPort(coordinator.addr)
+	require.NoError(t, err)
+
+	result := dagu.RunWithEnv(coordinator.env, "worker", "invite", "--address", net.JoinHostPort(host, port))
+	result.ExpectExitCode(0)
+	_, command, ok := strings.Cut(result.Stdout(), "Run on the worker host:\n  ")
+	require.True(t, ok, result.Stdout())
+	words := strings.Fields(command)
+	require.Equal(t, "dagu", words[0])
+
+	// The worker host shares no data directory with the coordinator, so
+	// the invite is its only credential.
+	worker := dagu.StartWithEnv([]string{"DAGU_HOME=" + dagu.ProjectPath("worker-host")},
+		append(words[1:], "--worker.id=joined", "--worker.health-port=0")...)
+	waitForOutput(t, worker, builtinFromInvite, workerEnrolled)
+	admin := inviteCoordinator{
+		addr:  coordinator.addr,
+		admin: coordinatorv1.NewCoordinatorServiceClient(dialCoordinator(t, coordinator.addr, peer.builtinTLS())),
+		token: peer.token,
+	}
+	admin.waitForWorker(t, "joined")
+	invite := strings.TrimPrefix(words[len(words)-1], "--worker.invite=")
+	worker.Stop()
+	assert.NotContains(t, worker.Output(), invite)
+}
+
+// machineAddress returns an IPv4 address of this machine that is neither
+// loopback nor link-local, or skips the test when it has none.
+func machineAddress(t *testing.T) string {
+	t.Helper()
+	addrs, err := net.InterfaceAddrs()
+	require.NoError(t, err)
+	for _, addr := range addrs {
+		ipNet, ok := addr.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip := ipNet.IP.To4()
+		if ip != nil && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() {
+			return ip.String()
+		}
+	}
+	t.Skip("this machine has no IPv4 address other than loopback and link-local")
+	return ""
+}
+
 // While the coordinator listens on loopback only, dagu worker invite prints
 // the change to make to standard error, creates no invite, and exits with code 1 (Spec 108
 // §dagu worker invite).
 func TestWorkerInviteLoopbackOnly(t *testing.T) {
 	dagu := harness.NewRunner(t)
 	peer := newPeerFixture(t, dagu)
-	coordinator := startInviteCoordinator(t, dagu, peer)
+	coordinator := startCommandCoordinator(t, dagu, peer)
 
 	result := dagu.RunWithEnv(coordinator.env, "worker", "invite", "--address", "192.168.1.20:50055")
 	result.ExpectExitCode(1)
@@ -91,7 +147,7 @@ func TestWorkerInviteLoopbackOnly(t *testing.T) {
 func TestWorkerInviteClosedStdout(t *testing.T) {
 	dagu := harness.NewRunner(t)
 	peer := newPeerFixture(t, dagu)
-	coordinator := startInviteCoordinator(t, dagu, peer, "--coordinator.host=0.0.0.0")
+	coordinator := startCommandCoordinator(t, dagu, peer, "--coordinator.host=0.0.0.0")
 	reader, writer, err := os.Pipe()
 	require.NoError(t, err)
 	require.NoError(t, reader.Close())
@@ -137,9 +193,9 @@ type inviteTestCoordinator struct {
 	env []string
 }
 
-// startInviteCoordinator starts a coordinator on built-in TLS from peer,
+// startCommandCoordinator starts a coordinator on built-in TLS from peer,
 // listening on loopback unless args say otherwise.
-func startInviteCoordinator(t *testing.T, dagu *harness.Runner, peer peerFixture, args ...string) inviteTestCoordinator {
+func startCommandCoordinator(t *testing.T, dagu *harness.Runner, peer peerFixture, args ...string) inviteTestCoordinator {
 	t.Helper()
 	port := harness.FreePort(t)
 	env := append(slices.Clone(peer.env), "DAGU_HOME="+dagu.ProjectPath("home"))
