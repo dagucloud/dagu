@@ -164,7 +164,8 @@ mcp_servers:
 | --- | --- |
 | `claude` | A temporary `--mcp-config` file, as RFC 026 states |
 | `codex` | `-c mcp_servers` overrides, with `bearer_token_env_var`, as RFC 026 states |
-| An ACP agent, such as `opencode acp` | HTTP MCP entries in `session/new`, as RFC 026 states |
+| A local ACP agent, such as `opencode acp` | HTTP MCP entries in `session/new`, as RFC 026 states |
+| A remote ACP agent | None. It cannot reach the gateway, and RFC 026 refuses it |
 | `opencode`, outside ACP | No adapter yet. See [Status](#status). An `opencode` step with a model connection runs the CLI (Spec 093), so it cannot use `mcp_servers` yet |
 | `pi` | No adapter yet. See [Status](#status) |
 | Another provider | None until it gains an adapter, as RFC 026 states |

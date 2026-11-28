@@ -460,7 +460,9 @@ conformance test confirms them.
 - The effort select offers the levels that both the CLI and the model
   accept. A level that the CLI does not accept fails validation with
   `effort_unsupported`. A level that the model's catalog lacks gets an
-  editor warning, since validation reads no catalog.
+  editor warning, since validation reads no catalog. When the catalog
+  gives no levels for a model, as an OpenAI catalog does, the select
+  offers the CLI's levels and warns about none.
 - An adapter lists the aliases of its CLI, such as `sonnet` and `opus` for
   `claude`. The editor offers them, and they pass the editor's model
   warning. Dagu passes an alias to the CLI unchanged.
