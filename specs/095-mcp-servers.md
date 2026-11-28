@@ -242,7 +242,7 @@ It has the same shape as the tab Endpoints:
 
 - The list has one row for each entry. The columns are Name, Server, Scope, Credentials, Updated and
   Allowed. The column Server shows the host of the URL. The column Credentials shows the prefix and the
-  fingerprint of each credential. The page never shows a full URL, a value or a "show" button.
+  fingerprint of each credential. The list never shows a full URL, a value or a "show" button.
 - The dialog has the name, the URL, the credentials, the scope and the allow lists. The field
   Credentials is a choice: None, Bearer token or Headers. A token has one password field. The form of
   headers has one row for each header, with a name and a password field, and at most 16 rows. A URL with
