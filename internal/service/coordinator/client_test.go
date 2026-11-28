@@ -35,6 +35,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/stats"
 	"google.golang.org/grpc/status"
 )
 
@@ -45,6 +46,20 @@ func parseHostPort(addr string) (string, int) {
 	}
 	port, _ := strconv.Atoi(portStr)
 	return host, port
+}
+
+// hangGuard bounds calls that should end on their own. It is far longer than
+// such a call takes on a loaded host, so it only keeps a broken call from
+// hanging the test run.
+const hangGuard = 30 * time.Second
+
+// guardedContext returns a context for calls that should end on their own.
+// It ends after hangGuard or with the test.
+func guardedContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), hangGuard)
+	t.Cleanup(cancel)
+	return ctx
 }
 
 func TestClientNew(t *testing.T) {
@@ -245,7 +260,7 @@ func TestClientDispatch(t *testing.T) {
 			Target:   "test.yaml",
 		}
 
-		err := client.Dispatch(t.Context(), dispatch.DispatchRequest{Task: task})
+		err := client.Dispatch(guardedContext(t), dispatch.DispatchRequest{Task: task})
 		require.NoError(t, err)
 	})
 
@@ -253,9 +268,11 @@ func TestClientDispatch(t *testing.T) {
 		t.Parallel()
 		config := coordinator.DefaultConfig()
 
+		var receivedToken atomic.Pointer[string]
 		mockCoord := &mockCoordinatorService{
 			dispatchFunc: func(_ context.Context, req *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error) {
-				assert.Equal(t, "reservation-token-a", req.AdmissionReservationToken)
+				token := req.AdmissionReservationToken
+				receivedToken.Store(&token)
 				return &coordinatorv1.DispatchResponse{}, nil
 			},
 		}
@@ -272,7 +289,7 @@ func TestClientDispatch(t *testing.T) {
 
 		client := coordinator.New(monitor, config)
 
-		err := client.Dispatch(t.Context(), dispatch.DispatchRequest{
+		err := client.Dispatch(guardedContext(t), dispatch.DispatchRequest{
 			Task: &dispatch.DispatchTask{
 				DAGRunID: "test-dag-run",
 				Target:   "test.yaml",
@@ -280,13 +297,16 @@ func TestClientDispatch(t *testing.T) {
 			AdmissionReservationToken: "reservation-token-a",
 		})
 		require.NoError(t, err)
+		token := receivedToken.Load()
+		require.NotNil(t, token, "coordinator did not receive the dispatch")
+		assert.Equal(t, "reservation-token-a", *token)
 	})
 
 	t.Run("NoCoordinators", func(t *testing.T) {
 		t.Parallel()
 
-		// The default retry budget ends the call, so the error is the
-		// discovery failure and not a test deadline.
+		// The retry budget ends the call long before the hang guard, so the
+		// error is the discovery failure.
 		config := coordinator.DefaultConfig()
 		config.RetryInterval = time.Millisecond
 
@@ -301,15 +321,17 @@ func TestClientDispatch(t *testing.T) {
 			Target:   "test.yaml",
 		}
 
-		err := client.Dispatch(t.Context(), dispatch.DispatchRequest{Task: task})
+		err := client.Dispatch(guardedContext(t), dispatch.DispatchRequest{Task: task})
 		require.ErrorContains(t, err, "no coordinators available")
 	})
 
 	t.Run("StaleQueueDispatchReturnsPermanentTypedError", func(t *testing.T) {
 		t.Parallel()
 
+		// A permanent error ends the call at once. The retry budget ends it
+		// quickly if the error is not permanent.
 		config := coordinator.DefaultConfig()
-		config.MaxRetries = 0
+		config.RetryInterval = time.Millisecond
 
 		mockCoord := &mockCoordinatorService{
 			dispatchFunc: func(_ context.Context, _ *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error) {
@@ -331,7 +353,7 @@ func TestClientDispatch(t *testing.T) {
 
 		client := coordinator.New(monitor, config)
 
-		err := client.Dispatch(context.Background(), dispatch.DispatchRequest{
+		err := client.Dispatch(guardedContext(t), dispatch.DispatchRequest{
 			Task: &dispatch.DispatchTask{
 				DAGRunID: "run-123",
 				Target:   "test-dag",
@@ -570,11 +592,10 @@ func TestClientPoll(t *testing.T) {
 		Labels:   map[string]string{"type": "test"},
 	}
 
-	// A bounded retry budget ends a failing poll, since the call has no
-	// deadline.
+	// A finite retry budget ends a failing poll long before the hang guard.
 	policy := backoff.NewConstantBackoffPolicy(10 * time.Millisecond)
 	policy.MaxRetries = 3
-	task, err := client.Poll(t.Context(), policy, req)
+	task, err := client.Poll(guardedContext(t), policy, req)
 	require.NoError(t, err)
 	require.NotNil(t, task)
 	assert.Equal(t, expectedTask.DagRunId, task.DagRunId)
@@ -612,7 +633,7 @@ func TestClientGetWorkers(t *testing.T) {
 
 	client := coordinator.New(monitor, config)
 
-	workers, err := client.GetWorkers(t.Context())
+	workers, err := client.GetWorkers(guardedContext(t))
 	require.NoError(t, err)
 	assert.Len(t, workers, 2)
 	assert.Equal(t, "worker-1", workers[0].WorkerId)
@@ -689,7 +710,7 @@ func TestClientGetWorkers_DeduplicatesAndSorts(t *testing.T) {
 
 	client := coordinator.New(monitor, config)
 
-	workers, err := client.GetWorkers(t.Context())
+	workers, err := client.GetWorkers(guardedContext(t))
 	require.NoError(t, err)
 	require.Len(t, workers, 2)
 
@@ -754,7 +775,7 @@ func TestClientGetWorkers_TieBreakIsIndependentOfDiscoveryOrder(t *testing.T) {
 	getWorker := func(members ...serviceregistry.HostInfo) *coordinatorv1.WorkerInfo {
 		client := coordinator.New(&mockServiceMonitor{members: members}, config)
 
-		workers, err := client.GetWorkers(t.Context())
+		workers, err := client.GetWorkers(guardedContext(t))
 		require.NoError(t, err)
 		require.Len(t, workers, 1)
 		return workers[0]
@@ -811,7 +832,7 @@ func TestClientGetWorkers_PartialFailureStillReturnsWorkers(t *testing.T) {
 
 	client := coordinator.New(monitor, config)
 
-	workers, err := client.GetWorkers(t.Context())
+	workers, err := client.GetWorkers(guardedContext(t))
 	require.Error(t, err)
 	require.Len(t, workers, 1)
 	assert.Equal(t, "worker-1", workers[0].WorkerId)
@@ -992,7 +1013,7 @@ func TestClientStateOperationsUsePinnedCoordinator(t *testing.T) {
 	stateClient, ok := coordinator.New(monitor, config).(coordinator.StateClient)
 	require.True(t, ok)
 
-	ctx := t.Context()
+	ctx := guardedContext(t)
 
 	_, err := stateClient.PutState(ctx, &coordinatorv1.PutStateRequest{Ref: ref, Value: []byte(`1`)})
 	require.NoError(t, err)
@@ -1051,7 +1072,7 @@ func TestClientStateCoordinatorPinIsDeterministicByNamespaceAcrossClients(t *tes
 	secondClient, ok := coordinator.New(monitor, config).(coordinator.StateClient)
 	require.True(t, ok)
 
-	ctx := t.Context()
+	ctx := guardedContext(t)
 
 	_, err := firstClient.PutState(ctx, &coordinatorv1.PutStateRequest{Ref: ref, Value: []byte(`1`)})
 	require.NoError(t, err)
@@ -1108,7 +1129,7 @@ func TestClientStatePinnedCoordinatorDoesNotFailOverAfterUnavailable(t *testing.
 	stateClient, ok := coordinator.New(monitor, config).(coordinator.StateClient)
 	require.True(t, ok)
 
-	ctx := t.Context()
+	ctx := guardedContext(t)
 
 	_, err := stateClient.PutState(ctx, &coordinatorv1.PutStateRequest{Ref: ref, Value: []byte(`1`)})
 	require.NoError(t, err)
@@ -1164,7 +1185,7 @@ func TestClientStatePinnedCoordinatorRefreshesSameCoordinatorEndpoint(t *testing
 	stateClient, ok := coordinator.New(monitor, config).(coordinator.StateClient)
 	require.True(t, ok)
 
-	ctx := t.Context()
+	ctx := guardedContext(t)
 
 	_, err := stateClient.PutState(ctx, &coordinatorv1.PutStateRequest{Ref: ref, Value: []byte(`1`)})
 	require.NoError(t, err)
@@ -1224,7 +1245,7 @@ func TestClientStatePinnedCoordinatorRefreshesSameCoordinatorEndpointAfterDeadli
 	stateClient, ok := coordinator.New(monitor, config).(coordinator.StateClient)
 	require.True(t, ok)
 
-	ctx := t.Context()
+	ctx := guardedContext(t)
 
 	_, err := stateClient.PutState(ctx, &coordinatorv1.PutStateRequest{Ref: ref, Value: []byte(`1`)})
 	require.NoError(t, err)
@@ -1283,7 +1304,7 @@ func TestClientStatePinnedCoordinatorReselectsWhenCoordinatorIDDisappears(t *tes
 	stateClient, ok := coordinator.New(monitor, config).(coordinator.StateClient)
 	require.True(t, ok)
 
-	ctx := t.Context()
+	ctx := guardedContext(t)
 
 	_, err := stateClient.PutState(ctx, &coordinatorv1.PutStateRequest{Ref: ref, Value: []byte(`1`)})
 	require.NoError(t, err)
@@ -1467,7 +1488,7 @@ func TestClientTreatsDiscoveredEndpointsAsDistinctOwners(t *testing.T) {
 	assert.Equal(t, int32(2), oldHeartbeats.Load())
 	assert.Equal(t, int32(1), newHeartbeats.Load())
 
-	_, err = client.ReportStatusTo(t.Context(), oldMember, &coordinatorv1.ReportStatusRequest{})
+	_, err = client.ReportStatusTo(guardedContext(t), oldMember, &coordinatorv1.ReportStatusRequest{})
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), oldReports.Load())
 	assert.Zero(t, newReports.Load())
@@ -1549,7 +1570,7 @@ func TestClientOwnerCallFailsOverAndCachesSuccessfulRoute(t *testing.T) {
 	client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{owner, replacement}}, config)
 
 	for range 2 {
-		resp, err := client.ReportStatusTo(t.Context(), owner, &coordinatorv1.ReportStatusRequest{})
+		resp, err := client.ReportStatusTo(guardedContext(t), owner, &coordinatorv1.ReportStatusRequest{})
 		require.NoError(t, err)
 		require.True(t, resp.Accepted)
 	}
@@ -2057,7 +2078,7 @@ func TestClientReportStatus(t *testing.T) {
 			Status:   protoStatus,
 		}
 
-		resp, err := client.ReportStatus(t.Context(), req)
+		resp, err := client.ReportStatus(guardedContext(t), req)
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		assert.True(t, resp.Accepted)
@@ -2104,7 +2125,7 @@ func TestClientReportStatus(t *testing.T) {
 			Status:   protoStatus,
 		}
 
-		resp, err := client.ReportStatus(t.Context(), req)
+		resp, err := client.ReportStatus(guardedContext(t), req)
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		assert.False(t, resp.Accepted)
@@ -2143,8 +2164,9 @@ func TestClientReportStatus(t *testing.T) {
 			Status:   protoStatus,
 		}
 
-		resp, err := client.ReportStatus(t.Context(), req)
-		require.Error(t, err)
+		resp, err := client.ReportStatus(guardedContext(t), req)
+		require.Equal(t, codes.Internal, status.Code(err))
+		require.ErrorContains(t, err, "internal error")
 		assert.Nil(t, resp)
 	})
 }
@@ -2172,15 +2194,15 @@ func TestClientGetDAGRunStatusReturnsResponseError(t *testing.T) {
 	}
 	client := coordinator.New(monitor, config)
 
-	_, err := client.GetDAGRunStatus(context.Background(), "test-dag", "run-123", nil)
+	_, err := client.GetDAGRunStatus(guardedContext(t), "test-dag", "run-123", nil)
 	require.ErrorContains(t, err, "failed to read status: storage unavailable")
 }
 
 func TestClientMetrics(t *testing.T) {
 	t.Parallel()
 
-	// Test metrics tracking during failures. The default retry budget ends
-	// the failing call, so no test deadline is needed.
+	// Test metrics tracking during failures. The retry budget ends the
+	// failing call long before the hang guard.
 	config := coordinator.DefaultConfig()
 	config.RetryInterval = time.Millisecond
 
@@ -2209,7 +2231,7 @@ func TestClientMetrics(t *testing.T) {
 	task := &dispatch.DispatchTask{DAGRunID: "test"}
 
 	// Attempt dispatch - should fail
-	err := client.Dispatch(t.Context(), dispatch.DispatchRequest{Task: task})
+	err := client.Dispatch(guardedContext(t), dispatch.DispatchRequest{Task: task})
 	require.Error(t, err)
 
 	// Check failure metrics
@@ -2230,7 +2252,8 @@ func TestClientCleanup(t *testing.T) {
 		},
 	}
 
-	server, addr := startMockServer(t, mockCoord)
+	connEnds := &connEndCounter{}
+	server, addr := startMockServer(t, mockCoord, grpc.StatsHandler(connEnds))
 	defer server.Stop()
 
 	host, port := parseHostPort(addr)
@@ -2243,7 +2266,7 @@ func TestClientCleanup(t *testing.T) {
 	// Make a call to establish connection
 	task := &dispatch.DispatchTask{DAGRunID: "test"}
 
-	ctx := t.Context()
+	ctx := guardedContext(t)
 
 	err := client.Dispatch(ctx, dispatch.DispatchRequest{Task: task})
 	require.NoError(t, err)
@@ -2251,6 +2274,8 @@ func TestClientCleanup(t *testing.T) {
 	// Cleanup should close all connections
 	err = client.Cleanup(ctx)
 	require.NoError(t, err)
+	require.Eventually(t, func() bool { return connEnds.count.Load() == 1 }, hangGuard, 10*time.Millisecond,
+		"server did not see the first connection close")
 
 	// Future calls should still work (will create new connections)
 	err = client.Dispatch(ctx, dispatch.DispatchRequest{Task: task})
@@ -2260,8 +2285,8 @@ func TestClientCleanup(t *testing.T) {
 func TestClientDispatch_NoCoordinators(t *testing.T) {
 	t.Parallel()
 
-	// The default retry budget ends the call, so the error is the discovery
-	// failure and not a test deadline.
+	// The retry budget ends the call long before the hang guard, so the
+	// error is the discovery failure.
 	config := coordinator.DefaultConfig()
 	config.RetryInterval = time.Millisecond
 	monitor := &mockServiceMonitor{}
@@ -2275,7 +2300,7 @@ func TestClientDispatch_NoCoordinators(t *testing.T) {
 	// Should fail gracefully with no coordinators
 	monitor.members = []serviceregistry.HostInfo{}
 
-	err := client.Dispatch(t.Context(), dispatch.DispatchRequest{Task: task})
+	err := client.Dispatch(guardedContext(t), dispatch.DispatchRequest{Task: task})
 	require.ErrorContains(t, err, "no coordinators available")
 }
 
@@ -2347,6 +2372,27 @@ func (s *stallFirstHealthCheckServer) Check(ctx context.Context, _ *grpc_health_
 		return nil, ctx.Err()
 	}
 	return &grpc_health_v1.HealthCheckResponse{Status: grpc_health_v1.HealthCheckResponse_SERVING}, nil
+}
+
+// connEndCounter counts the connections a mock server sees close.
+type connEndCounter struct {
+	count atomic.Int32
+}
+
+func (*connEndCounter) TagRPC(ctx context.Context, _ *stats.RPCTagInfo) context.Context {
+	return ctx
+}
+
+func (*connEndCounter) HandleRPC(context.Context, stats.RPCStats) {}
+
+func (*connEndCounter) TagConn(ctx context.Context, _ *stats.ConnTagInfo) context.Context {
+	return ctx
+}
+
+func (c *connEndCounter) HandleConn(_ context.Context, s stats.ConnStats) {
+	if _, ok := s.(*stats.ConnEnd); ok {
+		c.count.Add(1)
+	}
 }
 
 func (m *mockCoordinatorService) Dispatch(ctx context.Context, req *coordinatorv1.DispatchRequest) (*coordinatorv1.DispatchResponse, error) {
@@ -2448,11 +2494,11 @@ func (m *mockCoordinatorService) PutWorkspaceBundle(stream coordinatorv1.Coordin
 }
 
 // Helper to start a mock gRPC server
-func startMockServer(t *testing.T, service coordinatorv1.CoordinatorServiceServer) (*grpc.Server, string) {
+func startMockServer(t *testing.T, service coordinatorv1.CoordinatorServiceServer, opts ...grpc.ServerOption) (*grpc.Server, string) {
 	t.Helper()
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
-	return startMockServerWithHealth(t, service, healthServer)
+	return startMockServerWithHealth(t, service, healthServer, opts...)
 }
 
 func startMockServerWithHealth(t *testing.T, service coordinatorv1.CoordinatorServiceServer, healthServer grpc_health_v1.HealthServer, opts ...grpc.ServerOption) (*grpc.Server, string) {
