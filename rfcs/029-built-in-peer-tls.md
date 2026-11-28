@@ -568,9 +568,9 @@ worker                                         coordinator
   next reread is waited for too. A connected worker without runs goes
   through `removing` the same way.
 - Other coordinators apply a revocation at their next reread, within 30
-  seconds. A task one of them hands out before then ends through the
-  stale-lease check, since the worker is refused at its next call to a
-  coordinator that knows.
+  seconds. A task one of them hands out before then does not start: a
+  worker accepts a task only while the stored certificate is `active`, so
+  the task returns to the queue when its claim expires.
 - **Stop its runs** sends the existing cancel request for each run. Runs
   that reach no final status within 2 minutes are left to the stale-lease
   check, and the certificate is revoked then.
@@ -695,7 +695,9 @@ The existing keys keep working, with three fixes:
 - **Join readiness:** one RPC per coordinator when the dialog opens or the
   server restarts while it is open. No file reads and no polling.
 - **Removal:** `Poll` checks an in-memory set of removing certificates,
-  refreshed with the revoked set.
+  refreshed with the revoked set. Accepting a task reads the worker's
+  certificate record before and after it creates the lease: two small
+  reads per task, not per call.
 - **h2c reasons:** one short metadata value per call over h2c, and at most
   64 in-memory entries for System status.
 - **Upgrade:** generating the CA takes milliseconds, once.
