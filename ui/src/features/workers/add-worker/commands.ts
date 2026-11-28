@@ -284,8 +284,8 @@ spec:
 
 /**
  * What to run when no worker arrives, for the tab's environment: the check
- * of how the worker host reaches the coordinator, or for Kubernetes, the
- * worker's log. Undefined for a tab that runs an image when there is none.
+ * of how the worker host reaches the coordinator, from an empty data
+ * directory or a fresh container, or for Kubernetes, the worker's log. Undefined for a tab that runs an image when there is none.
  */
 export function checkCommand(
   tab: WorkerTab,
@@ -300,7 +300,11 @@ export function checkCommand(
     '--check',
     `--worker.coordinators=${input.address}`,
   ];
-  if (tab === WorkerTab.linux) return shellCommand(args);
+  // An empty data directory, so the check dials even where the worker
+  // already joined and keeps its certificate.
+  if (tab === WorkerTab.linux) {
+    return `DAGU_HOME="$(mktemp -d)" ${shellCommand(args)}`;
+  }
   if (!input.image) return undefined;
   return shellCommand(['docker', 'run', '--rm', input.image, ...args]);
 }

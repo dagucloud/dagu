@@ -1189,9 +1189,9 @@ describe('AddWorker', () => {
     await act(async () => {
       vi.advanceTimersByTime(60_000);
     });
-    expect(
-      screen.getByText(/The workers list could not be read/)
-    ).toBeInTheDocument();
+    expect(step('Worker').getByRole('status')).toHaveTextContent(
+      /The workers list could not be read/
+    );
     expect(screen.queryByText(/No worker has joined yet/)).toBeNull();
     expect(
       screen.getByRole('button', { name: 'Look for the worker again' })
@@ -1201,7 +1201,11 @@ describe('AddWorker', () => {
   // The check reports how the host reaches the coordinator; it does not
   // read the invite yet.
   it.each([
-    ['Linux', 'dagu worker --check --worker.coordinators=192.168.1.20:50055'],
+    // An empty data directory, so it dials after the worker joined too.
+    [
+      'Linux',
+      'DAGU_HOME="$(mktemp -d)" dagu worker --check --worker.coordinators=192.168.1.20:50055',
+    ],
     [
       'Docker',
       'docker run --rm ghcr.io/dagucloud/dagu:2.28.0 dagu worker --check --worker.coordinators=192.168.1.20:50055',
@@ -1223,11 +1227,78 @@ describe('AddWorker', () => {
     await act(async () => {
       vi.advanceTimersByTime(1_000);
     });
+    expect(step('Worker').getByRole('status')).toHaveTextContent(
+      'No worker has joined yet. The usual causes:'
+    );
     expect(screen.getByText(/closes port 50055/)).toBeInTheDocument();
     expect(screen.getByText(/does not publish port 50055/)).toBeInTheDocument();
     expect(
       screen.getByText('The worker cannot reach 192.168.1.20:50055.')
     ).toBeInTheDocument();
     expect(screen.getByText(check, { selector: 'pre' })).toBeInTheDocument();
+  });
+
+  // An input drops line breaks, so a paste is read as MCP reads labels: a
+  // break inside a label is refused, one at its edge is trimmed.
+  it.each([
+    ['zone=a\nb', '', 'Label 1 holds a line break'],
+    ['gpu=true\n', 'gpu=true', undefined],
+  ])('reads a pasted line break in %j', async (pasted, value, problem) => {
+    await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    const field = screen.getByLabelText('Labels (optional)');
+    fireEvent.paste(field, { clipboardData: { getData: () => pasted } });
+
+    expect(field).toHaveValue(value);
+    if (problem)
+      expect(screen.getByText(new RegExp(problem))).toBeInTheDocument();
+  });
+
+  // A second invite for a changed address checks the labels too.
+  it('checks the labels before a replacement invite', async () => {
+    const { rerender } = await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    await createInvite();
+    typeAddress('192.168.1.21:50055');
+    fireEvent.change(screen.getByLabelText('Labels (optional)'), {
+      target: { value: 'gpu=true,,region=eu' },
+    });
+    rerender(view());
+
+    expect(
+      screen.getByRole('button', { name: 'Create invite' })
+    ).toBeDisabled();
+  });
+
+  it('says to give another Docker worker its own volume', async () => {
+    await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    fireEvent.click(screen.getByRole('tab', { name: 'Docker' }));
+    await createInvite();
+    expect(
+      screen.getByText(/change the volume dagu-worker to one of its own/)
+    ).toBeInTheDocument();
+  });
+
+  // The automatic read runs once per invite, also after the admin switches
+  // tabs away and back once it ran.
+  it('reads the workers once per invite across tab switches', async () => {
+    vi.useFakeTimers();
+    await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    await createInvite();
+    api.GET.mockResolvedValue(answer(200, { workers: [], errors: [] }));
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    fireEvent.click(screen.getByRole('tab', { name: 'Kubernetes' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Linux' }));
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+
+    const reads = api.GET.mock.calls.filter(([path]) => path === '/workers');
+    expect(reads).toHaveLength(1);
+    expect(screen.getByText(/The usual causes/)).toBeInTheDocument();
   });
 });

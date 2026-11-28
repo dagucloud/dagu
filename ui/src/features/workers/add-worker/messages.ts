@@ -27,6 +27,15 @@ export const addWorkerMessages = defineMessages({
     'Move to built-in TLS': 'Move to built-in TLS',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.",
+    'Looking for the worker...': 'Looking for the worker...',
+    'Label {position} holds a line break, which a label cannot hold. Nothing was pasted.':
+      'Label {position} holds a line break, which a label cannot hold. Nothing was pasted.',
+    'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:':
+      'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:',
+    'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
+      'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:',
+    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own.':
+      'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own.',
     'Switch to the local server to add a worker.':
       'Switch to the local server to add a worker.',
     'Copy the change': 'Copy the change',
@@ -36,8 +45,6 @@ export const addWorkerMessages = defineMessages({
     'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
       'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.',
     'Shown after step 1': 'Shown after step 1',
-    'Run this on the worker host. It checks that the host reaches the address and shows what the coordinator answers:':
-      'Run this on the worker host. It checks that the host reaches the address and shows what the coordinator answers:',
     'The workers list could not be read, so the dialog cannot tell whether the worker joined.':
       'The workers list could not be read, so the dialog cannot tell whether the worker joined.',
     'This invite was made for {address}. To use {next}, create another invite.':
@@ -73,8 +80,6 @@ export const addWorkerMessages = defineMessages({
     'This server is a development build ({version}), so no published image matches it. Run a released Dagu to add a worker with Docker or Kubernetes, or use the Linux tab.':
       'This server is a development build ({version}), so no published image matches it. Run a released Dagu to add a worker with Docker or Kubernetes, or use the Linux tab.',
     'Installation guide': 'Installation guide',
-    'Run this on the worker host, which needs Docker.':
-      'Run this on the worker host, which needs Docker.',
     'Install Dagu on the worker host, then run this there.':
       'Install Dagu on the worker host, then run this there.',
     'The coordinator cannot create invites.':
@@ -185,6 +190,15 @@ export const addWorkerMessages = defineMessages({
     'Move to built-in TLS': '迁移到内置 TLS',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       '输入 Worker 可访问的协调器 Service 地址：其负载均衡器；如果使用 NodePort，则为节点地址和分配的节点端口。Service 自身的名称只在集群内有效。',
+    'Looking for the worker...': '正在查找 Worker...',
+    'Label {position} holds a line break, which a label cannot hold. Nothing was pasted.':
+      '第 {position} 个标签中包含换行，标签不能包含换行。未粘贴任何内容。',
+    'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:':
+      '在 Worker 主机上运行以下命令。它在新的容器中显示该主机能否访问该地址以及协调器的响应：',
+    'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
+      '在 Worker 主机上运行以下命令。它使用空的数据目录，因此即使 Worker 已加入也会发起连接，并显示该主机能否访问该地址以及协调器的响应：',
+    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own.':
+      '在 Worker 主机上运行以下命令，该主机需要 Docker。若要在同一主机上添加另一个 Worker，请将卷 dagu-worker 改为它自己的卷。',
     'Switch to the local server to add a worker.':
       '切换到本地服务器以添加 Worker。',
     'Copy the change': '复制修改内容',
@@ -194,8 +208,6 @@ export const addWorkerMessages = defineMessages({
     'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
       '协调器在当前状态下无法执行此操作。其日志说明了原因；修复后请重试。',
     'Shown after step 1': '完成步骤 1 后显示',
-    'Run this on the worker host. It checks that the host reaches the address and shows what the coordinator answers:':
-      '在 Worker 主机上运行以下命令。它会检查该主机能否访问该地址，并显示协调器的响应：',
     'The workers list could not be read, so the dialog cannot tell whether the worker joined.':
       '无法读取 Worker 列表，因此对话框无法判断 Worker 是否已加入。',
     'This invite was made for {address}. To use {next}, create another invite.':
@@ -231,8 +243,6 @@ export const addWorkerMessages = defineMessages({
     'This server is a development build ({version}), so no published image matches it. Run a released Dagu to add a worker with Docker or Kubernetes, or use the Linux tab.':
       '此服务器是开发版本（{version}），没有与之匹配的已发布镜像。请运行已发布的 Dagu 版本来通过 Docker 或 Kubernetes 添加 Worker，或使用 Linux 选项卡。',
     'Installation guide': '安装指南',
-    'Run this on the worker host, which needs Docker.':
-      '在 Worker 主机上运行以下命令，该主机需要 Docker。',
     'Install Dagu on the worker host, then run this there.':
       '在 Worker 主机上安装 Dagu，然后在那里运行以下命令。',
     'The coordinator cannot create invites.': '协调器无法创建邀请。',
@@ -341,6 +351,15 @@ export const addWorkerMessages = defineMessages({
     'Move to built-in TLS': '組み込み TLS に移行',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       'ワーカーが到達できるコーディネーター Service のアドレスを入力してください。ロードバランサー、または NodePort ならノードのアドレスと割り当てられたノードポートです。Service 自体の名前はクラスター内でのみ使えます。',
+    'Looking for the worker...': 'ワーカーを探しています...',
+    'Label {position} holds a line break, which a label cannot hold. Nothing was pasted.':
+      'ラベル {position} に改行が含まれています。ラベルに改行は使えません。貼り付けは行われませんでした。',
+    'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:':
+      'ワーカーのホストでこれを実行してください。新しいコンテナで、ホストがアドレスに届くかとコーディネーターの応答を表示します:',
+    'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
+      'ワーカーのホストでこれを実行してください。空のデータディレクトリを使うので、ワーカーが参加した後でも接続し、ホストがアドレスに届くかとコーディネーターの応答を表示します:',
+    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own.':
+      'ワーカーのホストでこれを実行してください。Docker が必要です。同じホストに別のワーカーを追加するときは、ボリューム dagu-worker をそのワーカー専用の名前に変えてください。',
     'Switch to the local server to add a worker.':
       'ワーカーを追加するにはローカルサーバーに切り替えてください。',
     'Copy the change': '変更をコピー',
@@ -350,8 +369,6 @@ export const addWorkerMessages = defineMessages({
     'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
       'コーディネーターは現在の状態ではこれを実行できません。理由はそのログにあります。修正してからもう一度試してください。',
     'Shown after step 1': 'ステップ 1 の後に表示',
-    'Run this on the worker host. It checks that the host reaches the address and shows what the coordinator answers:':
-      'ワーカーのホストでこれを実行してください。ホストがアドレスに届くかを確認し、コーディネーターの応答を表示します:',
     'The workers list could not be read, so the dialog cannot tell whether the worker joined.':
       'ワーカーの一覧を読めなかったため、ワーカーが参加したかどうか分かりません。',
     'This invite was made for {address}. To use {next}, create another invite.':
@@ -387,8 +404,6 @@ export const addWorkerMessages = defineMessages({
     'This server is a development build ({version}), so no published image matches it. Run a released Dagu to add a worker with Docker or Kubernetes, or use the Linux tab.':
       'このサーバーは開発ビルド ({version}) のため、対応する公開イメージがありません。Docker や Kubernetes でワーカーを追加するにはリリース版の Dagu を実行するか、Linux タブを使ってください。',
     'Installation guide': 'インストールガイド',
-    'Run this on the worker host, which needs Docker.':
-      'ワーカーのホストでこれを実行してください。Docker が必要です。',
     'Install Dagu on the worker host, then run this there.':
       'ワーカーのホストに Dagu をインストールし、そこでこれを実行してください。',
     'The coordinator cannot create invites.':
@@ -500,6 +515,15 @@ export const addWorkerMessages = defineMessages({
     'Move to built-in TLS': 'Auf eingebautes TLS umstellen',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       'Geben Sie die Adresse des Koordinator-Service ein, die Worker erreichen: seinen Load Balancer oder bei NodePort die Adresse eines Knotens und den zugewiesenen Knotenport. Der Name des Service selbst funktioniert nur im Cluster.',
+    'Looking for the worker...': 'Suche nach dem Worker...',
+    'Label {position} holds a line break, which a label cannot hold. Nothing was pasted.':
+      'Label {position} enthält einen Zeilenumbruch, den ein Label nicht enthalten kann. Es wurde nichts eingefügt.',
+    'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:':
+      'Führen Sie dies auf dem Worker-Host aus. In einem frischen Container zeigt es, ob der Host die Adresse erreicht und was der Koordinator antwortet:',
+    'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
+      'Führen Sie dies auf dem Worker-Host aus. Mit einem leeren Datenverzeichnis wählt es sich auch nach dem Beitritt des Workers ein und zeigt, ob der Host die Adresse erreicht und was der Koordinator antwortet:',
+    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own.':
+      'Führen Sie dies auf dem Worker-Host aus, der Docker braucht. Für einen weiteren Worker auf demselben Host ändern Sie das Volume dagu-worker in ein eigenes.',
     'Switch to the local server to add a worker.':
       'Wechseln Sie zum lokalen Server, um einen Worker hinzuzufügen.',
     'Copy the change': 'Änderung kopieren',
@@ -509,8 +533,6 @@ export const addWorkerMessages = defineMessages({
     'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
       'Der Koordinator kann dies in seinem jetzigen Zustand nicht tun. Sein Log nennt den Grund; beheben Sie ihn und versuchen Sie es erneut.',
     'Shown after step 1': 'Erscheint nach Schritt 1',
-    'Run this on the worker host. It checks that the host reaches the address and shows what the coordinator answers:':
-      'Führen Sie dies auf dem Worker-Host aus. Es prüft, ob der Host die Adresse erreicht, und zeigt, was der Koordinator antwortet:',
     'The workers list could not be read, so the dialog cannot tell whether the worker joined.':
       'Die Worker-Liste konnte nicht gelesen werden, daher kann der Dialog nicht sagen, ob der Worker beigetreten ist.',
     'This invite was made for {address}. To use {next}, create another invite.':
@@ -546,8 +568,6 @@ export const addWorkerMessages = defineMessages({
     'This server is a development build ({version}), so no published image matches it. Run a released Dagu to add a worker with Docker or Kubernetes, or use the Linux tab.':
       'Dieser Server ist ein Entwicklungs-Build ({version}), daher passt kein veröffentlichtes Image zu ihm. Betreiben Sie eine veröffentlichte Dagu-Version, um einen Worker mit Docker oder Kubernetes hinzuzufügen, oder nutzen Sie den Linux-Tab.',
     'Installation guide': 'Installationsanleitung',
-    'Run this on the worker host, which needs Docker.':
-      'Führen Sie dies auf dem Worker-Host aus, der Docker braucht.',
     'Install Dagu on the worker host, then run this there.':
       'Installieren Sie Dagu auf dem Worker-Host und führen Sie dies dort aus.',
     'The coordinator cannot create invites.':
@@ -665,6 +685,15 @@ export const addWorkerMessages = defineMessages({
     'Move to built-in TLS': 'Passer au TLS intégré',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       'Saisissez l’adresse du Service du coordinateur que les workers atteignent : son équilibreur de charge, ou pour NodePort, l’adresse d’un nœud et le port de nœud attribué. Le nom du Service ne fonctionne qu’à l’intérieur du cluster.',
+    'Looking for the worker...': 'Recherche du worker…',
+    'Label {position} holds a line break, which a label cannot hold. Nothing was pasted.':
+      'Le label {position} contient un saut de ligne, qu’un label ne peut pas contenir. Rien n’a été collé.',
+    'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:':
+      'Exécutez ceci sur l’hôte du worker. Dans un nouveau conteneur, cela montre si l’hôte joint l’adresse et ce que répond le coordinateur :',
+    'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
+      'Exécutez ceci sur l’hôte du worker. Avec un répertoire de données vide, cela se connecte même après que le worker a rejoint, et montre si l’hôte joint l’adresse et ce que répond le coordinateur :',
+    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own.':
+      'Exécutez ceci sur l’hôte du worker, qui a besoin de Docker. Pour un autre worker sur le même hôte, remplacez le volume dagu-worker par un volume qui lui est propre.',
     'Switch to the local server to add a worker.':
       'Passez au serveur local pour ajouter un worker.',
     'Copy the change': 'Copier la modification',
@@ -674,8 +703,6 @@ export const addWorkerMessages = defineMessages({
     'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
       'Le coordinateur ne peut pas le faire dans son état actuel. Son journal en donne la raison ; corrigez-la, puis réessayez.',
     'Shown after step 1': 'Affiché après l’étape 1',
-    'Run this on the worker host. It checks that the host reaches the address and shows what the coordinator answers:':
-      'Exécutez ceci sur l’hôte du worker. Cela vérifie que l’hôte joint l’adresse et montre ce que répond le coordinateur :',
     'The workers list could not be read, so the dialog cannot tell whether the worker joined.':
       'La liste des workers n’a pas pu être lue, donc la boîte de dialogue ne peut pas dire si le worker a rejoint.',
     'This invite was made for {address}. To use {next}, create another invite.':
@@ -711,8 +738,6 @@ export const addWorkerMessages = defineMessages({
     'This server is a development build ({version}), so no published image matches it. Run a released Dagu to add a worker with Docker or Kubernetes, or use the Linux tab.':
       'Ce serveur est une version de développement ({version}), donc aucune image publiée ne lui correspond. Utilisez une version publiée de Dagu pour ajouter un worker avec Docker ou Kubernetes, ou utilisez l’onglet Linux.',
     'Installation guide': 'Guide d’installation',
-    'Run this on the worker host, which needs Docker.':
-      'Exécutez ceci sur l’hôte du worker, qui a besoin de Docker.',
     'Install Dagu on the worker host, then run this there.':
       'Installez Dagu sur l’hôte du worker, puis exécutez ceci sur cet hôte.',
     'The coordinator cannot create invites.':

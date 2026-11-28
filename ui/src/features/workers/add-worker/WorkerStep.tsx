@@ -20,6 +20,7 @@ import {
   WorkerTab,
   type CommandInput,
 } from './commands';
+import { goTrimSpace } from './address';
 import {
   CommandBlock,
   ProblemText,
@@ -51,7 +52,8 @@ const INSTALL_DOCS_URL = 'https://docs.dagu.sh/getting-started/installation/';
 // Where each tab's command runs.
 const RUN_WHERE: Record<WorkerTab, string> = {
   [WorkerTab.linux]: 'Install Dagu on the worker host, then run this there.',
-  [WorkerTab.docker]: 'Run this on the worker host, which needs Docker.',
+  [WorkerTab.docker]:
+    'Run this on the worker host, which needs Docker. For another worker on the same host, change the volume dagu-worker to one of its own.',
   [WorkerTab.kubernetes]:
     'Save this as a file and apply it with kubectl apply -f to the cluster that runs the workers.',
 };
@@ -60,9 +62,9 @@ const RUN_WHERE: Record<WorkerTab, string> = {
 // the host reaches the coordinator; it does not read the invite.
 const CHECK_HINT: Record<WorkerTab, string> = {
   [WorkerTab.linux]:
-    'Run this on the worker host. It checks that the host reaches the address and shows what the coordinator answers:',
+    'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:',
   [WorkerTab.docker]:
-    'Run this on the worker host. It checks that the host reaches the address and shows what the coordinator answers:',
+    'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:',
   [WorkerTab.kubernetes]:
     "Run this against the cluster. The worker's log names the cause:",
 };
@@ -233,6 +235,7 @@ function WorkerCommand({
 }) {
   const labels = normalizeLabels(labelsInput);
   const command = input && workerCommand(tab, input);
+  const [pastedBreak, setPastedBreak] = React.useState<number>();
   return (
     <>
       <div className="space-y-1.5">
@@ -247,8 +250,39 @@ function WorkerCommand({
           aria-describedby={
             'problem' in labels ? 'add-worker-labels-problem' : undefined
           }
-          onChange={(e) => onLabelsChange(e.target.value)}
+          onChange={(e) => {
+            setPastedBreak(undefined);
+            onLabelsChange(e.target.value);
+          }}
+          onPaste={(e) => {
+            const text = e.clipboardData.getData('text');
+            if (!/[\r\n]/.test(text)) return;
+            // An input drops line breaks, so the paste is read here.
+            e.preventDefault();
+            const field = e.currentTarget;
+            const next =
+              field.value.slice(0, field.selectionStart ?? field.value.length) +
+              text +
+              field.value.slice(field.selectionEnd ?? field.value.length);
+            const at = next
+              .split(',')
+              .findIndex((entry) => /[\r\n]/.test(goTrimSpace(entry)));
+            if (at >= 0) {
+              setPastedBreak(at + 1);
+              return;
+            }
+            setPastedBreak(undefined);
+            onLabelsChange(next.replace(/[\r\n]/g, ''));
+          }}
         />
+        {pastedBreak !== undefined && (
+          <p className="text-xs text-destructive">
+            <I18nText
+              text="Label {position} holds a line break, which a label cannot hold. Nothing was pasted."
+              values={{ position: pastedBreak }}
+            />
+          </p>
+        )}
         {'problem' in labels && (
           <p
             id="add-worker-labels-problem"
@@ -312,7 +346,11 @@ function WorkerCommand({
                   values={{ address: invite.address, next: address }}
                 />
               </p>
-              <Button size="xs" disabled={creating} onClick={onCreate}>
+              <Button
+                size="xs"
+                disabled={creating || 'problem' in labels}
+                onClick={onCreate}
+              >
                 {creating && <Spinner />}
                 <I18nText text="Create invite" />
               </Button>
@@ -499,11 +537,25 @@ function Arrival({
             text="{count} worker joined with this invite."
             values={{ count: seen.length }}
           />
-        ) : (
+        ) : outcome === 'waiting' || reading ? (
           <span className="flex items-center gap-2 text-muted-foreground">
             <Spinner />
-            <I18nText text="Waiting for the worker to join..." />
+            <I18nText
+              text={
+                reading
+                  ? 'Looking for the worker...'
+                  : 'Waiting for the worker to join...'
+              }
+            />
           </span>
+        ) : (
+          <I18nText
+            text={
+              outcome === 'absent'
+                ? 'No worker has joined yet. The usual causes:'
+                : 'The workers list could not be read, so the dialog cannot tell whether the worker joined.'
+            }
+          />
         )}
       </p>
       {joined && (
@@ -520,19 +572,9 @@ function Arrival({
           ))}
         </ul>
       )}
-      {!joined && outcome === 'unread' && (
+      {!joined && !reading && outcome === 'unread' && lookAgain}
+      {!joined && !reading && outcome === 'absent' && (
         <>
-          <p>
-            <I18nText text="The workers list could not be read, so the dialog cannot tell whether the worker joined." />
-          </p>
-          {lookAgain}
-        </>
-      )}
-      {!joined && outcome === 'absent' && (
-        <>
-          <p>
-            <I18nText text="No worker has joined yet. The usual causes:" />
-          </p>
           <ul className="list-disc space-y-0.5 pl-5">
             <li>
               <I18nText
