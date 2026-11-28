@@ -240,6 +240,28 @@ describe('AddWorker', () => {
     ).toBeInTheDocument();
   });
 
+  // One coordinator that does not answer keeps the step from being ready.
+  it('names each coordinator and the error of one that did not report', async () => {
+    await open({
+      coordinators: [
+        { instanceId: 'c1', host: 'node-a', port: 50055, report: report() },
+        {
+          instanceId: 'c2',
+          host: 'node-b',
+          port: 50055,
+          error: 'deadline exceeded',
+        },
+      ],
+    });
+
+    expect(screen.getByText('node-a:50055')).toBeInTheDocument();
+    expect(screen.getByText('node-b:50055')).toBeInTheDocument();
+    expect(
+      screen.getByText('This coordinator did not report: deadline exceeded')
+    ).toBeInTheDocument();
+    expect(screen.getByText('Needs change')).toBeInTheDocument();
+  });
+
   it.each([
     [BuiltinTLSReason.ownCertificates, /uses peer.cert_file and peer.key_file/],
     [BuiltinTLSReason.caUnavailable, /could not create or read it/],
