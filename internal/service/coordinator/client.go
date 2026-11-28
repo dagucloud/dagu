@@ -459,13 +459,16 @@ func (cli *clientImpl) prepareTaskWorkspace(ctx context.Context, task *dispatch.
 // Poll implements Client.
 func (cli *clientImpl) Poll(ctx context.Context, policy backoff.RetryPolicy, req *coordinatorv1.PollRequest) (*coordinatorv1.Task, error) {
 	var task *coordinatorv1.Task
+	// A refusal as revoked is final, so it ends the retry without the
+	// retry's own logs and is returned as is.
+	var removed error
 	err := backoff.Retry(ctx, func(ctx context.Context) error {
 		members, err := cli.getCoordinatorMembers(ctx)
 		if err != nil {
 			return err
 		}
 
-		return cli.attemptCall(ctx, members, func(ctx context.Context, member serviceregistry.HostInfo, client *client) error {
+		err = cli.attemptCall(ctx, members, func(ctx context.Context, member serviceregistry.HostInfo, client *client) error {
 			resp, err := client.client.Poll(ctx, req)
 			if err != nil {
 				return fmt.Errorf("failed to poll task from coordinator %s: %w", member.ID, err)
@@ -483,8 +486,15 @@ func (cli *clientImpl) Poll(ctx context.Context, policy backoff.RetryPolicy, req
 
 			return nil
 		})
-
+		if IsWorkerRemoved(err) {
+			removed = err
+			return nil
+		}
+		return err
 	}, policy, nil)
+	if removed != nil {
+		return nil, removed
+	}
 
 	return task, err
 }

@@ -70,6 +70,12 @@ func (p *Poller) Run(ctx context.Context) {
 				if ctx.Err() != nil {
 					return
 				}
+				// A removed worker's heartbeat stops it, so the poller
+				// waits for that instead of polling again.
+				if coordinator.IsWorkerRemoved(err) {
+					<-ctx.Done()
+					return
+				}
 				// Poll failed, but will be retried by pollForTask
 				continue
 			}
@@ -180,7 +186,13 @@ func (p *Poller) pollForTask(ctx context.Context, policy backoff.RetryPolicy) (*
 	}
 
 	// Use coordinator client's Poll method which handles retries and failover
-	task, err := p.coordinatorCli.Poll(ctx, policy, req)
+	// The poll retries until it succeeds or the poller stops, so its
+	// failures are logged here, and a stop, which cancels a poll under way
+	// in each poller, logs nothing.
+	task, err := p.coordinatorCli.Poll(backoff.WithRetryFailureLogLevel(ctx, slog.LevelDebug), policy, req)
+	if ctx.Err() != nil || coordinator.IsWorkerRemoved(err) {
+		return nil, err
+	}
 	if err != nil {
 		// Get updated metrics after failure
 		afterMetrics := p.coordinatorCli.Metrics()
