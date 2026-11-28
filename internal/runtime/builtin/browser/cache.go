@@ -121,8 +121,8 @@ const recordIDSegment = ":id"
 // isRecordID reports whether a path segment looks like a record ID: digits
 // only, such as 4812, or letters, digits, hyphens, and underscores with at
 // least two digits, such as C-100231 or a UUID. A word such as edit, a
-// version such as v2 or v10, and a numbered word such as step-1 or page2
-// are not.
+// version such as v2 or v10, and a word with one digit such as step-1 or
+// page2 are not; step-10 has the shape of C-100231 and counts as one.
 func isRecordID(segment string) bool {
 	digits, others := 0, 0
 	for _, r := range segment {
