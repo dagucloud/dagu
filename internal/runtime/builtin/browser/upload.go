@@ -172,7 +172,7 @@ func (o *operator) upload(ctx context.Context, index int, spec uploadSpec, timeo
 		return opResult{}, err
 	}
 	if recorded {
-		o.keep(at, key, literal, pageURL, recording{Actions: []recordedAction{action}})
+		o.keep(key, literal, pageURL, recording{Actions: []recordedAction{action}})
 	}
 	return result(status, agentstep.ViaModel, &action, how, pageURL), nil
 }

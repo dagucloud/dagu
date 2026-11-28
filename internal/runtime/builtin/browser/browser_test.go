@@ -1195,6 +1195,31 @@ func TestReplayPrefersItsRecordsOwnRecording(t *testing.T) {
 	assert.Equal(t, []recordedAction{saveB, saveA}, run.engine.replays)
 }
 
+// What the model does on a record replaces the record's own recording even
+// when the run read no recording, as under ai: every_run, so a later replay
+// repeats the new actions rather than the old ones.
+func TestReplayReplacesItsRecordsOwnRecording(t *testing.T) {
+	t.Parallel()
+
+	const (
+		steps       = `{"url": %q, "ai": %q, "do": [{"act": "Click the save button"}]}`
+		instruction = "Click the save button"
+		page        = "https://crm.example.com/customer/C-100231/address"
+	)
+	run := newTestRun(t, pageModel(nil))
+	old := recordedAction{Selector: "xpath=/html/body/button[9]", Method: "click"}
+	cache := openReplayCache(filepath.Join(run.dataDir, browserhost.DataDirName), "orders", "shop")
+	cache.Stage(literalKey(0, instruction, page), recording{Actions: []recordedAction{old}})
+	require.NoError(t, cache.Commit(t.Context()))
+
+	require.NoError(t, run.execute(fmt.Sprintf(steps, page, aiEveryRun), nil).err)
+	run.noModel = true
+	replayed := run.execute(fmt.Sprintf(steps, page, aiNever), nil)
+	require.NoError(t, replayed.err)
+	require.Len(t, run.engine.replays, 1)
+	assert.NotEqual(t, old, run.engine.replays[0], "the old recording is replaced")
+}
+
 // An act that types its page's record ID, such as an order number it read
 // off the page, replays on that record only, so it never types one
 // record's ID into another.
