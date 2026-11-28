@@ -100,6 +100,49 @@ func TestDAGRunLeaseStore_PreservesBundleDigest(t *testing.T) {
 	require.ErrorIs(t, s.Upsert(ctx, conflict), dispatch.ErrDAGRunLeaseConflict)
 }
 
+// A lease keeps the certificate it was accepted with when a later write
+// names none, as a refresh from a run's status does, and refuses another.
+// A lease written without one, as an older coordinator writes it, keeps
+// none when a retried acceptance names one. A reader that predates the
+// field decodes the lease and ignores it.
+func TestDAGRunLeaseStore_PreservesCertificateID(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	s := store.NewDAGRunLeaseStore(testutil.NewMemoryBackend().Collection("dag_run_leases"))
+	initial := dispatch.DAGRunLease{AttemptKey: "attempt-key", WorkerID: "worker-1", CertificateID: "cert-a"}
+	require.NoError(t, s.Upsert(ctx, initial))
+
+	refresh := initial
+	refresh.CertificateID = ""
+	refresh.LastHeartbeatAt = time.Now().UTC().UnixMilli()
+	require.NoError(t, s.Upsert(ctx, refresh))
+	lease, err := s.Get(ctx, initial.AttemptKey)
+	require.NoError(t, err)
+	assert.Equal(t, "cert-a", lease.CertificateID)
+
+	conflict := initial
+	conflict.CertificateID = "cert-b"
+	require.ErrorIs(t, s.Upsert(ctx, conflict), dispatch.ErrDAGRunLeaseConflict)
+
+	unnamed := dispatch.DAGRunLease{AttemptKey: "attempt-key-2", WorkerID: "worker-1", ClaimToken: "claim-1"}
+	require.NoError(t, s.Upsert(ctx, unnamed))
+	unnamed.CertificateID = "cert-a"
+	require.NoError(t, s.Upsert(ctx, unnamed))
+	kept, err := s.Get(ctx, unnamed.AttemptKey)
+	require.NoError(t, err)
+	assert.Empty(t, kept.CertificateID)
+
+	var older struct {
+		AttemptKey string `json:"attemptKey"`
+		WorkerID   string `json:"workerId"`
+	}
+	data, err := json.Marshal(lease)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, &older))
+	assert.Equal(t, initial.WorkerID, older.WorkerID)
+}
+
 func TestDAGRunLeaseStore_PinsProfileName(t *testing.T) {
 	t.Parallel()
 
@@ -489,6 +532,89 @@ func TestActiveDistributedRunStore_ListAllRemovesStaleCorruptRecord(t *testing.T
 
 	_, err = os.Stat(path)
 	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+// markBeforeDelete marks the claim leasing through another store right
+// before the first compare-and-delete, as an acceptance on another
+// coordinator that begins its lease write after the expiry read the claim.
+type markBeforeDelete struct {
+	persis.Collection
+	mark  func()
+	armed atomic.Bool
+}
+
+func (c *markBeforeDelete) CompareAndDelete(ctx context.Context, rec *persis.Record) error {
+	if c.armed.CompareAndSwap(true, false) {
+		c.mark()
+	}
+	return c.Collection.CompareAndDelete(ctx, rec)
+}
+
+// failingLeaseGet fails every lease read of one attempt.
+type failingLeaseGet struct {
+	dispatch.DAGRunLeaseStore
+	attemptKey string
+}
+
+func (s failingLeaseGet) Get(ctx context.Context, attemptKey string) (*dispatch.DAGRunLease, error) {
+	if attemptKey == s.attemptKey {
+		return nil, errors.New("unreadable lease")
+	}
+	return s.DAGRunLeaseStore.Get(ctx, attemptKey)
+}
+
+// A claim's expiry read the claim before an acceptance marked it leasing.
+// The requeue deletes the claim from that read's version, so it fails, and
+// another worker does not get the task (Spec 108 §Removal).
+func TestDispatchTaskStore_LeasingClaimNotRequeued(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	base := testutil.NewMemoryBackend().Collection("dispatch_tasks")
+	leases := store.NewDAGRunLeaseStore(testutil.NewMemoryBackend().Collection("dag_run_leases"))
+	active := store.NewActiveDistributedRunStore(testutil.NewMemoryBackend().Collection("active_runs"))
+	marker := store.NewDispatchTaskStore(base, store.WithDispatchAdmissionLiveness(leases, active))
+	var token string
+	col := &markBeforeDelete{Collection: base, mark: func() { require.NoError(t, marker.MarkClaimLeasing(ctx, token)) }}
+	s := store.NewDispatchTaskStore(col, store.WithDispatchAdmissionLiveness(leases, active), store.WithDispatchReservationTTL(50*time.Millisecond))
+	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{DAGRunID: "run-a", Target: "dag-a", AttemptID: "attempt-a", AttemptKey: "attempt-key-a"}))
+	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-1", PollerID: "poller-1"})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	token = claimed.ClaimToken
+	col.armed.Store(true)
+	time.Sleep(100 * time.Millisecond)
+
+	again, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-2", PollerID: "poller-2"})
+	require.NoError(t, err)
+	assert.Nil(t, again, "the leasing claim keeps its task")
+	_, err = s.GetClaim(ctx, token)
+	assert.NoError(t, err)
+}
+
+// An expired leasing claim whose lease cannot be read waits for a later
+// pass, and another task is still claimed.
+func TestDispatchTaskStore_UnreadableLeaseKeepsOnlyItsClaim(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	leases := store.NewDAGRunLeaseStore(testutil.NewMemoryBackend().Collection("dag_run_leases"))
+	active := store.NewActiveDistributedRunStore(testutil.NewMemoryBackend().Collection("active_runs"))
+	s := store.NewDispatchTaskStore(testutil.NewMemoryBackend().Collection("dispatch_tasks"),
+		store.WithDispatchAdmissionLiveness(failingLeaseGet{DAGRunLeaseStore: leases, attemptKey: "attempt-key-a"}, active),
+		store.WithDispatchReservationTTL(50*time.Millisecond))
+	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{DAGRunID: "run-a", Target: "dag-a", AttemptID: "attempt-a", AttemptKey: "attempt-key-a"}))
+	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-1", PollerID: "poller-1"})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	require.NoError(t, s.MarkClaimLeasing(ctx, claimed.ClaimToken))
+	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{DAGRunID: "run-b", Target: "dag-b", AttemptID: "attempt-b", AttemptKey: "attempt-key-b"}))
+	time.Sleep(100 * time.Millisecond)
+
+	other, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-2", PollerID: "poller-2"})
+	require.NoError(t, err)
+	require.NotNil(t, other)
+	assert.Equal(t, "run-b", other.Task.DAGRunID)
+	_, err = s.GetClaim(ctx, claimed.ClaimToken)
+	assert.NoError(t, err, "the claim waits for its lease to be readable")
 }
 
 func TestDispatchTaskStore_ClaimRecycleAndSelectorFiltering(t *testing.T) {

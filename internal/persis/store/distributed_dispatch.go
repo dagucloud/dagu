@@ -19,6 +19,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -114,6 +116,9 @@ type dispatchTaskPayload struct {
 	PollerID                  string                       `json:"pollerId,omitempty"`
 	Owner                     dispatch.CoordinatorEndpoint `json:"owner,omitzero"`
 	AdmissionReservationToken string                       `json:"admissionReservationToken,omitempty"`
+	// LeasingAt is when an acceptance of the claim began writing the
+	// attempt's lease, in Unix milliseconds, or zero.
+	LeasingAt int64 `json:"leasingAt,omitempty"`
 }
 
 type legacyDAGRunStatusProto struct {
@@ -416,7 +421,9 @@ func WithDispatchReservationTTL(ttl time.Duration) DispatchTaskStoreOption {
 }
 
 // WithDispatchAdmissionLiveness enables admission cleanup against shared
-// distributed liveness stores.
+// distributed liveness stores. An expired claim whose attempt has a lease
+// that the claim's acceptance wrote then goes without returning its task to
+// the queue.
 func WithDispatchAdmissionLiveness(
 	leaseStore dispatch.DAGRunLeaseStore,
 	activeRunStore dispatch.ActiveDistributedRunStore,
@@ -1128,6 +1135,34 @@ func (s *DispatchTaskStore) recycleExpiredClaims(ctx context.Context) error {
 			continue
 		}
 
+		// A claim that an acceptance marked before writing the attempt's
+		// lease never returns to the queue while the mark is fresh, and its
+		// lease, once written, is the stale-lease check's to end. A mark as
+		// old as the claim timeout is of an acceptance that died: the claim
+		// returns to the queue only when no lease came of it. The release
+		// below deletes the claim from the version read here, so a mark
+		// written meanwhile keeps it.
+		if payload.LeasingAt != 0 {
+			if now.Sub(time.UnixMilli(payload.LeasingAt)) < s.reservationTTL {
+				s.index.addClaim(rec, payload)
+				continue
+			}
+			leased, err := s.claimLeased(ctx, payload)
+			if err != nil {
+				// Only this claim waits for a lease that can be read.
+				logger.Warn(ctx, "Failed to read the lease of an expired claim", tag.AttemptKey(payload.Task.AttemptKey), tag.Error(err))
+				s.index.addClaim(rec, payload)
+				continue
+			}
+			if leased {
+				if err := s.col.CompareAndDelete(ctx, rec); err != nil && !errors.Is(err, persis.ErrNotFound) && !errors.Is(err, persis.ErrConflict) {
+					return err
+				}
+				s.index.removeClaim(id)
+				continue
+			}
+		}
+
 		if err := s.releaseClaim(ctx, rec, payload, now); err != nil {
 			if errors.Is(err, persis.ErrNotFound) || errors.Is(err, persis.ErrConflict) {
 				s.index.removeClaim(id)
@@ -1137,6 +1172,58 @@ func (s *DispatchTaskStore) recycleExpiredClaims(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// MarkClaimLeasing marks the claim claimToken as having an acceptance that
+// writes the attempt's lease, in one compare-and-swap on the claim, so the
+// claim's expiry cannot return its task to the queue from a read taken
+// before. It returns [dispatch.ErrDispatchTaskNotFound] when the claim is
+// gone.
+func (s *DispatchTaskStore) MarkClaimLeasing(ctx context.Context, claimToken string) error {
+	id := claimDispatchRecordID(claimToken)
+	return retryConflict(ctx, func(ctx context.Context) error {
+		rec, err := s.col.Get(ctx, id)
+		if errors.Is(err, persis.ErrNotFound) {
+			return dispatch.ErrDispatchTaskNotFound
+		}
+		if err != nil {
+			return err
+		}
+		payload, err := dispatchTaskPayloadFromRecord(rec)
+		if err != nil {
+			return err
+		}
+		if payload.LeasingAt != 0 {
+			return nil
+		}
+		payload.LeasingAt = time.Now().UTC().UnixMilli()
+		next, err := s.newDispatchRecord(id, payload, rec.CreatedAt, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		err = s.col.CompareAndSwap(ctx, id, rec.Data, next.Data)
+		if errors.Is(err, persis.ErrNotFound) {
+			return dispatch.ErrDispatchTaskNotFound
+		}
+		return err
+	})
+}
+
+// claimLeased reports whether the attempt of the claim in payload has a
+// lease that the claim's acceptance wrote. Without a lease store it
+// reports false.
+func (s *DispatchTaskStore) claimLeased(ctx context.Context, payload dispatchTaskPayload) (bool, error) {
+	if s.admissionLeaseStore == nil || payload.Task == nil || payload.Task.AttemptKey == "" || payload.ClaimToken == "" {
+		return false, nil
+	}
+	lease, err := s.admissionLeaseStore.Get(ctx, payload.Task.AttemptKey)
+	if errors.Is(err, dispatch.ErrDAGRunLeaseNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return lease.ClaimToken == payload.ClaimToken, nil
 }
 
 func (s *DispatchTaskStore) releaseClaim(

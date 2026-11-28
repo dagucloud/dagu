@@ -146,9 +146,8 @@ type CoordinatorServiceClient interface {
 	// request, admitted by an invite. It needs built-in TLS and no peer token.
 	Enroll(ctx context.Context, in *EnrollRequest, opts ...grpc.CallOption) (*EnrollResponse, error)
 	// RemoveWorker revokes the certificates of a worker that joined with an
-	// invite and is not connected. A connected worker is refused with
-	// FailedPrecondition: stop it on its host, then call again. It takes the
-	// peer token.
+	// invite: at once when the worker is not connected, and once the runs it
+	// holds end when it is. It takes the peer token.
 	RemoveWorker(ctx context.Context, in *RemoveWorkerRequest, opts ...grpc.CallOption) (*RemoveWorkerResponse, error)
 }
 
@@ -588,9 +587,8 @@ type CoordinatorServiceServer interface {
 	// request, admitted by an invite. It needs built-in TLS and no peer token.
 	Enroll(context.Context, *EnrollRequest) (*EnrollResponse, error)
 	// RemoveWorker revokes the certificates of a worker that joined with an
-	// invite and is not connected. A connected worker is refused with
-	// FailedPrecondition: stop it on its host, then call again. It takes the
-	// peer token.
+	// invite: at once when the worker is not connected, and once the runs it
+	// holds end when it is. It takes the peer token.
 	RemoveWorker(context.Context, *RemoveWorkerRequest) (*RemoveWorkerResponse, error)
 	mustEmbedUnimplementedCoordinatorServiceServer()
 }
