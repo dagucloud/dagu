@@ -312,7 +312,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/workers/{workerId}/certificate": {
+    "/workers/{workerId}": {
         parameters: {
             query?: never;
             header?: never;

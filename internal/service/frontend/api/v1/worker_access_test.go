@@ -65,8 +65,8 @@ func TestWorkerAccessRoleBeforeValidation(t *testing.T) {
 			adminToken := getAdminToken(t, server)
 			viewerKey := createAPIKeyForRole(t, server, adminToken, "viewer-key", api.UserRoleViewer)
 			for _, path := range []string{
-				"/api/v1/workers/worker-1/certificate",
-				"/api/v1/workers/worker-1/certificate?certificateId=cert-1&runs=later",
+				"/api/v1/workers/worker-1",
+				"/api/v1/workers/worker-1?certificateId=cert-1&runs=later",
 				"/api/v1/workers/invites/not-an-id",
 			} {
 				server.Client().Delete(path).WithBearerToken(viewerKey).ExpectStatus(http.StatusForbidden).Send(t)

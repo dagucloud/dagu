@@ -161,7 +161,7 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 		{name: "manager cannot list worker invites", method: http.MethodGet, path: "/api/v1/workers/invites", user: manager},
 		{name: "worker invites are never created remotely", method: http.MethodPost, path: "/api/v1/workers/invites", user: admin},
 		{name: "worker invites are never deleted remotely", method: http.MethodDelete, path: "/api/v1/workers/invites/invite-1", user: admin},
-		{name: "workers are never removed remotely", method: http.MethodDelete, path: "/api/v1/workers/worker-1/certificate", user: admin},
+		{name: "workers are never removed remotely", method: http.MethodDelete, path: "/api/v1/workers/worker-1", user: admin},
 		{name: "connection removals are never forwarded", method: http.MethodDelete, path: "/api/v1/connections/work", user: admin},
 		{name: "OAuth apps are never forwarded", method: http.MethodPost, path: "/api/v1/oauth-apps", user: admin},
 		{name: "connects are never forwarded", method: http.MethodPost, path: "/api/v1/connections/work/authorization", user: admin},
