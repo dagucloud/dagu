@@ -1023,6 +1023,13 @@ and prints the message:
   container, where it asks for the address of the machine that runs the
   container. It never fills in a host name, a container ID, or the
   browser's host.
+- Step 2 refuses an address that a worker on another host cannot dial: one
+  that is not `host:port` with a port from 1 to 65535, or whose host is
+  `0.0.0.0`, `[::]`, a loopback address, `localhost`, or a container ID (12
+  or 64 lowercase hexadecimal characters). `POST /api/v1/workers/invites`
+  checks only the `host:port` form, since automation may reach the
+  coordinator through a tunnel.
+- Worker labels are each `key=value`, without a comma.
 - Step 3 shows only after steps 1 and 2. Its tab sets the invite kind:
 
   | Tab | Invite | Command |
@@ -1032,6 +1039,16 @@ and prints the message:
   | Kubernetes | Reusable only | A Secret with the invite, and a Deployment that maps it to `DAGU_WORKER_INVITE` and whose data directory is an `emptyDir` |
 
 - Labels and the address go into the command, not the invite.
+- The commands quote each argument a POSIX shell treats specially, so an
+  IPv6 address and labels with spaces keep their values. The Deployment's
+  arguments write each `$` as `$$`, so no argument expands a variable such
+  as `DAGU_WORKER_INVITE`, and only the Secret holds the invite.
+- The Docker and Kubernetes commands run `ghcr.io/dagucloud/dagu:<tag>`,
+  where `<tag>` is the server's version without its leading `v`, for a
+  release or a prerelease, such as `2.28.0` or `2.28.0-rc.1`. A server
+  whose version is `dev`, `0.0.0`, or ends in a `git describe` suffix such
+  as `-12-g1a2b3c4` or in `-next` has no published image: step 3 says so
+  and shows no Docker or Kubernetes command.
 - The dialog waits on the page's existing `/workers` refresh for a worker
   with the invite's ID, and then shows its ID and labels. Closing the dialog
   keeps the invite.
@@ -1086,7 +1103,8 @@ The Workers page is the list of workers on System status.
   the fields of the `POST /api/v1/workers/invites` body: `address`,
   `reusable`, and `expiresIn`. `labels` go into the commands.
 - Without `address`, it creates no invite, as the dialog shows step 3 only
-  after step 2.
+  after step 2. It refuses an `address` and `labels` as step 2 and step 3
+  do, with `invalid_tool_input`, before asking any coordinator.
 - `coordinators` holds, for each coordinator, `ready`, its report or
   `error`, the `changes` of step 1 while it is not ready, and the `notes`
   that step 1 keeps even when ready. `addressOptions` holds `initial`, the value
@@ -1095,9 +1113,12 @@ The Workers page is the list of workers on System status.
   invite.
 - The result that creates the invite holds `inviteId`, `invite`, `kind`,
   `expiresAt`, and `commands`: `linux`, `docker`, and, for a reusable
-  invite only, `kubernetes`, as step 3's tabs give them.
+  invite only, `kubernetes`, as step 3's tabs give them. On a server with no
+  published image, `commands` holds only `linux`, and `imageUnavailable`
+  says why.
 - Only the result that creates the invite contains it. Each call is in the
   audit log, and the entry of the call that creates an invite has its ID.
+  The entries of the call record no string the caller sent.
 - A non-admin gets `unauthorized`. No coordinator running or reachable
   gives `resource_unavailable`, and only coordinators of an earlier release
   give `conflict`.

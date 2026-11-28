@@ -54,7 +54,7 @@ Tool input is a JSON object. Fields outside this table fail with
 | `singleton` | boolean | Optional for `start` and `enqueue`. | Reject duplicate running or queued DAG-runs. |
 | `noReuse` | boolean | Optional for `start` and `enqueue`. | Execute eligible build steps without reusing prior materializations. |
 | `profile` | string | Optional for `start` and `enqueue`. | Runtime profile for this run only. When absent, a stored DAG keeps its default profile resolution and an inline spec runs without a profile. |
-| `labels` | array of strings | Optional for `start` and `enqueue`. | Additional labels, each `key=value` or key-only. |
+| `labels` | array of strings | Optional for `start`, `enqueue`, and `add_worker`. | For `start` and `enqueue`, additional labels, each `key=value` or key-only. For `add_worker`, worker labels for the commands, each `key=value` without a comma. |
 | `scheduleTime` | string | Optional for `start` and `enqueue` with `targetType=dag`. | Schedule slot the run is for: `latest`, a date, a time without an offset in the schedule's zone, or an RFC 3339 time with an offset. A slot later than now fails. A time that is not a fire time adds a warning. |
 | `stepName` | string | Optional for `retry`; required for `approve`, `reject`, and `push_back`. | Step to retry, or the waiting step to decide. |
 | `includeDownstream` | boolean | Optional for `retry`. Requires `stepName`. | Retry the selected step and every reachable descendant. |
@@ -80,8 +80,9 @@ Rules:
   whitespace; a string that is empty after trimming is treated as absent.
 - `targetType=run` is valid only for `retry`, `stop`, `approve`, `reject`, and
   `push_back`, and those actions require it.
-- `params`, `singleton`, `noReuse`, `profile`, `labels`, and `scheduleTime` are
-  valid only for `start` and `enqueue`; `scheduleTime` is valid only with
+- `params`, `singleton`, `noReuse`, `profile`, and `scheduleTime` are
+  valid only for `start` and `enqueue`; `labels` is valid only for `start`,
+  `enqueue`, and `add_worker`; `scheduleTime` is valid only with
   `targetType=dag`; `queue` is valid only for `enqueue`; `includeDownstream` is
   valid only for `retry`; `stepName` is valid only for `retry`, `approve`,
   `reject`, and `push_back`; `subDAGRunId` and `attemptId` are valid only for
