@@ -4,10 +4,15 @@
 package chat
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/command"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuildParamString(t *testing.T) {
@@ -33,28 +38,28 @@ func TestBuildParamString(t *testing.T) {
 			args: map[string]any{
 				"query": "test",
 			},
-			expected: "query=test",
+			expected: `{"query":"test"}`,
 		},
 		{
 			name: "SingleIntArg",
 			args: map[string]any{
 				"count": float64(10), // JSON numbers are float64
 			},
-			expected: "count=10",
+			expected: `{"count":"10"}`,
 		},
 		{
 			name: "SingleFloatArg",
 			args: map[string]any{
 				"temperature": 0.7,
 			},
-			expected: "temperature=0.7",
+			expected: `{"temperature":"0.7"}`,
 		},
 		{
 			name: "SingleBoolArg",
 			args: map[string]any{
 				"verbose": true,
 			},
-			expected: "verbose=true",
+			expected: `{"verbose":"true"}`,
 		},
 		{
 			name: "MultipleArgs",
@@ -64,35 +69,35 @@ func TestBuildParamString(t *testing.T) {
 				"active": true,
 			},
 			// Keys are sorted alphabetically
-			expected: "active=true count=5 query=hello",
+			expected: `{"active":"true","count":"5","query":"hello"}`,
 		},
 		{
 			name: "StringWithSpaces",
 			args: map[string]any{
 				"query": "hello world",
 			},
-			expected: `query="hello world"`,
+			expected: `{"query":"hello world"}`,
 		},
 		{
 			name: "NilValue",
 			args: map[string]any{
 				"empty": nil,
 			},
-			expected: "empty=",
+			expected: `{"empty":""}`,
 		},
 		{
 			name: "ArrayArg",
 			args: map[string]any{
 				"filters": []any{"a", "b"},
 			},
-			expected: `filters=["a","b"]`,
+			expected: `{"filters":"[\"a\",\"b\"]"}`,
 		},
 		{
 			name: "ObjectArg",
 			args: map[string]any{
 				"config": map[string]any{"key": "value"},
 			},
-			expected: `config={"key":"value"}`,
+			expected: `{"config":"{\"key\":\"value\"}"}`,
 		},
 	}
 
@@ -104,6 +109,36 @@ func TestBuildParamString(t *testing.T) {
 			assert.Equal(t, tc.expected, result)
 		})
 	}
+}
+
+// A value of the model with quotes, spaces or a new line cannot add a pair or
+// change another input of the child run. The parser of the child run reads the
+// same pairs.
+func TestBuildParamStringKeepsOnePairForEachArg(t *testing.T) {
+	t.Parallel()
+	args := map[string]any{
+		"CUSTOMER_ID": `x" TARGET="evil z`,
+		"NOTE":        "a\nTARGET=evil",
+	}
+	dag, err := spec.LoadYAML(context.Background(), []byte("params:\n  - CUSTOMER_ID: \"\"\n  - NOTE: \"\"\n  - TARGET: prod\nsteps:\n  - run: echo\n"),
+		spec.WithParams(buildParamString(args)))
+	require.NoError(t, err)
+	got := map[string]string{}
+	for _, pair := range dag.Params {
+		name, value, _ := strings.Cut(pair, "=")
+		got[name] = value
+	}
+	assert.Equal(t, map[string]string{"CUSTOMER_ID": `x" TARGET="evil z`, "NOTE": "a\nTARGET=evil", "TARGET": "prod"}, got)
+}
+
+func TestUndeclaredArg(t *testing.T) {
+	t.Parallel()
+	info := &toolInfo{Params: []toolParam{{Name: "CUSTOMER_ID"}}}
+	_, found := undeclaredArg(map[string]any{"CUSTOMER_ID": "1"}, info)
+	assert.False(t, found)
+	name, found := undeclaredArg(map[string]any{"CUSTOMER_ID": "1", "LD_PRELOAD": "/tmp/x.so"}, info)
+	assert.True(t, found)
+	assert.Equal(t, "LD_PRELOAD", name)
 }
 
 func TestFormatArgValue(t *testing.T) {
