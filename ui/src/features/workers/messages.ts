@@ -95,6 +95,7 @@ export const workerAdminMessages = defineMessages({
       'The credentials this server uses for the selected node lack admin access there.',
     'Give those credentials the admin role on the selected node.':
       'Give those credentials the admin role on the selected node.',
+    'Invite {id} was not deleted.': 'Invite {id} was not deleted.',
   },
   'zh-CN': {
     'Only admins can manage workers and invites.':
@@ -183,6 +184,7 @@ export const workerAdminMessages = defineMessages({
       '此服务器用于所选节点的凭据在该节点上没有管理员权限。',
     'Give those credentials the admin role on the selected node.':
       '请在所选节点上为这些凭据授予管理员角色。',
+    'Invite {id} was not deleted.': '邀请 {id} 未被删除。',
   },
   ja: {
     'Only admins can manage workers and invites.':
@@ -275,6 +277,7 @@ export const workerAdminMessages = defineMessages({
       'このサーバーが選択中のノードに使う認証情報には、そのノードの管理者権限がありません。',
     'Give those credentials the admin role on the selected node.':
       '選択中のノードで、その認証情報に管理者ロールを付与してください。',
+    'Invite {id} was not deleted.': '招待 {id} は削除されませんでした。',
   },
   de: {
     'Only admins can manage workers and invites.':
@@ -367,6 +370,7 @@ export const workerAdminMessages = defineMessages({
       'Die Zugangsdaten, die dieser Server für den ausgewählten Knoten nutzt, haben dort keine Admin-Rechte.',
     'Give those credentials the admin role on the selected node.':
       'Geben Sie diesen Zugangsdaten auf dem ausgewählten Knoten die Admin-Rolle.',
+    'Invite {id} was not deleted.': 'Die Einladung {id} wurde nicht gelöscht.',
   },
   fr: {
     'Only admins can manage workers and invites.':
@@ -458,5 +462,6 @@ export const workerAdminMessages = defineMessages({
       'Les identifiants que ce serveur utilise pour le nœud sélectionné n’y ont pas les droits d’admin.',
     'Give those credentials the admin role on the selected node.':
       'Donnez à ces identifiants le rôle admin sur le nœud sélectionné.',
+    'Invite {id} was not deleted.': 'L’invitation {id} n’a pas été supprimée.',
   },
 });

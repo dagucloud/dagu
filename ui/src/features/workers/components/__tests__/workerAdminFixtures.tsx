@@ -47,6 +47,10 @@ export const server = {
     request: Request
   ) => Answer | Promise<Answer>,
   requests: [] as Request[],
+  /** Answers the workers list; a function answers each read in turn. */
+  workers: { status: 200, body: { workers: [], errors: [] } } as
+    | Answer
+    | (() => Answer | Promise<Answer>),
   /** The node System status shows. */
   node: 'local',
 };
@@ -75,6 +79,7 @@ export function installServer() {
   server.del = () => ({ status: 204 });
   server.requests = [];
   server.node = 'local';
+  server.workers = { status: 200, body: { workers: [], errors: [] } };
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -97,7 +102,11 @@ export function installServer() {
             ? await (typeof server.invites === 'function'
                 ? server.invites()
                 : server.invites)
-            : { status: 404, body: { code: 'not_found', message: 'none' } };
+            : url.pathname === '/api/v1/workers'
+              ? await (typeof server.workers === 'function'
+                  ? server.workers()
+                  : server.workers)
+              : { status: 404, body: { code: 'not_found', message: 'none' } };
       // An answer without a body, such as a 204 or a bare 502 from a proxy.
       return answer.body === undefined
         ? new Response(null, { status: answer.status })

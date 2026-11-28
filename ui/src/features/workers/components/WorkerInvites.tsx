@@ -137,6 +137,11 @@ function InviteList({ workers, live, refreshes }: WorkerInvitesProps) {
   const { ts } = useI18n();
   const { invites, error, isLoading, mutate } = useWorkerInvites(true);
   const [deleting, setDeleting] = React.useState<Deleting | null>(null);
+  // A delete that failed after its dialog was closed.
+  const [lateFailure, setLateFailure] = React.useState<{
+    invite: WorkerInvite;
+    error: unknown;
+  } | null>(null);
   const requests = React.useRef(0);
   const remoteNode = useRemoteNode();
   // The server deletes invites on its own coordinators only, never on a
@@ -149,10 +154,12 @@ function InviteList({ workers, live, refreshes }: WorkerInvitesProps) {
       }),
     [mutate, remoteNode]
   );
-  const joinedWorkers = React.useCallback(
-    () => invitesChanged(remoteNode),
-    [remoteNode]
-  );
+  // A read under way when workers join may predate the join. Its answer is
+  // dropped from now on, not only once the read for the join starts.
+  const joinedWorkers = React.useCallback(() => {
+    invitesChanged(remoteNode);
+    void mutate((current) => current, { revalidate: false });
+  }, [mutate, remoteNode]);
   useInviteReads({ workers, live, refreshes, read, joinedWorkers });
   const closeDialog = React.useCallback(
     (request: number) =>
@@ -253,11 +260,39 @@ function InviteList({ workers, live, refreshes }: WorkerInvitesProps) {
         </p>
       )}
       {body}
+      {lateFailure && (
+        <div className="space-y-2 border-t px-3 py-2">
+          <p className="text-sm font-medium">
+            <I18nText
+              text="Invite {id} was not deleted."
+              values={{ id: shortInviteId(lateFailure.invite.id) }}
+            />
+          </p>
+          <WorkerError
+            action
+            advice={describeWorkerError(
+              lateFailure.error,
+              { notFound: deleteGone(ts) },
+              ts
+            )}
+          />
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => setLateFailure(null)}
+          >
+            <I18nText text="Dismiss" />
+          </Button>
+        </div>
+      )}
       {deleting && (
         <DeleteInviteDialog
           key={deleting.request}
           invite={deleting.invite}
           onClose={() => closeDialog(deleting.request)}
+          onLateFailure={(error) =>
+            setLateFailure({ invite: deleting.invite, error })
+          }
         />
       )}
     </div>
@@ -499,18 +534,31 @@ function deleteGone(ts: (source: string) => string): WorkerErrorAdvice {
   };
 }
 
+/**
+ * Confirms the delete of one invite. A delete that fails after the dialog
+ * was closed reports to `onLateFailure`, unless the invite was gone already.
+ */
 function DeleteInviteDialog({
   invite,
   onClose,
+  onLateFailure,
 }: {
   invite: WorkerInvite;
   onClose: () => void;
+  onLateFailure: (error: unknown) => void;
 }) {
   const { ts } = useI18n();
   const { deleteInvite, rereadInvites } = useWorkerActions();
   const [error, setError] = React.useState<unknown>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const gone = error instanceof WorkerRequestError && error.status === 404;
+  const open = React.useRef(true);
+  React.useEffect(() => {
+    open.current = true;
+    return () => {
+      open.current = false;
+    };
+  }, []);
 
   const submit = async () => {
     if (submitting || gone) return;
@@ -520,7 +568,11 @@ function DeleteInviteDialog({
       await deleteInvite(invite.id);
       onClose();
     } catch (err) {
-      setError(err);
+      if (open.current) {
+        setError(err);
+      } else if (!(err instanceof WorkerRequestError && err.status === 404)) {
+        onLateFailure(err);
+      }
     } finally {
       setSubmitting(false);
       // The server deletes on its own coordinators, so the local list is

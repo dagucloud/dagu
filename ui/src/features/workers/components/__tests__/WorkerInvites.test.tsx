@@ -1,13 +1,25 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { WorkerInviteKind, type components } from '@/api/v1/schema';
+import {
+  WorkerConnection,
+  WorkerInviteKind,
+  type components,
+} from '@/api/v1/schema';
 import { QueryFeedback } from '@/components/QueryFeedback';
 import { useIsAdmin } from '@/contexts/AuthContext';
+import { useQuery } from '@/hooks/api';
 import WorkerInvites, {
   JOIN_REREAD_DELAY_MS,
   inviteBaseline,
@@ -31,6 +43,29 @@ vi.mock('@/hooks/api', async () =>
   (await import('./workerAdminFixtures')).realApiModule()
 );
 vi.mock('@/contexts/AuthContext', () => ({ useIsAdmin: vi.fn() }));
+
+// System status as it reads its workers from the API: the list follows
+// the workers the API reports, each read on request.
+function WorkersPage() {
+  const { data, isLoading, mutate } = useQuery('/workers', {
+    params: { query: { remoteNode: 'local' } },
+  });
+  return (
+    <>
+      <button type="button" onClick={() => void mutate()}>
+        Read workers
+      </button>
+      <WorkerInvites
+        workers={inviteBaseline({
+          workers: data?.workers,
+          settled: !isLoading,
+        })}
+        live
+        refreshes={0}
+      />
+    </>
+  );
+}
 
 interface PageState {
   workers: Worker[] | undefined;
@@ -387,6 +422,49 @@ describe('WorkerInvites', () => {
     );
     expect(document.body).not.toHaveTextContent('Insufficient permissions');
     expect(screen.queryByText(/Server message/)).not.toBeInTheDocument();
+  });
+
+  // A delete that fails after its dialog was closed is still announced, in
+  // the list, and leaves a newer confirmation as it is.
+  it('announces a delete that fails after its dialog was closed', async () => {
+    server.invites = invitesAnswer([invite('inv-1'), invite('inv-2')]);
+    let answer: (value: { status: number; body: unknown }) => void = () =>
+      undefined;
+    server.del = () => new Promise((resolve) => (answer = resolve));
+    renderInvites();
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Delete invite inv-1/ })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: /^Delete invite inv-2/ })
+    );
+    const newer = screen.getByRole('dialog');
+
+    await act(async () =>
+      answer(refused(503, 'server words', 'internal_error', 'no_coordinator'))
+    );
+
+    await screen.findByText('Invite inv-1 was not deleted.');
+    expect(screen.getByRole('dialog')).toBe(newer);
+    expect(within(newer).queryByRole('alert')).not.toBeInTheDocument();
+
+    await userEvent.click(
+      within(newer).getByRole('button', { name: 'Cancel' })
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'No coordinator is running or reachable.'
+    );
+    expect(document.body).not.toHaveTextContent('server words');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(
+      screen.queryByText('Invite inv-1 was not deleted.')
+    ).not.toBeInTheDocument();
   });
 
   // A bad ID is refused before any coordinator call. The words of that
@@ -767,6 +845,31 @@ describe('WorkerInvites', () => {
     expect(reads()).toBe(2);
   });
 
+  // The same, with the workers as the API reports them: a worker that
+  // enrolled again keeps its ID and reports a new certificate and invite.
+  it('reads after the workers API reports a worker enrolled again', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let reported = worker('worker-a', {
+      connection: WorkerConnection.certificate,
+      certificateId: 'cert-1',
+      inviteId: 'inv-1',
+    });
+    server.workers = () => ({
+      status: 200,
+      body: { workers: [reported], errors: [] },
+    });
+    render(<WorkersPage />, { wrapper: Providers });
+    await screen.findByText('No invites');
+    expect(reads()).toBe(1);
+
+    reported = { ...reported, certificateId: 'cert-2', inviteId: 'inv-2' };
+    fireEvent.click(screen.getByRole('button', { name: 'Read workers' }));
+    await waitFor(() => expect(requests('GET', '/workers')).toHaveLength(2));
+    await act(() => vi.advanceTimersByTimeAsync(JOIN_REREAD_DELAY_MS + 100));
+
+    expect(reads()).toBe(2);
+  });
+
   // Another node lists other workers; they are its baseline, not joins, and
   // its invites are read once.
   it('reads once for the node it switches to', async () => {
@@ -890,6 +993,48 @@ describe('WorkerInvites', () => {
 
     await waitFor(() => expect(rows()).resolves.toHaveLength(1));
     expect((await rows())[0]).toHaveTextContent('Used');
+  });
+
+  // The answer of a read under way when a worker joins is dropped at once,
+  // also when it comes before the read for the join starts.
+  it('drops a read that answers between a join and its read', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    server.invites = invitesAnswer([invite('inv-1')]);
+    const { update, refresh } = renderInvites([worker('worker-a')]);
+    expect(await rows()).toHaveLength(1);
+    let stale: (answer: { status: number; body: unknown }) => void = () =>
+      undefined;
+    const answers = [
+      () =>
+        new Promise<{ status: number; body: unknown }>(
+          (resolve) => (stale = resolve)
+        ),
+      () =>
+        invitesAnswer([
+          invite('inv-1', { useCount: 1, lastUsedAt: hoursFromNow(0) }),
+        ]),
+    ];
+    server.invites = () => answers.shift()!() as never;
+    refresh();
+    await waitFor(() => expect(reads()).toBe(2));
+
+    update([worker('worker-a'), worker('worker-b', { inviteId: 'inv-1' })]);
+    await act(async () =>
+      stale({
+        status: 200,
+        body: { invites: [invite('inv-1'), invite('inv-stale')] },
+      })
+    );
+    await act(() => vi.advanceTimersByTimeAsync(100));
+    expect(reads()).toBe(2);
+    expect(await rows()).toHaveLength(1);
+    expect(screen.queryByText(/inv-stal/)).not.toBeInTheDocument();
+
+    await act(() => vi.advanceTimersByTimeAsync(JOIN_REREAD_DELAY_MS));
+    await waitFor(() => expect(reads()).toBe(3));
+    await waitFor(async () =>
+      expect((await rows())[0]).toHaveTextContent('Used')
+    );
   });
 
   // A read under way when the list left a node cannot answer for the
