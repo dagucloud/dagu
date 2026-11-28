@@ -142,20 +142,28 @@ func (r *Runner) WithCommandTimeout(timeout time.Duration) *Runner {
 // Run executes the configured Dagu binary inside the isolated project.
 func (r *Runner) Run(args ...string) *Result {
 	r.t.Helper()
-	return r.run(nil, nil, args...)
+	return r.run(nil, nil, nil, args...)
 }
 
 // RunWithEnv executes the configured Dagu binary with extra environment entries.
 func (r *Runner) RunWithEnv(env []string, args ...string) *Result {
 	r.t.Helper()
-	return r.run(env, nil, args...)
+	return r.run(env, nil, nil, args...)
+}
+
+// RunWithStdout executes the configured Dagu binary with extra environment
+// entries and its standard output going to stdout, such as a pipe the test
+// closed. The result holds no standard output.
+func (r *Runner) RunWithStdout(env []string, stdout io.Writer, args ...string) *Result {
+	r.t.Helper()
+	return r.run(env, nil, stdout, args...)
 }
 
 // RunWithStdin executes the configured Dagu binary with the supplied input and
 // extra environment entries. The caller retains ownership of stdin.
 func (r *Runner) RunWithStdin(env []string, stdin io.Reader, args ...string) *Result {
 	r.t.Helper()
-	return r.run(env, stdin, args...)
+	return r.run(env, stdin, nil, args...)
 }
 
 // StartWithEnv starts the configured Dagu binary and returns without waiting.
@@ -298,7 +306,7 @@ func (p *Process) FailureOutput() string {
 	}
 }
 
-func (r *Runner) run(extraEnv []string, stdin io.Reader, args ...string) *Result {
+func (r *Runner) run(extraEnv []string, stdin io.Reader, stdoutTo io.Writer, args ...string) *Result {
 	r.t.Helper()
 
 	timeout := commandTimeout(r.t)
@@ -316,6 +324,9 @@ func (r *Runner) run(extraEnv []string, stdin io.Reader, args ...string) *Result
 	cmd.Env = appendEnv(append(isolatedEnv(r.t), "PWD="+r.dir), extraEnv...)
 	cmd.Stdin = stdin
 	cmd.Stdout = &stdout
+	if stdoutTo != nil {
+		cmd.Stdout = stdoutTo
+	}
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()

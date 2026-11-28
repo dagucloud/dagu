@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"net"
+	"os"
 	"regexp"
 	"slices"
 	"strconv"
@@ -81,6 +82,25 @@ func TestWorkerInviteLoopbackOnly(t *testing.T) {
 		"  It listens on 127.0.0.1, so only its own machine can connect. Start it with --coordinator.host=0.0.0.0.\n"+
 		"  Each change needs a restart of the coordinator.\n",
 		"no invite created: 1 of 1 coordinators cannot accept workers from other hosts")
+	assert.Empty(t, coordinator.invites(t, peer))
+}
+
+// A closed standard output makes the invite command delete the invite it
+// could not print and exit with code 1, instead of ending on the signal
+// with the invite still valid (Spec 108 §dagu worker invite).
+func TestWorkerInviteClosedStdout(t *testing.T) {
+	dagu := harness.NewRunner(t)
+	peer := newPeerFixture(t, dagu)
+	coordinator := startInviteCoordinator(t, dagu, peer, "--coordinator.host=0.0.0.0")
+	reader, writer, err := os.Pipe()
+	require.NoError(t, err)
+	require.NoError(t, reader.Close())
+	t.Cleanup(func() { _ = writer.Close() })
+
+	result := dagu.RunWithStdout(coordinator.env, writer, "worker", "invite", "--address", "192.168.1.20:50055")
+
+	result.ExpectExitCode(1)
+	result.ExpectStderrContains("so it was deleted: run the command again")
 	assert.Empty(t, coordinator.invites(t, peer))
 }
 

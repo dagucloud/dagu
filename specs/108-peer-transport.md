@@ -944,9 +944,13 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
   coordinator that fails to generate or store the invite gets that failure
   and its log as the place to look. Any other failure gets only its kind
   and that `dagu worker --check` on the calling host shows why.
-- `--address` must be valid UTF-8 and one `host:port`, with an IPv6 host in
-  brackets, and without a comma or surrounding spaces, which would change
-  how the worker reads the printed `--worker.coordinators`.
+- `--address` must be valid UTF-8, hold no invite, and be one `host:port`
+  without a comma or surrounding spaces, which would change how the worker
+  reads the printed `--worker.coordinators`. It takes the addresses the Add
+  worker dialog takes: a port from 1 to 65535, and a host that is a DNS
+  name other than `localhost` or a container ID, or an IP address without
+  a zone that is not unspecified, loopback, link-local, multicast, or
+  broadcast. An IPv6 host is in brackets.
 - When the output cannot be written, it deletes the invite it created, and
   exits with code 1, naming the invite by its ID only.
 - On success it prints the invite kind and expiry, the invite, and the
@@ -1272,7 +1276,7 @@ handshake error that caused the fallback.
 | An invite call or `Enroll` on a coordinator without a peer CA | `FailedPrecondition`, with the message of [Coordinator Calls](#coordinator-calls) |
 | `POST /api/v1/workers/invites` with an invalid `expiresIn` or `address` | `400`, naming the field |
 | An invite or removal endpoint called by a non-admin | `403` |
-| `dagu worker invite` without the peer token | Exits with code 1, saying to set `peer.token` or to run on a host that reads the coordinator's data directory |
+| `dagu worker invite` without the peer token | Exits with code 1, saying to set the same `peer.token` on the calling host |
 | `dagu worker invite` while a coordinator is not ready | Exits with code 1 and prints the change to make |
 
 ## Examples
