@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { RefreshCw } from 'lucide-react';
+import { Plus, RefreshCw } from 'lucide-react';
 import * as React from 'react';
 import {
   HostEnvironment,
@@ -18,6 +18,8 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Spinner } from '@/components/ui/spinner';
+import { useIsAdmin } from '@/contexts/AuthContext';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
 import { I18nText } from '@/i18n/I18nText';
 import {
@@ -39,7 +41,9 @@ import {
   type RequestProblem,
 } from './parts';
 import { allReady, ReadinessBody } from './ReadinessStep';
+import { WorkerStep, type CreatedInvites } from './WorkerStep';
 
+type Worker = components['schemas']['Worker'];
 type JoinReadiness = components['schemas']['WorkerJoinReadinessResponse'];
 
 const LOCAL_NODE = 'local';
@@ -63,6 +67,8 @@ type Readiness =
   | { state: 'failed'; problem: RequestProblem };
 
 interface AddWorkerProps {
+  /** The workers list that System status refreshes. */
+  workers: Worker[];
   /** True while that refresh fails, as during a restart of the server. */
   refreshFailed: boolean;
 }
@@ -73,11 +79,42 @@ function placedAddress(data: JoinReadiness, placement: Placement): string {
   return placement === Placement.inside ? (podAddress(data) ?? '') : '';
 }
 
+/** The Add worker button of the Workers section, for admins. */
+export function AddWorker({ workers, refreshFailed }: AddWorkerProps) {
+  const isAdmin = useIsAdmin();
+  const remote = useRemoteNode() !== LOCAL_NODE;
+  const [open, setOpen] = React.useState(false);
+  if (!isAdmin) return null;
+  return (
+    <>
+      {/* Invites come from the server this page is served by, never through
+          a remote node, so its audit entry names the admin. */}
+      {remote && (
+        <span className="text-xs text-muted-foreground">
+          <I18nText text="Switch to the local server to add a worker." />
+        </span>
+      )}
+      <Button size="xs" disabled={remote} onClick={() => setOpen(true)}>
+        <Plus />
+        <I18nText text="Add worker" />
+      </Button>
+      {open && (
+        <AddWorkerDialog
+          workers={workers}
+          refreshFailed={refreshFailed}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
 /**
  * The Add worker dialog. It is mounted only while open, so each opening
  * reads readiness afresh.
  */
 export function AddWorkerDialog({
+  workers,
   refreshFailed,
   onClose,
 }: AddWorkerProps & { onClose: () => void }) {
@@ -88,6 +125,8 @@ export function AddWorkerDialog({
   const [checking, setChecking] = React.useState(true);
   const [address, setAddress] = React.useState<string>();
   const [placement, setPlacement] = React.useState<Placement>();
+  // Kept here, so an invite stays on screen when readiness changes later.
+  const [invites, setInvites] = React.useState<CreatedInvites>({});
   const touched = React.useRef(false);
   // The reading the field's address came from: the first one, or the one
   // whose endpoint the admin took. A later reading never rewrites the
@@ -293,8 +332,21 @@ export function AddWorkerDialog({
         <Step
           number={3}
           title="Worker"
-          state={validAddress ? undefined : 'Shown after steps 1 and 2'}
-        />
+          state={
+            validAddress || Object.keys(invites).length > 0
+              ? undefined
+              : 'Shown after steps 1 and 2'
+          }
+        >
+          <WorkerStep
+            address={validAddress}
+            workers={workers}
+            invites={invites}
+            onInvite={(kind, invite) =>
+              setInvites((prev) => ({ ...prev, [kind]: invite }))
+            }
+          />
+        </Step>
       </DialogContent>
     </Dialog>
   );

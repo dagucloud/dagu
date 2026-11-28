@@ -3,22 +3,32 @@
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BuiltinTLSReason,
   ConfigSourceKind,
   HostEnvironment,
   WorkerAccessReason,
+  WorkerHealthStatus,
+  WorkerVersionDrift,
   type components,
 } from '@/api/v1/schema';
-import { AddWorkerDialog } from '../AddWorker';
+import { ConfigContext, type Config } from '@/contexts/ConfigContext';
+import { RemoteNodeProvider } from '@/contexts/RemoteNodeContext';
+import { AddWorker } from '../AddWorker';
 
+type Worker = components['schemas']['Worker'];
 type Readiness = components['schemas']['WorkerJoinReadinessResponse'];
 type Report = components['schemas']['JoinReadinessReport'];
 
-const api = vi.hoisted(() => ({ GET: vi.fn() }));
+const api = vi.hoisted(() => ({ GET: vi.fn(), POST: vi.fn() }));
+const config = vi.hoisted(() => ({ version: '2.28.0' }));
+const auth = vi.hoisted(() => ({ admin: true }));
 
 vi.mock('@/hooks/api', () => ({ useClient: () => api }));
+vi.mock('@/contexts/AuthContext', () => ({ useIsAdmin: () => auth.admin }));
+
+const INVITE = 'dagu1.pin.secret';
 
 function report(overrides: Partial<Report> = {}): Report {
   return {
@@ -85,8 +95,26 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function view(refreshFailed = false) {
-  return <AddWorkerDialog refreshFailed={refreshFailed} onClose={() => {}} />;
+function worker(overrides: Partial<Worker>): Worker {
+  return {
+    id: 'worker-a1',
+    labels: {},
+    totalPollers: 1,
+    busyPollers: 0,
+    runningTasks: [],
+    lastHeartbeatAt: new Date().toISOString(),
+    healthStatus: WorkerHealthStatus.healthy,
+    versionDrift: WorkerVersionDrift.none,
+    ...overrides,
+  };
+}
+
+function view(workers: Worker[] = [], refreshFailed = false) {
+  return (
+    <ConfigContext.Provider value={config as Config}>
+      <AddWorker workers={workers} refreshFailed={refreshFailed} />
+    </ConfigContext.Provider>
+  );
 }
 
 // Settles the pending API calls and the renders they cause.
@@ -95,6 +123,7 @@ const settle = () => act(async () => {});
 async function open(data: Readiness) {
   api.GET.mockResolvedValue(answer(200, data));
   const result = render(view());
+  fireEvent.click(screen.getByRole('button', { name: 'Add worker' }));
   await settle();
   return result;
 }
@@ -121,10 +150,27 @@ function typeAddress(address: string) {
   });
 }
 
+async function createInvite(expiresAt = '2026-11-29T10:00:00Z') {
+  api.POST.mockResolvedValue(
+    answer(201, { id: 'inv-1', invite: INVITE, expiresAt })
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
+  await settle();
+}
+
+function shownCommand(): string {
+  return screen.getByText(/--worker\.invite=|DAGU_WORKER_INVITE/, {
+    selector: 'pre',
+  }).textContent!;
+}
+
 const writeText = vi.fn();
 
 beforeEach(() => {
   api.GET.mockReset();
+  api.POST.mockReset();
+  auth.admin = true;
+  config.version = '2.28.0';
   writeText.mockReset().mockResolvedValue(undefined);
   Object.defineProperty(navigator, 'clipboard', {
     value: { writeText },
@@ -132,10 +178,30 @@ beforeEach(() => {
   });
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe('AddWorker', () => {
+  it('offers no button to a user who is not an admin', () => {
+    auth.admin = false;
+    render(view());
+    expect(screen.queryByRole('button', { name: 'Add worker' })).toBeNull();
+  });
+
+  // Invites come only from the server the page is served by.
+  it('offers Add worker only on the local server', () => {
+    render(<RemoteNodeProvider remoteNode="prod">{view()}</RemoteNodeProvider>);
+    expect(screen.getByRole('button', { name: 'Add worker' })).toBeDisabled();
+    expect(
+      screen.getByText('Switch to the local server to add a worker.')
+    ).toBeInTheDocument();
+  });
+
   it('checks the coordinator while join readiness loads', () => {
     api.GET.mockReturnValue(new Promise(() => {}));
     render(view());
+    fireEvent.click(screen.getByRole('button', { name: 'Add worker' }));
 
     expect(
       step('Accept workers from other hosts').getByText('Checking...')
@@ -182,8 +248,8 @@ describe('AddWorker', () => {
     api.GET.mockResolvedValue(
       answer(200, readiness({ advertise, port: 50155 }))
     );
-    rerender(view(true));
-    rerender(view(false));
+    rerender(view([], true));
+    rerender(view([], false));
     await settle();
     expect(field).toHaveValue(before);
     expect(
@@ -643,6 +709,7 @@ describe('AddWorker', () => {
   ])('names the cause of a %i (%s)', async (status, reason, text) => {
     api.GET.mockResolvedValue(answer(status, undefined, reason));
     render(view());
+    fireEvent.click(screen.getByRole('button', { name: 'Add worker' }));
     await settle();
 
     expect(screen.getByRole('alert')).toHaveTextContent(text);
@@ -663,6 +730,7 @@ describe('AddWorker', () => {
     const first = deferred<unknown>();
     api.GET.mockReturnValueOnce(first.promise);
     const { rerender } = render(view());
+    fireEvent.click(screen.getByRole('button', { name: 'Add worker' }));
     api.GET.mockResolvedValueOnce(answer(200, readiness()));
     rerender(view(true));
     rerender(view(false));
@@ -682,8 +750,8 @@ describe('AddWorker', () => {
     api.GET.mockResolvedValue(
       answer(503, undefined, WorkerAccessReason.no_coordinator)
     );
-    rerender(view(true));
-    rerender(view(false));
+    rerender(view([], true));
+    rerender(view([], false));
     await settle();
     expect(document.activeElement).toBe(
       screen.getByRole('button', { name: 'Check again' })
@@ -703,8 +771,8 @@ describe('AddWorker', () => {
     const { rerender } = await open(readiness());
     const field = screen.getByLabelText(ADDRESS);
     field.focus();
-    rerender(view(true));
-    rerender(view(false));
+    rerender(view([], true));
+    rerender(view([], false));
     await settle();
     expect(document.activeElement).toBe(field);
   });
@@ -753,12 +821,12 @@ describe('AddWorker', () => {
   // restart, and on window focus.
   it.each(['server', 'focus'])('reads readiness again on %s', async (by) => {
     const { rerender } = await open(loopback());
-    if (by === 'server') rerender(view(true));
+    if (by === 'server') rerender(view([], true));
     await settle();
     expect(api.GET).toHaveBeenCalledTimes(1);
 
     api.GET.mockResolvedValue(answer(200, readiness()));
-    if (by === 'server') rerender(view(false));
+    if (by === 'server') rerender(view([], false));
     else comeBack();
     await settle();
     expect(api.GET).toHaveBeenCalledTimes(2);
@@ -842,5 +910,324 @@ describe('AddWorker', () => {
     expect(
       step('Worker').getByText('Shown after steps 1 and 2')
     ).toBeInTheDocument();
+  });
+
+  it.each(['192.168.1.20:30055', '[fd00::20]:50055', 'laptop:50055'])(
+    'accepts the address %s and moves on to step 3',
+    async (address) => {
+      await open(readiness());
+      typeAddress(address);
+
+      expect(screen.queryByText('Shown after steps 1 and 2')).toBeNull();
+      expect(
+        screen.getByRole('button', { name: 'Create invite' })
+      ).toBeEnabled();
+    }
+  );
+
+  // vectors.test.ts holds the command text for every rule; these show that
+  // the dialog creates the invite and copies exactly what it shows.
+  it('creates a single-use invite and copies the Linux command', async () => {
+    await open(readiness());
+    typeAddress('[fd00::20]:50055');
+    fireEvent.change(screen.getByLabelText('Labels (optional)'), {
+      target: { value: 'gpu = true, team=data/eng' },
+    });
+    expect(screen.queryByText(/dagu1\./)).toBeNull();
+    await createInvite();
+
+    // Invites come only from the local server, which takes no remoteNode.
+    expect(api.POST).toHaveBeenCalledWith('/workers/invites', {
+      body: { reusable: false, address: '[fd00::20]:50055' },
+    });
+    const command =
+      "dagu worker '--worker.coordinators=[fd00::20]:50055' " +
+      `'--worker.labels=gpu = true,team=data/eng' --worker.invite=${INVITE}`;
+    expect(shownCommand()).toBe(command);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy the command' }));
+    await settle();
+    expect(writeText).toHaveBeenCalledWith(command);
+  });
+
+  it('gives Kubernetes a reusable invite named after it', async () => {
+    await open(readiness());
+    typeAddress('192.168.1.20:30055');
+    fireEvent.click(screen.getByRole('tab', { name: 'Kubernetes' }));
+    expect(screen.queryByRole('radio')).toBeNull();
+    await createInvite('');
+
+    expect(api.POST).toHaveBeenCalledWith('/workers/invites', {
+      body: { reusable: true, address: '192.168.1.20:30055' },
+    });
+    expect(shownCommand()).toContain('  name: dagu-worker-invite-inv1\n');
+    expect(
+      screen.getByText(/Reusable invite, until deleted./)
+    ).toBeInTheDocument();
+  });
+
+  it('refuses a label by its position and holds the invite back', async () => {
+    await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    fireEvent.change(screen.getByLabelText('Labels (optional)'), {
+      target: { value: `gpu=true,note=${PASTED_INVITE}` },
+    });
+
+    expect(
+      screen.getByText(
+        'Label 2 holds an invite. The invite goes only into the commands.'
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/AAAAAAAAAA/)).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Create invite' })
+    ).toBeDisabled();
+  });
+
+  it('offers no container command for a development build', async () => {
+    config.version = 'dev';
+    await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    fireEvent.click(screen.getByRole('tab', { name: 'Docker' }));
+
+    expect(
+      screen.getByText(/no published image matches it/)
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create invite' })).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'Linux' }));
+    expect(
+      screen.getByRole('button', { name: 'Create invite' })
+    ).toBeInTheDocument();
+  });
+
+  it('lets Linux choose a reusable invite', async () => {
+    await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    fireEvent.click(
+      screen.getByRole('radio', { name: /Reusable: any number of hosts/ })
+    );
+    await createInvite('');
+
+    expect(api.POST.mock.calls[0]?.[1]?.body).toEqual({
+      reusable: true,
+      address: '192.168.1.20:50055',
+    });
+  });
+
+  // The tabs follow the ARIA tabs pattern: the arrow keys move between
+  // them, and the panel is labelled by the selected tab.
+  it('moves between tabs with the arrow keys', async () => {
+    await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    const linux = screen.getByRole('tab', { name: 'Linux' });
+    linux.focus();
+    fireEvent.keyDown(linux, { key: 'ArrowRight' });
+
+    const docker = screen.getByRole('tab', { name: 'Docker' });
+    expect(docker).toHaveAttribute('aria-selected', 'true');
+    expect(document.activeElement).toBe(docker);
+    expect(screen.getByRole('tabpanel')).toHaveAttribute(
+      'aria-labelledby',
+      docker.id
+    );
+  });
+
+  // The dialog picks its words by details.reason, never the server's.
+  it.each([
+    [400, undefined, 'The server refused the address'],
+    [403, undefined, 'Only admins can add workers.'],
+    [409, WorkerAccessReason.own_certificates, /uses peer.cert_file/],
+    [503, WorkerAccessReason.no_coordinator, /No coordinator is running/],
+    [503, WorkerAccessReason.require_tls, /requires TLS/],
+  ])(
+    'names the cause when the invite fails with %i (%s)',
+    async (status, reason, text) => {
+      await open(readiness());
+      typeAddress('192.168.1.20:50055');
+      api.POST.mockResolvedValue(answer(status, undefined, reason));
+      fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
+      await settle();
+
+      expect(screen.getByRole('alert')).toHaveTextContent(text);
+      expect(screen.queryByText(/var\/lib/)).toBeNull();
+      expect(screen.queryByText(/dagu1\./)).toBeNull();
+    }
+  );
+
+  // A readiness read that fails after the invite was made keeps the invite
+  // and its command on screen.
+  it('keeps the invite when readiness fails later', async () => {
+    const { rerender } = await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    await createInvite();
+    const command = shownCommand();
+
+    api.GET.mockResolvedValue(
+      answer(503, undefined, WorkerAccessReason.no_coordinator)
+    );
+    rerender(view([], true));
+    rerender(view([], false));
+    await settle();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(shownCommand()).toBe(command);
+
+    api.GET.mockResolvedValue(answer(200, readiness()));
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    await settle();
+    expect(shownCommand()).toBe(command);
+  });
+
+  // The command dials the address the invite was made for, even when a new
+  // reading or the admin changes the field while it is being created.
+  it('keeps the command on the address the invite was made for', async () => {
+    const { rerender } = await open(
+      readiness({ advertise: 'coord.example.com' })
+    );
+    const created = deferred<unknown>();
+    api.POST.mockReturnValue(created.promise);
+    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
+
+    api.GET.mockResolvedValue(
+      answer(200, readiness({ advertise: 'coord.example.com', port: 50155 }))
+    );
+    rerender(view([], true));
+    rerender(view([], false));
+    await settle();
+    created.resolve(answer(201, { id: 'inv-1', invite: INVITE }));
+    await settle();
+
+    expect(shownCommand()).toContain(
+      '--worker.coordinators=coord.example.com:50055 '
+    );
+    expect(
+      screen.getByText(
+        'This invite was made for coord.example.com:50055. To use coord.example.com:50155, create another invite.'
+      )
+    ).toBeInTheDocument();
+  });
+
+  it('announces the worker that joins with the invite', async () => {
+    const { rerender } = await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    await createInvite();
+    const status = screen
+      .getByText('Waiting for the worker to join...')
+      .closest('[role="status"]');
+    expect(status).not.toBeNull();
+
+    rerender(
+      view([
+        worker({ id: 'other', inviteId: 'inv-0' }),
+        worker({ inviteId: 'inv-1', labels: { gpu: 'true' } }),
+      ])
+    );
+
+    // The same status region now says the worker joined.
+    expect(status).toHaveTextContent('1 worker joined with this invite.');
+    expect(screen.getByText('worker-a1')).toBeInTheDocument();
+    expect(screen.getByText('gpu=true')).toBeInTheDocument();
+    expect(screen.queryByText('other')).toBeNull();
+  });
+
+  // A worker that joined stays joined, also after it leaves the list and
+  // while another tab shows; the dialog's own read runs at most once.
+  it('keeps a join and its read across tabs', async () => {
+    vi.useFakeTimers();
+    const { rerender } = await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    await createInvite();
+    fireEvent.click(screen.getByRole('tab', { name: 'Kubernetes' }));
+    rerender(view([worker({ inviteId: 'inv-1' })]));
+    rerender(view([]));
+    await act(async () => {
+      vi.advanceTimersByTime(61_000);
+    });
+    fireEvent.click(screen.getByRole('tab', { name: 'Linux' }));
+
+    expect(screen.getByText('worker-a1')).toBeInTheDocument();
+    expect(screen.queryByText(/The usual causes/)).toBeNull();
+    expect(api.GET).not.toHaveBeenCalledWith('/workers', expect.anything());
+  });
+
+  // With System status's refresh paused, the list the dialog gets is stale.
+  // At 60 seconds the dialog reads the list once itself before it gives up.
+  it('reads the workers once itself before it lists the usual causes', async () => {
+    vi.useFakeTimers();
+    await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    await createInvite();
+    api.GET.mockResolvedValue(
+      answer(200, { workers: [worker({ inviteId: 'inv-1' })], errors: [] })
+    );
+
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(api.GET).toHaveBeenCalledWith('/workers', {
+      params: { query: { remoteNode: 'local' } },
+    });
+    expect(screen.getByText('worker-a1')).toBeInTheDocument();
+    expect(screen.queryByText(/The usual causes/)).toBeNull();
+  });
+
+  // A read that fails or comes back partial cannot tell that nobody joined.
+  it.each([
+    [
+      'a refused read',
+      answer(503, undefined, WorkerAccessReason.no_coordinator),
+    ],
+    [
+      'a partial list',
+      answer(200, { workers: [], errors: ['coordinator down'] }),
+    ],
+  ])('says the list could not be read after %s', async (_, reply) => {
+    vi.useFakeTimers();
+    await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    await createInvite();
+    api.GET.mockResolvedValue(reply);
+
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    expect(
+      screen.getByText(/The workers list could not be read/)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/No worker has joined yet/)).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Look for the worker again' })
+    ).toBeInTheDocument();
+  });
+
+  // The check reports how the host reaches the coordinator; it does not
+  // read the invite yet.
+  it.each([
+    ['Linux', 'dagu worker --check --worker.coordinators=192.168.1.20:50055'],
+    [
+      'Docker',
+      'docker run --rm ghcr.io/dagucloud/dagu:2.28.0 dagu worker --check --worker.coordinators=192.168.1.20:50055',
+    ],
+    ['Kubernetes', 'kubectl logs deployment/dagu-worker-inv1'],
+  ])('lists the usual causes after 60 seconds on %s', async (tab, check) => {
+    vi.useFakeTimers();
+    await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    fireEvent.click(screen.getByRole('tab', { name: tab }));
+    await createInvite();
+    api.GET.mockResolvedValue(answer(200, { workers: [], errors: [] }));
+
+    await act(async () => {
+      vi.advanceTimersByTime(59_000);
+    });
+    expect(screen.queryByText(/The usual causes/)).toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(screen.getByText(/closes port 50055/)).toBeInTheDocument();
+    expect(screen.getByText(/does not publish port 50055/)).toBeInTheDocument();
+    expect(
+      screen.getByText('The worker cannot reach 192.168.1.20:50055.')
+    ).toBeInTheDocument();
+    expect(screen.getByText(check, { selector: 'pre' })).toBeInTheDocument();
   });
 });
