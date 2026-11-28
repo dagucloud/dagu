@@ -342,7 +342,7 @@ Errors:
 - resource_not_found when the named DAG, DAG-run, or step does not exist. A misspelled stored-DAG name carries close existing names under details.didYouMean.
 - conflict when every coordinator runs an earlier Dagu release without worker invites or refuses to create one, when a singleton run is already running or queued, when a DAG with a restart_policy has an active run, when the step to decide is not waiting for a person, or when attemptId differs from the run's current attempt, which details.attemptId reports.
 - resource_unavailable when no coordinator is running or reachable, or the server lacks the peer token, for add_worker; resource_unavailable or internal_error for other runtime failures.
-- An add_worker error carries reason, a stable name such as no_coordinator, older_coordinator, or coordinator_refused, when the REST API gives one. Branch on reason, not message.`,
+- An add_worker error carries reason, a stable name such as no_coordinator, older_coordinator, coordinator_refused, coordinator_conflict, or retry_later, when the REST API gives one; after retry_later, call again shortly. Branch on reason, not message.`,
 		},
 		{
 			topic:       "notifications",

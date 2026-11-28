@@ -333,7 +333,9 @@ func createRefusal(err error) error {
 	case strings.HasPrefix(apiErr.Message, executeFieldAddress):
 		field = executeFieldAddress
 	}
-	return executeInputError(apiErr.Message, field)
+	refusal := executeInputError(apiErr.Message, field)
+	refusal.Reason = reason
+	return refusal
 }
 
 // joinSteps returns step 1 of Add worker for each coordinator, and how many

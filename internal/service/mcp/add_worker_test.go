@@ -17,6 +17,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -387,31 +388,55 @@ func TestAddWorkerKeepsPastedInvitesOut(t *testing.T) {
 
 // A create refusal for the CA says the cause and where to look, as step 1
 // does, and keeps the reason, not the coordinator's account of its CA.
+//
+// Every other create refusal keeps the reason the API gives it, so an agent
+// can tell a coordinator that cannot create the invite in its present state
+// from one that asks to try again shortly.
 func TestAddWorkerCreateRefusal(t *testing.T) {
 	t.Parallel()
 
-	for message, want := range map[string]struct{ reason, message string }{
-		"invites need the built-in CA: this coordinator could not create or read its CA; see its start warning": {
-			"ca_unavailable", "Built-in TLS is unavailable. Check the coordinator startup log.",
+	tests := map[string]struct {
+		err                   error
+		code, reason, message string
+	}{
+		"CA unavailable": {
+			err:  status.Error(codes.FailedPrecondition, "invites need the built-in CA: this coordinator could not create or read its CA; see its start warning"),
+			code: executeErrorConflict, reason: "ca_unavailable", message: "Built-in TLS is unavailable. Check the coordinator startup log.",
 		},
-		"invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file": {
-			"own_certificates", "Invites need built-in TLS, and this coordinator uses peer.cert_file and peer.key_file.",
+		"own certificates": {
+			err:  status.Error(codes.FailedPrecondition, "invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file"),
+			code: executeErrorConflict, reason: "own_certificates", message: "Invites need built-in TLS, and this coordinator uses peer.cert_file and peer.key_file.",
 		},
-	} {
-		stub := &workerAccessStub{
-			readiness: []coordinator.JoinReadiness{{Report: readyReport()}},
-			createErr: status.Error(codes.FailedPrecondition, message),
-		}
+		"coordinator conflict": {
+			err:  status.Error(codes.FailedPrecondition, "the invite store is read only"),
+			code: executeErrorConflict, reason: "coordinator_conflict", message: "the invite store is read only",
+		},
+		"retry later": {
+			err:  reasonedStatus(t, codes.FailedPrecondition, "retry_later", "the coordinator is starting"),
+			code: executeErrorConflict, reason: "retry_later", message: "the coordinator is starting",
+		},
+	}
+	for name, tc := range tests {
+		stub := &workerAccessStub{readiness: []coordinator.JoinReadiness{{Report: readyReport()}}, createErr: tc.err}
 		svc, _ := newAddWorkerService(stub)
 
 		result, data := addWorker(t, cloudUser(auth.RoleAdmin), svc, map[string]any{"address": "192.168.1.20:50055"})
 
-		require.True(t, result.IsError, data)
+		require.True(t, result.IsError, name)
 		output := structuredMap(t, result)
-		require.Equal(t, executeErrorConflict, output["code"], data)
-		require.Equal(t, want.reason, output["reason"], data)
-		require.Equal(t, want.message, output["message"], data)
+		require.Equal(t, tc.code, output["code"], data)
+		require.Equal(t, tc.reason, output["reason"], data)
+		require.Equal(t, tc.message, output["message"], data)
 	}
+}
+
+// reasonedStatus returns a coordinator refusal that names its reason, as a
+// coordinator of this release sends it.
+func reasonedStatus(t *testing.T, code codes.Code, reason, message string) error {
+	t.Helper()
+	st, err := status.New(code, message).WithDetails(&errdetails.ErrorInfo{Reason: reason, Domain: "coordinator.dagu"})
+	require.NoError(t, err)
+	return st.Err()
 }
 
 // The address to start from and the suggestions pass the address rule, so
