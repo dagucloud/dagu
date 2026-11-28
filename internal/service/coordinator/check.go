@@ -185,6 +185,12 @@ func (r CheckResult) Passed() bool {
 		(r.TLS == nil || r.TLS.Err == nil || r.TLS.Fallback != "") && r.AnswerErr == nil
 }
 
+// Removed reports whether the coordinator refused the client's worker
+// certificate as revoked.
+func (r CheckResult) Removed() bool {
+	return errors.Is(r.AnswerErr, removedWorkerError{})
+}
+
 // Describe returns the check's lines about the client's credential: what
 // the client presents to the coordinator, and what the coordinator answered
 // its calls, once the check reached them.

@@ -37,39 +37,54 @@ func newCoordinatorClient(ctx context.Context, cfg *config.Config, clientConfig 
 // worker certificate it keeps, also one a coordinator refused as revoked,
 // or else with its worker.invite. It refuses the settings that the start
 // refuses. removed is the failure the worker exits with at start because the
-// certificate it keeps records a refusal as revoked, and nil otherwise. It
-// takes no lock and never enrolls. localRegistry is the service registry in
-// the worker's data directory.
-func CoordinatorClientConfig(cfg *config.Config, localRegistry serviceregistry.ServiceRegistry) (clientConfig *coordinator.Config, removed error, err error) {
+// certificate it keeps records a refusal as revoked, and nil otherwise.
+// refused is the failure the start ends with when a coordinator refuses
+// that certificate as revoked, and nil when the worker then enrolls again
+// with worker.invite or presents no certificate. It takes no lock and never
+// enrolls. localRegistry is the service registry in the worker's data
+// directory.
+func CoordinatorClientConfig(cfg *config.Config, localRegistry serviceregistry.ServiceRegistry) (clientConfig *coordinator.Config, removed, refused error, err error) {
 	if _, err := workerLabels(cfg.Worker.Labels); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	invite, cred, err := startCredential(cfg)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	clientConfig = clientConfigOf(cfg, localRegistry)
 	if invite != nil {
 		clientConfig = clientConfig.WithInvite(*invite)
 	}
+	kubernetes := coordinator.ProcessEnvironment() == coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES
+	writable := func() bool { return newCredentialStore(cfg.Paths.DataDir).writable() }
 	switch keptUseOf(cred, invite) {
 	case keptUnused:
 		// The start enrolls in place of the kept certificate only when it
 		// can keep the new one.
-		if cred != nil && !newCredentialStore(cfg.Paths.DataDir).writable() {
-			return nil, nil, errCannotReplace(cfg.Paths.DataDir)
+		if cred != nil && !writable() {
+			return nil, nil, nil, errCannotReplace(cfg.Paths.DataDir)
 		}
 	case keptRemoved:
 		// The check still dials with it, to show what coordinators answer.
-		removed = errRemoved(coordinator.ProcessEnvironment() == coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES)
+		removed = errRemoved(kubernetes)
+		refused = removed
 		clientConfig = clientConfig.WithWorkerCertificate(cred.cert, cred.ca)
 	case keptConnect:
+		// After a refusal, the start decides as for a recorded one.
+		marked := *cred
+		marked.removed = true
+		switch {
+		case keptUseOf(&marked, invite) != keptUnused:
+			refused = errRemoved(kubernetes)
+		case !writable():
+			refused = errCannotReplace(cfg.Paths.DataDir)
+		}
 		clientConfig = clientConfig.WithWorkerCertificate(cred.cert, cred.ca)
 	}
 	if err := clientConfig.Validate(); err != nil {
-		return nil, nil, fmt.Errorf("invalid coordinator client configuration: %w", err)
+		return nil, nil, nil, fmt.Errorf("invalid coordinator client configuration: %w", err)
 	}
-	return clientConfig, removed, nil
+	return clientConfig, removed, refused, nil
 }
 
 // startCredential returns worker.invite, nil without one, and the credential

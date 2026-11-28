@@ -31,7 +31,7 @@ func isWorkerCheck(cmd *cobra.Command) bool {
 // worker.coordinators it checks the coordinators in the service registry,
 // and fails since the worker does not start without them.
 func runWorkerCheck(ctx *Context) error {
-	clientConfig, removed, err := worker.CoordinatorClientConfig(ctx.Config, ctx.serverStores.ServiceRegistry)
+	clientConfig, removed, refused, err := worker.CoordinatorClientConfig(ctx.Config, ctx.serverStores.ServiceRegistry)
 	if err != nil {
 		return err
 	}
@@ -50,8 +50,10 @@ func runWorkerCheck(ctx *Context) error {
 	failed := 0
 	for _, member := range members {
 		result := coordinator.Check(ctx, clientConfig, member)
-		printWorkerCheck(out, result, ctx.Config.Worker.Invite != "")
-		if !result.Passed() {
+		printWorkerCheck(out, result, ctx.Config.Worker.Invite != "", refused)
+		// A refusal after which the start enrolls with worker.invite
+		// passes, as an invite the worker has not used yet does.
+		if !result.Passed() && (!result.Removed() || refused != nil) {
 			failed++
 		}
 	}
@@ -104,8 +106,10 @@ func workerCheckMembers(ctx *Context) ([]serviceregistry.HostInfo, error) {
 }
 
 // printWorkerCheck prints what one coordinator showed, with the messages of
-// Spec 108. invite reports a worker with worker.invite.
-func printWorkerCheck(w io.Writer, result coordinator.CheckResult, invite bool) {
+// Spec 108. invite reports a worker with worker.invite. refused is the
+// failure the start ends with after a refusal of the worker certificate as
+// revoked, nil when the worker then enrolls with worker.invite.
+func printWorkerCheck(w io.Writer, result coordinator.CheckResult, invite bool, refused error) {
 	_, _ = fmt.Fprintf(w, "Coordinator %s\n", result.Address)
 	if result.TransportErr != nil {
 		_, _ = fmt.Fprintf(w, "  Transport: none (%v)\n", result.TransportErr)
@@ -155,6 +159,13 @@ func printWorkerCheck(w io.Writer, result coordinator.CheckResult, invite bool) 
 		_, _ = fmt.Fprintln(w, "  Invite pin: matches the coordinator's CA")
 	}
 	credential, answer := result.Describe()
+	switch {
+	case !result.Removed():
+	case refused == nil:
+		answer = "this worker was removed from the coordinator; it enrolls again with worker.invite when it starts"
+	default:
+		answer = refused.Error()
+	}
 	_, _ = fmt.Fprintf(w, "  Credential: %s\n", credential)
 	_, _ = fmt.Fprintf(w, "  Coordinator answered: %s\n", answer)
 }

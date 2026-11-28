@@ -1099,7 +1099,7 @@ func TestMembershipRemovedTerminationMessage(t *testing.T) {
 // start line, and the failure of a removal that the worker keeps a record of.
 func checkConfig(t *testing.T, cfg *config.Config) (string, error) {
 	t.Helper()
-	clientConfig, removed, err := CoordinatorClientConfig(cfg, nil)
+	clientConfig, removed, _, err := CoordinatorClientConfig(cfg, nil)
 	require.NoError(t, err)
 	line, err := clientConfig.StartTransport()
 	require.NoError(t, err)
@@ -1145,6 +1145,32 @@ func TestCoordinatorClientConfig(t *testing.T) {
 	assert.NoError(t, removed)
 }
 
+// After a coordinator refuses the kept certificate as revoked, the check
+// reports what the start does: another invite enrolls again, while the
+// invite the worker enrolled with, or none, exits as removed (Spec 108
+// §Worker Start).
+func TestCoordinatorClientConfigRefused(t *testing.T) {
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
+	ca := newTestCA(t)
+	invite := ca.invite(t)
+	dataDir := t.TempDir()
+	join(t, workerConfig(dataDir, invite), enrolling(ca))
+
+	for _, restart := range []string{invite, ""} {
+		_, removed, refused, err := CoordinatorClientConfig(workerConfig(dataDir, restart), nil)
+		require.NoError(t, err)
+		assert.NoError(t, removed)
+		assert.EqualError(t, refused, removedMessage)
+	}
+	clientConfig, removed, refused, err := CoordinatorClientConfig(workerConfig(dataDir, ca.invite(t)), nil)
+	require.NoError(t, err)
+	line, err := clientConfig.StartTransport()
+	require.NoError(t, err)
+	assert.Equal(t, "built-in TLS (from worker certificate)", line, "the check dials with the kept certificate")
+	assert.NoError(t, removed)
+	assert.NoError(t, refused, "another invite enrolls again")
+}
+
 // The check refuses the settings and the kept credential that the start
 // refuses, with the same messages, and names no path (Spec 108
 // §Configuration Conflicts, §Worker Files).
@@ -1154,21 +1180,21 @@ func TestCoordinatorClientConfigRefusals(t *testing.T) {
 	require.NoError(t, os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.cert.Raw}), 0o600))
 	cfg := workerConfig(t.TempDir(), newTestCA(t).invite(t))
 	cfg.Core.Peer.CACertFile = caFile
-	_, _, err := CoordinatorClientConfig(cfg, nil)
+	_, _, _, err := CoordinatorClientConfig(cfg, nil)
 	require.EqualError(t, err, "peer.ca_cert_file is not the CA that worker.invite names: remove peer.ca_cert_file or use an invite from this CA")
 
 	labeled := workerConfig(t.TempDir(), ca.invite(t))
 	labeled.Worker.Labels = map[string]string{"os": "not-" + runtime.GOOS}
 	_, startErr := open(t, labeled, nil)
 	require.Error(t, startErr)
-	_, _, err = CoordinatorClientConfig(labeled, nil)
+	_, _, _, err = CoordinatorClientConfig(labeled, nil)
 	assert.EqualError(t, err, startErr.Error())
 
 	dataDir := t.TempDir()
 	join(t, workerConfig(dataDir, ca.invite(t)), enrolling(ca))
 	require.NoError(t, os.WriteFile(credentialPath(dataDir), []byte("not a credential"), 0o600))
 	for _, invite := range []string{ca.invite(t), ""} {
-		_, _, err = CoordinatorClientConfig(workerConfig(dataDir, invite), nil)
+		_, _, _, err = CoordinatorClientConfig(workerConfig(dataDir, invite), nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "This worker cannot read the certificate it keeps: it is damaged\n")
 		assert.NotContains(t, err.Error(), dataDir)
@@ -1317,11 +1343,13 @@ func TestMembershipRemovedReplacementNeedsWritable(t *testing.T) {
 
 			replace := "This worker cannot replace the certificate it enrolled for with one from the invite's CA\n  Make " + dataDir + " writable, then start the worker again."
 			invite := ca.invite(t)
+			// The check refuses what the start refuses, without the lock.
+			_, _, refused, err := CoordinatorClientConfig(workerConfig(dataDir, invite), nil)
 			if recorded {
-				// The check refuses what the start refuses, without the
-				// lock.
-				_, _, err := CoordinatorClientConfig(workerConfig(dataDir, invite), nil)
 				assert.EqualError(t, err, replace)
+			} else {
+				require.NoError(t, err)
+				assert.EqualError(t, refused, replace, "after a refusal")
 			}
 			m, err := open(t, workerConfig(dataDir, invite), fake)
 			if err == nil {

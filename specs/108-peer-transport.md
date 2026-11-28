@@ -1207,6 +1207,12 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
   worker's message after the coordinators are checked, whatever they
   answer. The check decides by the same read of the enrollment that it
   dials with.
+- A coordinator that refuses the worker certificate as revoked gets what
+  the start does then. With an invite other than the one the worker
+  enrolled with, it passes with
+  `this worker was removed from the coordinator; it enrolls again with worker.invite when it starts`,
+  without using the invite, or fails with the start's message when the
+  worker could not keep the new certificate.
 - A failed handshake states the names the server certificate covers, the
   address dialed, and the CA the certificate chains to. It names each
   problem in plain words: a name the certificate does not cover, an IP

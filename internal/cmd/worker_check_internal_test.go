@@ -90,7 +90,7 @@ func TestWorkerCheckInviteLines(t *testing.T) {
 			tc.result.Address = "coordinator.example.com:50055"
 			tc.result.Transport = "built-in TLS (from worker certificate)"
 			var out bytes.Buffer
-			printWorkerCheck(&out, tc.result, tc.invite)
+			printWorkerCheck(&out, tc.result, tc.invite, nil)
 			assert.Contains(t, out.String(), tc.want)
 		})
 	}

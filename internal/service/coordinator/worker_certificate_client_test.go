@@ -238,6 +238,7 @@ func TestCheckWorkerCertificate(t *testing.T) {
 	credential, answer := result.Describe()
 	assert.Equal(t, "worker certificate "+cert.Subject.CommonName+", from invite "+invite.Record.Id+"; no peer token", credential)
 	assert.Equal(t, "serving, and it accepted the worker certificate", answer)
+	assert.False(t, result.Removed())
 
 	// A coordinator of another Dagu is named as such, not as an untrusted CA.
 	other := startPeerTLSServer(t, certHosts)
@@ -248,6 +249,7 @@ func TestCheckWorkerCertificate(t *testing.T) {
 	server.remove(t, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH)
 	result = coordinator.Check(t.Context(), config, checkMember(t, server.addr))
 	assert.False(t, result.Passed())
+	assert.True(t, result.Removed())
 	_, answer = result.Describe()
 	assert.True(t, strings.HasPrefix(answer, "This worker was removed from the coordinator\n"), answer)
 }
