@@ -19347,12 +19347,34 @@ components:
         port:
           type: integer
           description: "Port number the coordinator is listening on"
+        h2cCallers:
+          type: array
+          description: "Hosts, other than workers, that called this coordinator over h2c in the last 10 minutes, the latest call first. Absent when the coordinator does not report them, as one of an earlier release."
+          items:
+            $ref: "#/components/schemas/H2CCaller"
       required:
         - instanceId
         - host
         - status
         - startedAt
         - port
+
+    H2CCaller:
+      type: object
+      description: "A host that called a coordinator over h2c, with the reason it sent"
+      properties:
+        host:
+          type: string
+          description: "Remote host of the calls, without the port"
+        reason:
+          $ref: "#/components/schemas/PlaintextReason"
+        lastCallAt:
+          type: string
+          description: "RFC3339 timestamp of the host's last call with this reason"
+      required:
+        - host
+        - reason
+        - lastCallAt
 
     TunnelStatusResponse:
       type: object
@@ -22720,6 +22742,10 @@ components:
           description: "Dagu version the worker runs. Absent when the worker reports none, as workers of earlier releases do."
         versionDrift:
           $ref: "#/components/schemas/WorkerVersionDrift"
+        connection:
+          $ref: "#/components/schemas/WorkerConnection"
+        plaintextReason:
+          $ref: "#/components/schemas/PlaintextReason"
       required:
         - id
         - labels
@@ -22729,6 +22755,25 @@ components:
         - lastHeartbeatAt
         - healthStatus
         - versionDrift
+
+    WorkerConnection:
+      type: string
+      description: |
+        How the worker's last heartbeat reached the coordinator. Absent when the coordinator does not report it, as one of an earlier release.
+        - certificate: TLS with a worker certificate.
+        - tls: TLS without a worker certificate.
+        - plaintext: h2c. plaintextReason says why.
+      enum: ["certificate", "tls", "plaintext"]
+
+    PlaintextReason:
+      type: string
+      description: |
+        Why a process uses h2c:
+        - peer.insecure: its config sets peer.insecure: true.
+        - no TLS source: it has nothing to verify the coordinator with.
+        - tls failed on the network path: TLS failed between it and the coordinator, so it fell back to h2c.
+        - older version: it runs a Dagu release that does not send a reason.
+      enum: ["peer.insecure", "no TLS source", "tls failed on the network path", "older version"]
 
     WorkerVersionDrift:
       type: string

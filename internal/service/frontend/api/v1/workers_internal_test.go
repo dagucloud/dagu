@@ -179,3 +179,47 @@ func TestWorkerVersionDrift(t *testing.T) {
 		assert.Equal(t, tt.want, workerVersionDrift(tt.worker, tt.server), "worker %q, server %q", tt.worker, tt.server)
 	}
 }
+
+// GET /workers reports how each worker connects, and leaves the fields out
+// for a coordinator of an earlier release (Spec 108 §Workers List).
+func TestAPIGetWorkers_ReturnsConnection(t *testing.T) {
+	t.Parallel()
+
+	api := &API{
+		coordinatorCli: &stubCoordinatorClient{
+			workers: []*coordinatorv1.WorkerInfo{
+				{WorkerId: "certificate", Connection: coordinatorv1.WorkerConnection_WORKER_CONNECTION_CERTIFICATE},
+				{WorkerId: "tls", Connection: coordinatorv1.WorkerConnection_WORKER_CONNECTION_TLS},
+				{WorkerId: "insecure", Connection: coordinatorv1.WorkerConnection_WORKER_CONNECTION_PLAINTEXT, PlaintextReason: "peer.insecure"},
+				{WorkerId: "older", Connection: coordinatorv1.WorkerConnection_WORKER_CONNECTION_PLAINTEXT, PlaintextReason: "older version"},
+				{WorkerId: "unknown-reason", Connection: coordinatorv1.WorkerConnection_WORKER_CONNECTION_PLAINTEXT, PlaintextReason: "something else"},
+				{WorkerId: "earlier-coordinator"},
+			},
+		},
+	}
+
+	resp, err := api.GetWorkers(context.Background(), openapiv1.GetWorkersRequestObject{})
+	require.NoError(t, err)
+	okResp, ok := resp.(openapiv1.GetWorkers200JSONResponse)
+	require.True(t, ok)
+
+	got := map[string]string{}
+	for _, worker := range okResp.Workers {
+		var connection, reason string
+		if worker.Connection != nil {
+			connection = string(*worker.Connection)
+		}
+		if worker.PlaintextReason != nil {
+			reason = string(*worker.PlaintextReason)
+		}
+		got[worker.Id] = connection + "|" + reason
+	}
+	assert.Equal(t, map[string]string{
+		"certificate":         "certificate|",
+		"tls":                 "tls|",
+		"insecure":            "plaintext|peer.insecure",
+		"older":               "plaintext|older version",
+		"unknown-reason":      "plaintext|",
+		"earlier-coordinator": "|",
+	}, got)
+}
