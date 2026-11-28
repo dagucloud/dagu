@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -162,7 +163,7 @@ func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatc
 	}
 	var named []persis.WorkerCertificate
 	for _, cert := range certs {
-		if cert.WorkerID == workerID || (hb != nil && cert.ID == hb.CertificateID) {
+		if namesWorker(cert.WorkerID, cert.WorkerIDs, workerID) || (hb != nil && cert.ID == hb.CertificateID) {
 			named = append(named, cert)
 		}
 	}
@@ -197,7 +198,7 @@ func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatc
 	}
 	var enrolled []persis.WorkerCertificate
 	for _, cert := range certs {
-		if cert.State != persis.WorkerCertificateRevoked && cert.WorkerID == workerID {
+		if cert.State != persis.WorkerCertificateRevoked && namesWorker(cert.WorkerID, cert.WorkerIDs, workerID) {
 			enrolled = append(enrolled, cert)
 		}
 	}
@@ -351,7 +352,7 @@ func (h *Handler) observeCertificateHeartbeat(ctx context.Context, cert *x509.Ce
 		logger.Warn(ctx, "Failed to record a worker certificate's heartbeat", slog.String("certificate-id", cert.Subject.CommonName), tag.Error(err))
 		return
 	}
-	if stored.WorkerID == req.WorkerId && stored.Host == req.Host {
+	if namesWorker(stored.WorkerID, stored.WorkerIDs, req.WorkerId) && stored.Host == req.Host {
 		// The record holds what the worker reports, so the next pass waits
 		// the full interval.
 		h.mu.Lock()
@@ -389,6 +390,7 @@ func removalOf(cert persis.WorkerCertificate) persis.WorkerCertificateRemoval {
 		KeyFingerprint: cert.KeyFingerprint,
 		State:          cert.State,
 		WorkerID:       cert.WorkerID,
+		WorkerIDs:      cert.WorkerIDs,
 	}
 }
 
@@ -403,6 +405,12 @@ func keyRevoked(removals []persis.WorkerCertificateRemoval, fingerprint []byte) 
 	return false
 }
 
+// namesWorker reports whether a certificate record with the worker ID
+// primary and the worker IDs ids names the worker workerID.
+func namesWorker(primary string, ids []string, workerID string) bool {
+	return primary == workerID || slices.Contains(ids, workerID)
+}
+
 // workerRevokedSince reports whether after, a later read of the removals
 // than before, holds a certificate of the worker workerID revoked that
 // before did not.
@@ -414,7 +422,7 @@ func workerRevokedSince(before, after []persis.WorkerCertificateRemoval, workerI
 		}
 	}
 	for _, removal := range after {
-		if removal.State == persis.WorkerCertificateRevoked && removal.WorkerID == workerID && !revoked[removal.ID] {
+		if removal.State == persis.WorkerCertificateRevoked && namesWorker(removal.WorkerID, removal.WorkerIDs, workerID) && !revoked[removal.ID] {
 			return true
 		}
 	}

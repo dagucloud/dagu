@@ -41,6 +41,7 @@ func workerCertificate(id string) persis.WorkerCertificate {
 		KeyFingerprint:  secretHash("key of " + id),
 		State:           persis.WorkerCertificateActive,
 		WorkerID:        "worker-" + id,
+		WorkerIDs:       []string{"worker-" + id},
 		Host:            "host-" + id,
 		Environment:     persis.WorkerEnvironmentContainer,
 		CreatedAt:       enrolledAt,
@@ -120,8 +121,14 @@ func TestWorkerCertificateStore_ListRemovals(t *testing.T) {
 	removals, err := s.ListRemovals(ctx)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []persis.WorkerCertificateRemoval{
-		{ID: "removing", KeyFingerprint: workerCertificate("removing").KeyFingerprint, State: persis.WorkerCertificateRemoving, WorkerID: "worker-removing"},
-		{ID: "revoked", KeyFingerprint: workerCertificate("revoked").KeyFingerprint, State: persis.WorkerCertificateRevoked, WorkerID: "worker-revoked"},
+		{
+			ID: "removing", KeyFingerprint: workerCertificate("removing").KeyFingerprint, State: persis.WorkerCertificateRemoving,
+			WorkerID: "worker-removing", WorkerIDs: []string{"worker-removing"},
+		},
+		{
+			ID: "revoked", KeyFingerprint: workerCertificate("revoked").KeyFingerprint, State: persis.WorkerCertificateRevoked,
+			WorkerID: "worker-revoked", WorkerIDs: []string{"worker-revoked"},
+		},
 	}, removals)
 }
 
@@ -379,12 +386,21 @@ func TestWorkerCertificateStore_RecordHeartbeat(t *testing.T) {
 	recordHeartbeat(t, s, moved)
 	assert.Equal(t, moved, getCertificate(t, s, "cert-1"))
 
-	// A changed worker ID is written at once, so removal finds the worker
-	// by the ID it last reported.
+	// A worker ID the record does not name joins its worker IDs at once, so
+	// removal finds the worker by any ID it reported.
 	renamed := moved
 	renamed.WorkerID = "worker-renamed"
 	renamed.LastHeartbeatAt = moved.LastHeartbeatAt.Add(time.Second)
 	recordHeartbeat(t, s, renamed)
+	renamed.WorkerIDs = []string{"worker-cert-1", "worker-renamed"}
+	assert.Equal(t, renamed, getCertificate(t, s, "cert-1"))
+
+	// A return to a known ID writes nothing, so two workers that share the
+	// certificate under two IDs do not write at every heartbeat.
+	back := renamed
+	back.WorkerID = "worker-cert-1"
+	back.LastHeartbeatAt = renamed.LastHeartbeatAt.Add(time.Second)
+	assert.Equal(t, renamed.WorkerIDs, recordHeartbeat(t, s, back).WorkerIDs)
 	assert.Equal(t, renamed, getCertificate(t, s, "cert-1"))
 
 	// A report older than the stored heartbeat writes nothing, and the
@@ -431,6 +447,24 @@ func TestWorkerCertificateStore_RecordHeartbeatBoundsChanges(t *testing.T) {
 		assert.GreaterOrEqual(t, at.Sub(last), time.Minute)
 		last = at
 	}
+}
+
+// A record keeps at most the eight latest worker IDs, so workers that share
+// one certificate under many IDs cannot grow it.
+func TestWorkerCertificateStore_RecordHeartbeatBoundsWorkerIDs(t *testing.T) {
+	t.Parallel()
+	s, _ := newWorkerCertificateStore(t)
+	cert := workerCertificate("cert-1")
+	createCertificate(t, s, cert)
+	var want []string
+	for i := range 10 {
+		beat := cert
+		beat.WorkerID = fmt.Sprintf("worker-%d", i)
+		beat.LastHeartbeatAt = enrolledAt.Add(time.Duration(i+1) * time.Second)
+		recordHeartbeat(t, s, beat)
+		want = append(want, beat.WorkerID)
+	}
+	assert.Equal(t, want[2:], getCertificate(t, s, "cert-1").WorkerIDs)
 }
 
 // countingWrites counts the writes that change a record.

@@ -48,8 +48,9 @@ type WorkerCertificateStore interface {
 	// cert.LastHeartbeatAt, with the worker ID, host, and environment it
 	// reported. A report not newer than the stored heartbeat writes nothing.
 	// Otherwise it writes when the stored heartbeat is more than a day
-	// older, when the worker ID changed, or when it is at least a minute
-	// older and the host or environment changed. It
+	// older, when the worker ID is not among the stored worker IDs, which
+	// it joins, or when it is at least a minute older and the host or
+	// environment changed. It
 	// keeps the stored state. A pruned or unreadable record is recorded
 	// again from cert. It returns the heartbeat fields as stored, so a
 	// caller can tell a reported change that is still to be written.
@@ -79,6 +80,10 @@ type WorkerCertificate struct {
 	State          WorkerCertificateState
 	// WorkerID is the worker ID at the last recorded heartbeat.
 	WorkerID string
+	// WorkerIDs are the worker IDs the certificate's recorded heartbeats
+	// reported, oldest first, at most the eight latest. A record written
+	// before the field has none, and names only WorkerID.
+	WorkerIDs []string
 	// Host is the host name the worker reported.
 	Host        string
 	Environment WorkerEnvironment
@@ -96,6 +101,8 @@ type WorkerCertificateRemoval struct {
 	State          WorkerCertificateState
 	// WorkerID is the certificate's [WorkerCertificate.WorkerID].
 	WorkerID string
+	// WorkerIDs is the certificate's [WorkerCertificate.WorkerIDs].
+	WorkerIDs []string
 }
 
 // WorkerCertificateState is where a certificate is in its removal.

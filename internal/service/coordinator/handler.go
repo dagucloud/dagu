@@ -2209,14 +2209,6 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 			// and host, a heartbeat passes again a minute later.
 			pass = &certificatePass{recheckAt: receivedAt.Add(certificateChangeRecheck)}
 			info.certificatePass = pass
-			// This pass may write another worker ID to the record, so a
-			// worker under an earlier ID with the same certificate passes
-			// again at its next heartbeat.
-			for _, other := range h.heartbeats {
-				if other.workerID != req.WorkerId && other.certificateID == info.certificateID && other.certificatePass != nil {
-					other.certificatePass.recheckAt = time.Time{}
-				}
-			}
 		}
 	}
 	h.heartbeats[req.WorkerId] = info

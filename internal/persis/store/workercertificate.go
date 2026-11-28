@@ -36,6 +36,7 @@ type workerCertificateStoredRecord struct {
 	InviteID        string                   `json:"invite_id"`
 	KeyFingerprint  []byte                   `json:"key_fingerprint"`
 	WorkerID        string                   `json:"worker_id,omitempty"`
+	WorkerIDs       []string                 `json:"worker_ids,omitempty"`
 	Host            string                   `json:"host,omitempty"`
 	Environment     persis.WorkerEnvironment `json:"environment,omitempty"`
 	CreatedAt       time.Time                `json:"created_at"`
@@ -58,6 +59,10 @@ const (
 	// workerCertificateHeartbeatInterval bounds heartbeat writes to one a
 	// day per certificate.
 	workerCertificateHeartbeatInterval = 24 * time.Hour
+
+	// workerCertificateWorkerIDs bounds the worker IDs a record keeps, so
+	// workers that share one certificate under many IDs cannot grow it.
+	workerCertificateWorkerIDs = 8
 
 	// workerCertificateChangeInterval bounds the writes of a changed host
 	// or environment to one a minute per certificate, so workers that share
@@ -180,7 +185,7 @@ func (s *WorkerCertificateStore) ListRemovals(ctx context.Context) ([]persis.Wor
 	removals := make([]persis.WorkerCertificateRemoval, 0, len(removed))
 	for _, cert := range removed {
 		removals = append(removals, persis.WorkerCertificateRemoval{
-			ID: cert.ID, KeyFingerprint: cert.KeyFingerprint, State: cert.State, WorkerID: cert.WorkerID,
+			ID: cert.ID, KeyFingerprint: cert.KeyFingerprint, State: cert.State, WorkerID: cert.WorkerID, WorkerIDs: cert.WorkerIDs,
 		})
 	}
 	return removals, nil
@@ -230,9 +235,12 @@ func (s *WorkerCertificateStore) RecordHeartbeat(ctx context.Context, cert persi
 			next.InviteID = stored.InviteID
 			next.KeyFingerprint = stored.KeyFingerprint
 			next.CreatedAt = stored.CreatedAt
+			next.WorkerIDs = joinWorkerID(knownWorkerIDs(stored), cert.WorkerID)
 		case errors.Is(err, persis.ErrWorkerCertificateNotFound):
+			next.WorkerIDs = joinWorkerID(nil, cert.WorkerID)
 		case current != nil:
 			// The stored payload cannot be read, so the report replaces it.
+			next.WorkerIDs = joinWorkerID(nil, cert.WorkerID)
 		case errors.Is(err, persis.ErrCorrupt):
 			// The stored file cannot be read at all, so no compare-and-swap
 			// can match it. It is removed only while still unreadable, and
@@ -269,7 +277,34 @@ func heartbeatWriteDue(stored, cert persis.WorkerCertificate) bool {
 		return false
 	}
 	changed := cert.Host != stored.Host || cert.Environment != stored.Environment
-	return age > workerCertificateHeartbeatInterval || cert.WorkerID != stored.WorkerID || (changed && age >= workerCertificateChangeInterval)
+	joins := !slices.Contains(knownWorkerIDs(stored), cert.WorkerID)
+	return age > workerCertificateHeartbeatInterval || joins || (changed && age >= workerCertificateChangeInterval)
+}
+
+// knownWorkerIDs returns the worker IDs that cert names: its WorkerIDs, or
+// its WorkerID for a record written before them.
+func knownWorkerIDs(cert persis.WorkerCertificate) []string {
+	if len(cert.WorkerIDs) > 0 {
+		return cert.WorkerIDs
+	}
+	if cert.WorkerID == "" {
+		return nil
+	}
+	return []string{cert.WorkerID}
+}
+
+// joinWorkerID returns ids with id last, dropping the oldest beyond
+// workerCertificateWorkerIDs.
+func joinWorkerID(ids []string, id string) []string {
+	if id == "" {
+		return slices.Clone(ids)
+	}
+	joined := slices.DeleteFunc(slices.Clone(ids), func(known string) bool { return known == id })
+	joined = append(joined, id)
+	if extra := len(joined) - workerCertificateWorkerIDs; extra > 0 {
+		joined = joined[extra:]
+	}
+	return joined
 }
 
 func (s *WorkerCertificateStore) SetState(ctx context.Context, id string, state persis.WorkerCertificateState) (persis.WorkerCertificate, error) {
@@ -410,6 +445,7 @@ func storedWorkerCertificate(cert persis.WorkerCertificate) workerCertificateSto
 		InviteID:        cert.InviteID,
 		KeyFingerprint:  cert.KeyFingerprint,
 		WorkerID:        cert.WorkerID,
+		WorkerIDs:       cert.WorkerIDs,
 		Host:            cert.Host,
 		Environment:     cert.Environment,
 		CreatedAt:       cert.CreatedAt.UTC(),
@@ -424,6 +460,7 @@ func (r workerCertificateStoredRecord) certificate(state persis.WorkerCertificat
 		KeyFingerprint:  r.KeyFingerprint,
 		State:           state,
 		WorkerID:        r.WorkerID,
+		WorkerIDs:       r.WorkerIDs,
 		Host:            r.Host,
 		Environment:     r.Environment,
 		CreatedAt:       r.CreatedAt,

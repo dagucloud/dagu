@@ -9512,8 +9512,9 @@ type RemoveWorkerResponse_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	State WorkerRemovalState
-	// The certificates the removal revoked: each one that names the worker,
-	// its key, or its last heartbeat.
+	// The certificates the removal revoked: each one whose record names the
+	// worker ID among the IDs its heartbeats reported, or that the worker's
+	// last heartbeat carried.
 	CertificateIds []string
 }
 

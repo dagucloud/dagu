@@ -632,6 +632,7 @@ The `worker_certificates` collection keeps one record per certificate:
 | `invite_id` | The invite it enrolled with |
 | `state` | `active`, `removing`, or `revoked` |
 | `worker_id` | The worker ID at its last heartbeat |
+| `worker_ids` | The worker IDs its heartbeats reported, at most the 8 latest |
 | `host` | The host name the worker reported |
 | `environment` | `host`, `container`, or `kubernetes`, from the worker's heartbeat |
 | `created_at` | The enrollment time |
@@ -642,11 +643,13 @@ The `worker_certificates` collection keeps one record per certificate:
 - A heartbeat with a worker certificate that is not newer than the stored
   `last_heartbeat_at` writes nothing. Otherwise it writes the record when
   the stored `last_heartbeat_at` is more than 24 hours old, or none, when
-  the worker ID it reports changed, or when the host or environment it
-  reports changed and the stored `last_heartbeat_at` is at least a minute
-  old. A changed worker ID is written at once, so a removal finds a worker
-  by the ID it reported last. It writes the record again when it was
-  pruned. It keeps the stored state.
+  the worker ID it reports is not among `worker_ids`, or when the host or
+  environment it reports changed and the stored `last_heartbeat_at` is at
+  least a minute old. A new worker ID joins `worker_ids` at once, and the
+  oldest beyond 8 goes, so a removal finds a worker by any ID it reported
+  while workers that share a certificate under IDs already listed write
+  nothing more. It writes the record again when it was pruned. It keeps
+  the stored state.
 - Once a day, each coordinator deletes the records in state `active` whose
   `last_heartbeat_at`, or `created_at` when it is none, is more than 90
   days old.
@@ -757,11 +760,13 @@ or `stop`:
 - A fresh heartbeat that a coordinator predating the certificate ID in
   heartbeats recorded as a certificate connection counts as connected when
   it names the removed worker ID or the certificate's host.
+- A removal by a worker ID finds each certificate whose `worker_id` or
+  `worker_ids` names it, and the removal records keep those IDs.
 - An enrollment of the worker ID that runs alongside the removal does not
   leave an active certificate: the removal revokes a certificate recorded
-  before its last listing ends, and an enrollment that reads the
-  worker's removal after recording its certificate revokes it and fails
-  with `PermissionDenied` and the message
+  before its last listing ends, and an enrollment that finds the worker ID
+  among a newly revoked certificate's IDs after recording its own
+  certificate revokes it and fails with `PermissionDenied` and the message
   `this worker was removed while it enrolled; enroll it again`.
 - The removal decides from the heartbeats as it reads them. A worker that
   connects again while the removal runs is removed all the same: its next
@@ -1142,8 +1147,9 @@ The Workers page is the list of workers on System status.
 - A connection on h2c without a TLS source reads the published CA
   certificate and the registry at most every 10 seconds.
 - A heartbeat writes a certificate record at most once a day, at once
-  when the worker ID it reports changed, or once a minute while the host
-  or environment it reports changes. A coordinator passes each worker's
+  when it reports a worker ID that `worker_ids` lacks, or once a minute
+  while the host or environment it reports changes. `worker_ids` holds at
+  most 8 IDs. A coordinator passes each worker's
   heartbeat to the record at most once an hour, or once a minute while the
   record lacks what the worker reports.
 - Invites are read only at enrollment and when listed.
@@ -1188,7 +1194,7 @@ handshake error that caused the fallback.
 | `Enroll` with a single-use invite from a worker that cannot keep its certificate | `FailedPrecondition`; the invite is not consumed |
 | `Enroll` with a certificate signing request that cannot be read, whose signature does not verify, or whose key is not ECDSA P-256 | `InvalidArgument`; the invite is not consumed |
 | `Enroll` with the key of a revoked certificate | `PermissionDenied`: `this key belongs to a removed worker` |
-| `Enroll` of a worker ID that a removal ran for alongside it | `PermissionDenied`: `this worker was removed while it enrolled; enroll it again`; another enrollment succeeds |
+| `Enroll` of a worker ID that a removal ran for alongside it | `PermissionDenied`: `this worker was removed while it enrolled; enroll it again`. The rejected certificate is revoked, so its key is refused, and a single-use invite is spent: a new enrollment needs a new key and a reusable invite, or a new invite |
 | A call with a revoked worker certificate | `Unauthenticated`: `this worker was removed from the coordinator` |
 | A call with a worker certificate to a coordinator that could not yet read the revoked set | `Unavailable`, so the worker tries again or tries the next coordinator |
 | A removal of a worker on the peer token | `FailedPrecondition`, saying to stop the worker on its host or to change the peer token |
