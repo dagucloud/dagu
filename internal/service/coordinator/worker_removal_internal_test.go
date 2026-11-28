@@ -1847,15 +1847,30 @@ type beforeRemovalBegins struct {
 	once sync.Once
 }
 
-func (s *beforeRemovalBegins) BeginWorkerRemoval(ctx context.Context, workerID string) error {
+func (s *beforeRemovalBegins) BeginWorkerRemoval(ctx context.Context, workerID string) (int64, error) {
 	s.once.Do(s.hook)
 	return s.WorkerCertificateStore.BeginWorkerRemoval(ctx, workerID)
+}
+
+// afterRemovalBegins runs hook once, after the first count of a removal on
+// the fence.
+type afterRemovalBegins struct {
+	persis.WorkerCertificateStore
+	hook func()
+	once sync.Once
+}
+
+func (s *afterRemovalBegins) BeginWorkerRemoval(ctx context.Context, workerID string) (int64, error) {
+	removals, err := s.WorkerCertificateStore.BeginWorkerRemoval(ctx, workerID)
+	s.once.Do(s.hook)
+	return removals, err
 }
 
 // An enrollment of a connected worker's ID meets its removal with finish on
 // either side of the removal's start. One that confirms before the removal
 // begins has its certificate revoked by the removal; one whose
-// confirmation comes after fails (Spec 108 §Removal).
+// confirmation comes after fails. One that starts after the removal began
+// is a new one and keeps its certificate (Spec 108 §Removal).
 func TestEnrollmentAroundConnectedRemoval(t *testing.T) {
 	t.Run("confirmed before", func(t *testing.T) {
 		f := newRemovalFixture(t)
@@ -1892,6 +1907,42 @@ func TestEnrollmentAroundConnectedRemoval(t *testing.T) {
 		assert.Equal(t, codes.PermissionDenied, status.Code(err))
 		assert.Equal(t, persis.WorkerCertificateRemoving, f.state(t, w))
 	})
+	t.Run("started after", func(t *testing.T) {
+		f := newRemovalFixture(t)
+		w := f.enroll(t, "worker-a")
+		f.heartbeat(t, f.h, w)
+		other := f.coordinator(t)
+		var enrolled string
+		f.h.workerCertificates = &afterRemovalBegins{WorkerCertificateStore: f.certs, hook: func() {
+			req, tlsCtx := f.enrollCall(t, w.id)
+			resp, err := other.Enroll(tlsCtx, req)
+			require.NoError(t, err)
+			cert, err := x509.ParseCertificate(resp.Certificate)
+			require.NoError(t, err)
+			enrolled = cert.Subject.CommonName
+		}}
+
+		resp := f.remove(t, w)
+		assert.Equal(t, []string{w.certID}, resp.CertificateIds)
+		assert.Equal(t, persis.WorkerCertificateActive, f.state(t, removalWorker{certID: enrolled}))
+	})
+}
+
+// A worker on certificate X ran as node-a and now runs as node-b, and
+// another worker took node-a on certificate Y. A removal of node-a removes
+// Y and leaves X, which node-b still connects with, active (Spec 108
+// §Removal).
+func TestRemoveConnectedIDOnceHeldElsewhere(t *testing.T) {
+	f := newRemovalFixture(t)
+	moved := f.enroll(t, "node-a")
+	f.heartbeat(t, f.h, moved)
+	f.heartbeatAs(t, moved, "node-b", removalStart.Add(2*time.Minute))
+	replacement := f.enroll(t, "node-a")
+	f.heartbeat(t, f.h, replacement)
+
+	resp := f.remove(t, replacement)
+	assert.Equal(t, []string{replacement.certID}, resp.CertificateIds)
+	assert.Equal(t, persis.WorkerCertificateActive, f.state(t, moved))
 }
 
 // A repeat of a bound dispatch admitted before a removal elsewhere succeeds
