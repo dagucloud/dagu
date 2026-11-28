@@ -1269,13 +1269,20 @@ and prints the message:
   container, and in Kubernetes the statement that workers outside the
   cluster need the coordinator Service to be of type `LoadBalancer` or
   `NodePort`.
-- The dialog reads join readiness when it opens and again when the server
-  is back after a restart. It does not poll.
+- The dialog reads join readiness when it opens, again when the server is
+  back after a restart, and when the admin asks to check again. It does not
+  poll. The server is back when System status's `/workers` refresh succeeds
+  after it failed.
 - Step 2 is a required address field. It starts with `lastInviteAddress`, or
   with `advertise`, or empty. It suggests `addresses`, and none in a
   container, where it asks for the address of the machine that runs the
   container. It never fills in a host name, a container ID, or the
   browser's host.
+- The port sits beside the address and starts with the port of
+  `lastInviteAddress`, else the reported `port`, since a published port or a
+  `NodePort` can differ from it. The address is a host name or an IP
+  address. The dialog refuses `localhost`, a loopback address, `0.0.0.0`,
+  `[::]`, a scheme or path, and a port outside 1 to 65535.
 - Step 3 shows only after steps 1 and 2. Its tab sets the invite kind:
 
   | Tab | Invite | Command |
