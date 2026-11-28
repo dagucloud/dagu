@@ -480,9 +480,10 @@ dagu peer init --out <dir>
 
 - It refuses the call and keeps the connection open, so the client can show
   the reason.
-- A refused client logs, at level error, once until one of its calls to
-  that coordinator succeeds, the line for the
-  [h2c reason](#h2c-reasons) of its call:
+- A refused client logs, at level error, the line for the
+  [h2c reason](#h2c-reasons) of the connection that carried the call. It
+  logs the line once, until a call to that coordinator other than a health
+  check succeeds:
 
   | h2c reason | Line |
   | --- | --- |
@@ -490,6 +491,8 @@ dagu peer init --out <dir>
   | `no TLS source` | `The coordinator requires TLS. Set peer.ca_cert_file to the coordinator's CA certificate.` |
   | `tls failed on the network path` | `The coordinator requires TLS. Let the network path to it pass TLS.` |
 
+- The refused call ends with `Unauthenticated` and that line as its
+  message, so the client's own errors and retries name the same change.
 - A Dagu that predates this spec prints the coordinator's message above.
 - `coordinator.require_tls` has no effect on a coordinator with own
   certificates, which serves no h2c.
