@@ -29,7 +29,7 @@ var (
 	}
 	connectionAppFlag = commandLineFlag{
 		name:  "app",
-		usage: "OAuth app to use, by ID or name ('dagu connection apps list')",
+		usage: "OAuth app to use, by ID or name",
 	}
 	connectionClientFileFlag = commandLineFlag{
 		name:  "client-file",
@@ -96,16 +96,23 @@ confirmed. When the same account signs in, it is confirmed without asking.`,
 		if err != nil {
 			return err
 		}
-		conn, err := c.client.connection(ctx, c.workspace, args[0])
-		if err != nil {
-			return err
-		}
-		app, err := c.client.oauthApp(ctx, conn.App)
-		if err != nil {
-			return fmt.Errorf("failed to read the OAuth app of connection %s: %w", conn.Name, err)
-		}
-		return c.connect(ctx, conn, app, connectOptions{noBrowser: noBrowser, expectedAccount: derefString(conn.Account)})
+		return c.reconnect(ctx, args[0], noBrowser)
 	})
+}
+
+// reconnect runs the connect flow on the connection named name, expecting
+// the account it holds, so that the same account is confirmed without
+// asking.
+func (c *connectionCLI) reconnect(ctx context.Context, name string, noBrowser bool) error {
+	conn, err := c.client.connection(ctx, c.workspace, name)
+	if err != nil {
+		return err
+	}
+	app, err := c.client.oauthApp(ctx, conn.App)
+	if err != nil {
+		return fmt.Errorf("failed to read the OAuth app of connection %s: %w", conn.Name, err)
+	}
+	return c.connect(ctx, conn, app, connectOptions{noBrowser: noBrowser, expectedAccount: derefString(conn.Account)})
 }
 
 // googleAddRequest is what 'connection add google' was given. The wizard
@@ -186,7 +193,7 @@ func (c *connectionCLI) addGoogle(ctx context.Context, req googleAddRequest) err
 	if err := c.completeGoogleRequest(ctx, &req); err != nil {
 		return err
 	}
-	app, err := c.googleApp(ctx, &req)
+	app, registered, err := c.googleApp(ctx, &req)
 	if err != nil {
 		return err
 	}
@@ -195,8 +202,14 @@ func (c *connectionCLI) addGoogle(ctx context.Context, req googleAddRequest) err
 		App:      app.Id,
 		Services: req.services,
 	})
+	if err != nil && registered {
+		return c.unregister(ctx, app, err)
+	}
 	if err != nil {
 		return err
+	}
+	if registered {
+		c.term.printf("Registered OAuth app %s (%s).\n", app.Name, app.Id)
 	}
 	return c.connect(ctx, conn, app, connectOptions{noBrowser: req.noBrowser})
 }
@@ -212,7 +225,7 @@ func (c *connectionCLI) completeGoogleRequest(ctx context.Context, req *googleAd
 	}
 	var err error
 	if req.name == "" {
-		if req.name, err = c.term.ask("Connection name", ""); err != nil {
+		if req.name, err = c.term.ask(ctx, "Connection name", ""); err != nil {
 			return err
 		}
 	}
@@ -222,7 +235,7 @@ func (c *connectionCLI) completeGoogleRequest(ctx context.Context, req *googleAd
 			available = strings.Join(names, ", ")
 		}
 		c.term.printf("Services: %s\n", available)
-		answer, err := c.term.ask("Services to use, comma-separated; add :write for read and write access", "")
+		answer, err := c.term.ask(ctx, "Services to use, comma-separated; add :write for read and write access", "")
 		if err != nil {
 			return err
 		}
@@ -254,10 +267,22 @@ func (c *connectionCLI) googleServices(ctx context.Context) []string {
 
 // googleApp returns the app that the connection uses: the one --app names,
 // the one --client-file registers, or, without either, the one fitting app
-// or the one the person picks.
-func (c *connectionCLI) googleApp(ctx context.Context, req *googleAddRequest) (*api.OAuthApp, error) {
+// or the one the person picks, and whether it registered the app.
+func (c *connectionCLI) googleApp(ctx context.Context, req *googleAddRequest) (*api.OAuthApp, bool, error) {
+	app, err := c.chooseApp(ctx, req)
+	if err != nil || app != nil {
+		return app, false, err
+	}
+	app, err = c.registerClientFile(ctx, req)
+	return app, err == nil, err
+}
+
+// chooseApp returns the app that --app names, or the one fitting app or
+// the one the person picks. It returns nil when a client file is to be
+// registered.
+func (c *connectionCLI) chooseApp(ctx context.Context, req *googleAddRequest) (*api.OAuthApp, error) {
 	if req.clientFile != "" {
-		return c.registerClientFile(ctx, req)
+		return nil, nil
 	}
 	if req.appRef != "" {
 		app, err := c.findApp(ctx, req.appRef)
@@ -273,7 +298,7 @@ func (c *connectionCLI) googleApp(ctx context.Context, req *googleAddRequest) (*
 		return app, nil
 	}
 	if c.term.interactive && !req.agent {
-		agent, err := c.term.confirm("Will AI agents use this connection through mcp.call? Google requires a separate client for them.", false)
+		agent, err := c.term.confirm(ctx, "Will AI agents use this connection through mcp.call? Google requires a separate client for them.", false)
 		if err != nil {
 			return nil, err
 		}
@@ -299,8 +324,8 @@ func (c *connectionCLI) googleApp(ctx context.Context, req *googleAddRequest) (*
 	return c.pickApp(ctx, req, fitting)
 }
 
-// pickApp asks the person to pick one of apps or to register a client
-// file.
+// pickApp asks the person to pick one of apps, or returns nil after the
+// person names a client file to register.
 func (c *connectionCLI) pickApp(ctx context.Context, req *googleAddRequest, apps []api.OAuthApp) (*api.OAuthApp, error) {
 	if len(apps) == 0 {
 		c.term.printf("No fitting Google app is registered.\n%s\n", c.appRequest(ctx, req.agent))
@@ -310,7 +335,7 @@ func (c *connectionCLI) pickApp(ctx context.Context, req *googleAddRequest, apps
 			c.term.printf("  %d) %s (%s client)\n", i+1, app.Name, app.ClientType)
 		}
 		c.term.printf("  %d) Register a client JSON file (needs admin)\n", len(apps)+1)
-		answer, err := c.term.ask("Choose", "1")
+		answer, err := c.term.ask(ctx, "Choose", "1")
 		if err != nil {
 			return nil, err
 		}
@@ -322,12 +347,12 @@ func (c *connectionCLI) pickApp(ctx context.Context, req *googleAddRequest, apps
 			return &apps[n-1], nil
 		}
 	}
-	path, err := c.term.ask("Path to the client JSON file", "")
+	path, err := c.term.ask(ctx, "Path to the client JSON file", "")
 	if err != nil {
 		return nil, err
 	}
 	req.clientFile = path
-	return c.registerClientFile(ctx, req)
+	return nil, nil
 }
 
 // registerClientFile registers the client file as an app named after the
@@ -351,8 +376,17 @@ func (c *connectionCLI) registerClientFile(ctx context.Context, req *googleAddRe
 	if err != nil {
 		return nil, err
 	}
-	c.term.printf("Registered OAuth app %s (%s).\n", app.Name, app.Id)
 	return app, nil
+}
+
+// unregister deletes app, which this command registered for a connection
+// that could not be created, so that no app holds the client's secret
+// without a use. It returns createErr with what became of the app.
+func (c *connectionCLI) unregister(ctx context.Context, app *api.OAuthApp, createErr error) error {
+	if err := c.client.deleteOAuthApp(ctx, app.Id); err != nil {
+		return fmt.Errorf("%w\nThe OAuth app %s (%s) that the client file registered stays, since deleting it failed: %w", createErr, app.Name, app.Id, err)
+	}
+	return createErr
 }
 
 // appRequest says what to ask an admin to register: the client type, the
