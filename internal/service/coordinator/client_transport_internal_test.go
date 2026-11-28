@@ -6,6 +6,7 @@ package coordinator
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"net"
 	"os"
@@ -264,6 +265,45 @@ func TestClientTransportRequireTLS(t *testing.T) {
 			assert.Equal(t, "ERROR", refusal.Level)
 			assert.Equal(t, tc.want, refusal.Msg)
 			assert.Equal(t, tc.wantTLSError, refusal.TLSError)
+		})
+	}
+	// A stream's refusal names the reason and the handshake error of the
+	// connection that carried it, even once its link has reconnected over
+	// built-in TLS or its h2c window has ended.
+	for _, tc := range []struct {
+		name    string
+		between func(clock *atomic.Int64, link *connLink)
+	}{
+		{name: "StreamAfterReconnect", between: func(_ *atomic.Int64, link *connLink) {
+			// What a new connection over built-in TLS records on the link.
+			link.connected(connectionPlan{choice: transportChoice{transportBuiltinTLS, sourceDataDir}, roots: x509.NewCertPool()})
+		}},
+		{name: "StreamAfterWindowEnds", between: func(clock *atomic.Int64, _ *connLink) {
+			clock.Add(int64(h2cWindowLength))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := unset(*DefaultConfig())
+			config.PublishedCAFile = publishedCA(t, ca)
+			config.FallbackFile = filepath.Join(t.TempDir(), "peer-h2c.json")
+			now := time.Now()
+			sharedH2CWindows(config.FallbackFile).open(coord.addr,
+				h2cWindow{Until: now.Add(h2cWindowLength), Source: sourceNetworkPath, Error: "EOF"}, now)
+			cli := newTestClient(t, &config, member)
+			clock := fakeClock(cli)
+			lines := captureClientLogs(t, func(ctx context.Context) {
+				client, err := cli.getOrCreateDiscoveredClient(member)
+				require.NoError(t, err)
+				stream, err := client.client.StreamLogs(ctx)
+				require.NoError(t, err)
+				tc.between(clock, client.link)
+				_, err = stream.CloseAndRecv()
+				assert.Equal(t, "The coordinator requires TLS. Let the network path to it pass TLS.", status.Convert(err).Message())
+			})
+			require.NotEmpty(t, lines)
+			refusal := lines[len(lines)-1]
+			assert.Equal(t, "The coordinator requires TLS. Let the network path to it pass TLS.", refusal.Msg)
+			assert.Equal(t, "EOF", refusal.TLSError)
 		})
 	}
 	t.Run("BuiltinTLS", func(t *testing.T) {

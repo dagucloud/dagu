@@ -209,6 +209,8 @@ type connectionPlan struct {
 	unlisted bool
 	// windowed reports h2c that an open h2c window selects.
 	windowed bool
+	// tlsError is the handshake error that opened that window.
+	tlsError string
 }
 
 // plan picks the transport of a new connection to address. A client with
@@ -216,7 +218,7 @@ type connectionPlan struct {
 func (t *clientTransport) plan(ctx context.Context, address string) (connectionPlan, error) {
 	if t.config.InsecureUnset {
 		if window, ok := t.windows.active(address, t.now()); ok {
-			return connectionPlan{choice: transportChoice{transportH2C, window.Source}, windowed: true}, nil
+			return connectionPlan{choice: transportChoice{transportH2C, window.Source}, windowed: true, tlsError: window.Error}, nil
 		}
 	}
 	if file := t.config.BuiltinCAFile; file != "" {
@@ -333,11 +335,8 @@ func (t *clientTransport) awaitReady(ctx context.Context, cc *grpc.ClientConn) {
 // coordinator.require_tls once until a call other than a health check
 // succeeds. A refusal of a connection that an h2c window put on h2c ends the
 // window, and the client opens a new connection.
-func (t *clientTransport) report(ctx context.Context, link *connLink, method string, err error) {
+func (t *clientTransport) report(ctx context.Context, link *connLink, method string, err error, p *peer.Peer) {
 	refusal := isRequireTLSRefusal(err)
-	// The window is read before the refusal ends it, so the refusal can
-	// name the handshake error that opened it.
-	window, fellBack := t.windows.active(link.address, t.now())
 	if refusal && link.refuse() {
 		t.windows.end(link.address, t.now())
 	}
@@ -359,31 +358,31 @@ func (t *clientTransport) report(ctx context.Context, link *connLink, method str
 	if !firstRefusal {
 		return
 	}
+	info := h2cInfoOf(p)
 	attrs := []slog.Attr{tag.Addr(link.address)}
-	if fellBack && window.Source == sourceNetworkPath {
-		attrs = append(attrs, slog.String("tls-error", window.Error))
+	if info.source == sourceNetworkPath && info.tlsError != "" {
+		attrs = append(attrs, slog.String("tls-error", info.tlsError))
 	}
-	logger.Error(ctx, requireTLSClientMessage(t.h2cSource(link)), attrs...)
+	logger.Error(ctx, requireTLSClientMessage(info.source), attrs...)
 }
 
-// h2cSource returns what picked h2c for the current connection of link.
-func (t *clientTransport) h2cSource(link *connLink) string {
-	// Only h2c from peer.insecure: true dials without a per-connection plan.
-	if !t.config.picksTransportPerConnection() {
-		return sourceInsecure
-	}
-	return link.h2cSource()
-}
-
-// refusalError returns the error a call on link ends with: err, or for a
-// coordinator.require_tls refusal, the refusal with the change for the
-// client's h2c reason, so callers that log it agree with the refusal line.
-// It runs after report, which matches the coordinator's message.
-func (t *clientTransport) refusalError(link *connLink, err error) error {
+// refusalError returns the error a call over the connection of p ends with:
+// err, or for a coordinator.require_tls refusal, the refusal with the
+// change for the h2c reason of that connection, so callers that log it
+// agree with the refusal line. It runs after report, which matches the
+// coordinator's message.
+func refusalError(err error, p *peer.Peer) error {
 	if !isRequireTLSRefusal(err) {
 		return err
 	}
-	return status.Error(codes.Unauthenticated, requireTLSClientMessage(t.h2cSource(link)))
+	return status.Error(codes.Unauthenticated, requireTLSClientMessage(h2cInfoOf(p).source))
+}
+
+// h2cInfoOf returns the h2c details of the connection of p, or none when
+// it is not on h2c.
+func h2cInfoOf(p *peer.Peer) h2cInfo {
+	info, _ := p.AuthInfo.(h2cInfo)
+	return info
 }
 
 func isRequireTLSRefusal(err error) bool {
@@ -404,8 +403,6 @@ type connLink struct {
 	// picked, and windowed one that an h2c window selected.
 	h2c      bool
 	windowed bool
-	// source is what picked the transport of the current connection.
-	source string
 	// redial reports that a new connection would pick another transport.
 	redial   bool
 	checked  time.Time
@@ -422,16 +419,8 @@ func (l *connLink) connected(plan connectionPlan) {
 	defer l.mu.Unlock()
 	l.h2c = plan.roots == nil
 	l.windowed = plan.windowed
-	l.source = plan.choice.source
 	l.redial = false
 	l.checked = l.transport.now()
-}
-
-// h2cSource returns what picked h2c for the current connection.
-func (l *connLink) h2cSource() string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.source
 }
 
 // refuse records a require_tls refusal and reports whether an h2c window
@@ -575,10 +564,10 @@ func (l *connLink) unaryInterceptor(ctx context.Context, method string, req, rep
 	err := invoker(ctx, method, req, reply, cc, withPeer(opts, &p)...)
 	if l.resend(err, &p) {
 		l.transport.awaitReady(ctx, cc)
-		err = invoker(ctx, method, req, reply, cc, opts...)
+		err = invoker(ctx, method, req, reply, cc, withPeer(opts, &p)...)
 	}
-	l.transport.report(ctx, l, method, err)
-	return l.transport.refusalError(l, err)
+	l.transport.report(ctx, l, method, err, &p)
+	return refusalError(err, &p)
 }
 
 func (l *connLink) streamInterceptor(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
@@ -587,14 +576,14 @@ func (l *connLink) streamInterceptor(ctx context.Context, desc *grpc.StreamDesc,
 	stream, err := streamer(ctx, desc, cc, method, withPeer(opts, &p)...)
 	if l.resend(err, &p) {
 		l.transport.awaitReady(ctx, cc)
-		stream, err = streamer(ctx, desc, cc, method, opts...)
+		stream, err = streamer(ctx, desc, cc, method, withPeer(opts, &p)...)
 	}
 	if err != nil {
 		l.end()
-		l.transport.report(ctx, l, method, err)
-		return nil, l.transport.refusalError(l, err)
+		l.transport.report(ctx, l, method, err, &p)
+		return nil, refusalError(err, &p)
 	}
-	s := &reportingStream{ClientStream: stream, link: l, ctx: ctx, method: method, serverStreams: desc.ServerStreams}
+	s := &reportingStream{ClientStream: stream, link: l, ctx: ctx, method: method, serverStreams: desc.ServerStreams, peer: &p}
 	s.stop = context.AfterFunc(ctx, func() { s.finish(nil, false) })
 	return s, nil
 }
@@ -607,8 +596,10 @@ type reportingStream struct {
 	ctx           context.Context
 	method        string
 	serverStreams bool
-	stop          func() bool
-	once          sync.Once
+	// peer is the peer of the stream, which gRPC records when it ends.
+	peer *peer.Peer
+	stop func() bool
+	once sync.Once
 }
 
 func (s *reportingStream) RecvMsg(m any) error {
@@ -622,14 +613,14 @@ func (s *reportingStream) RecvMsg(m any) error {
 		}
 		s.finish(final, true)
 	}
-	return s.link.transport.refusalError(s.link, err)
+	return refusalError(err, s.peer)
 }
 
 func (s *reportingStream) finish(err error, report bool) {
 	s.once.Do(func() {
 		s.link.end()
 		if report {
-			s.link.transport.report(s.ctx, s.link, s.method, err)
+			s.link.transport.report(s.ctx, s.link, s.method, err, s.peer)
 		}
 	})
 }
@@ -649,7 +640,7 @@ func (c *connectionCredentials) ClientHandshake(ctx context.Context, _ string, r
 	if plan.roots == nil {
 		c.link.connected(plan)
 		t.use(address, plan.choice)
-		return h2cCredentials{source: plan.choice.source}.ClientHandshake(ctx, address, rawConn)
+		return h2cCredentials{source: plan.choice.source, tlsError: plan.tlsError}.ClientHandshake(ctx, address, rawConn)
 	}
 	conn := &handshakeConn{Conn: rawConn}
 	creds := credentials.NewTLS(&tls.Config{RootCAs: plan.roots, MinVersion: tls.VersionTLS13})
@@ -725,6 +716,8 @@ func isUnknownAuthority(err error) bool {
 // source that chose h2c.
 type h2cCredentials struct {
 	source string
+	// tlsError is the handshake error of the h2c window that chose h2c.
+	tlsError string
 }
 
 func (c h2cCredentials) ClientHandshake(ctx context.Context, authority string, rawConn net.Conn) (net.Conn, credentials.AuthInfo, error) {
@@ -732,7 +725,7 @@ func (c h2cCredentials) ClientHandshake(ctx context.Context, authority string, r
 	if err != nil {
 		return nil, nil, err
 	}
-	return conn, h2cInfo{CommonAuthInfo: credentials.CommonAuthInfo{SecurityLevel: credentials.NoSecurity}, source: c.source}, nil
+	return conn, h2cInfo{CommonAuthInfo: credentials.CommonAuthInfo{SecurityLevel: credentials.NoSecurity}, source: c.source, tlsError: c.tlsError}, nil
 }
 
 func (h2cCredentials) ServerHandshake(net.Conn) (net.Conn, credentials.AuthInfo, error) {
@@ -754,7 +747,8 @@ func (h2cCredentials) OverrideServerName(string) error {
 // h2cInfo is the AuthInfo of a connection on h2c.
 type h2cInfo struct {
 	credentials.CommonAuthInfo
-	source string
+	source   string
+	tlsError string
 }
 
 func (h2cInfo) AuthType() string {
