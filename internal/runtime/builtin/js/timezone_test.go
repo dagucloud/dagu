@@ -182,7 +182,10 @@ return {
   gmtOffset: new Date("Fri Nov 13 2026 02:14:00 GMT+0900 (JST)").toISOString(),
   offset: new Date("Nov 13 2026 02:14:00 -0500").toISOString(),
   parsed: Date.parse("Nov 13 2026 02:14:00"),
-  invalid: Number.isNaN(Date.parse("2026-13-01T10:00:00"))
+  invalid: Number.isNaN(Date.parse("2026-13-01T10:00:00")),
+  customToString: new Date({ toString() { return "Nov 13 2026 02:14:00"; } }).toISOString(),
+  noValueOf: new Date({ valueOf: undefined, toString() { return "Nov 13 2026 02:14:00"; } }).toISOString(),
+  toPrimitiveHook: new Date({ [Symbol.toPrimitive]() { return "Nov 13 2026 02:14:00"; } }).toISOString()
 }`
 		got := run(t, ctxWithTZ("Asia/Kathmandu", nil), script, nil)
 		require.NoError(t, got.err)
@@ -196,7 +199,10 @@ return {
   "gmtOffset": "2026-11-12T17:14:00.000Z",
   "offset": "2026-11-13T07:14:00.000Z",
   "parsed": 1794515340000,
-  "invalid": true
+  "invalid": true,
+  "customToString": "2026-11-12T20:29:00.000Z",
+  "noValueOf": "2026-11-12T20:29:00.000Z",
+  "toPrimitiveHook": "2026-11-12T20:29:00.000Z"
 }`, got.stdout)
 	})
 

@@ -292,8 +292,40 @@ func installDateTimezone(vm *goja.Runtime, loc *time.Location) error {
 	}
 
 	factoryVal, err := vm.RunString(`(function(OrigDate, nowStr, makeLocalMs, parseLocalMs) {
-  // Captured so scripts that reassign Reflect keep a working Date.
+  // Captured so scripts that reassign Reflect or Symbol keep a working Date.
   var construct = Reflect.construct;
+  var apply = Reflect.apply;
+  var toPrimitiveKey = Symbol.toPrimitive;
+  function isObject(v) {
+    return (typeof v === 'object' && v !== null) || typeof v === 'function';
+  }
+  // toPrimitive is the hint-less ToPrimitive that Date applies to a single
+  // argument that is not a Date.
+  function toPrimitive(v) {
+    if (!isObject(v)) {
+      return v;
+    }
+    var result;
+    var exotic = v[toPrimitiveKey];
+    if (exotic !== undefined && exotic !== null) {
+      result = apply(exotic, v, ['default']);
+      if (!isObject(result)) {
+        return result;
+      }
+    } else {
+      var names = ['valueOf', 'toString'];
+      for (var i = 0; i < names.length; i++) {
+        var fn = v[names[i]];
+        if (typeof fn === 'function') {
+          result = apply(fn, v, []);
+          if (!isObject(result)) {
+            return result;
+          }
+        }
+      }
+    }
+    throw new TypeError('Cannot convert object to primitive value');
+  }
   function Date(year, month, day, hours, minutes, seconds, ms) {
     if (new.target === undefined) {
       return nowStr();
@@ -308,16 +340,11 @@ func installDateTimezone(vm *goja.Runtime, loc *time.Location) error {
       if (arg instanceof OrigDate) {
         return construct(OrigDate, [arg], new.target);
       }
-      if (typeof arg === 'string') {
-        return construct(OrigDate, [parseLocalMs(arg)], new.target);
+      var prim = toPrimitive(arg);
+      if (typeof prim === 'string') {
+        return construct(OrigDate, [parseLocalMs(prim)], new.target);
       }
-      if (typeof arg === 'object' && arg !== null) {
-        var prim = arg.valueOf();
-        if (typeof prim === 'string') {
-          return construct(OrigDate, [parseLocalMs(prim)], new.target);
-        }
-      }
-      return construct(OrigDate, [arg], new.target);
+      return construct(OrigDate, [prim], new.target);
     }
     return construct(OrigDate, [makeLocalMs(Array.prototype.slice.call(arguments))], new.target);
   }
