@@ -168,6 +168,39 @@ return {
 }`, got.stdout)
 	})
 
+	// Kathmandu (+05:45) differs from any host zone the tests run in, so a
+	// string read in the process zone instead of the step zone shows up.
+	t.Run("ParseStringsInStepZone", func(t *testing.T) {
+		t.Parallel()
+		script := `
+return {
+  monthName: new Date("Nov 13 2026 02:14:00").toISOString(),
+  spaced: new Date("2026-11-13 02:14:00").toISOString(),
+  slashes: new Date("2026/11/13").toISOString(),
+  extendedYear: new Date("+002026-11-13T02:14:00").toISOString(),
+  paddedDateOnly: new Date(" 2026-11-13 ").toISOString(),
+  gmt: new Date("Fri, 13 Nov 2026 02:14:00 GMT").toISOString(),
+  gmtOffset: new Date("Fri Nov 13 2026 02:14:00 GMT+0900 (JST)").toISOString(),
+  offset: new Date("Nov 13 2026 02:14:00 -0500").toISOString(),
+  parsed: Date.parse("Nov 13 2026 02:14:00"),
+  invalid: Number.isNaN(Date.parse("2026-13-01T10:00:00"))
+}`
+		got := run(t, ctxWithTZ("Asia/Kathmandu", nil), script, nil)
+		require.NoError(t, got.err)
+		assert.JSONEq(t, `{
+  "monthName": "2026-11-12T20:29:00.000Z",
+  "spaced": "2026-11-12T20:29:00.000Z",
+  "slashes": "2026-11-12T18:15:00.000Z",
+  "extendedYear": "2026-11-12T20:29:00.000Z",
+  "paddedDateOnly": "2026-11-12T18:15:00.000Z",
+  "gmt": "2026-11-13T02:14:00.000Z",
+  "gmtOffset": "2026-11-12T17:14:00.000Z",
+  "offset": "2026-11-13T07:14:00.000Z",
+  "parsed": 1794515340000,
+  "invalid": true
+}`, got.stdout)
+	})
+
 	t.Run("Subclass", func(t *testing.T) {
 		t.Parallel()
 		got := run(t, ctxWithTZ("Asia/Tokyo", nil), `

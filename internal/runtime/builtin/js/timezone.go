@@ -17,7 +17,15 @@ import (
 	"github.com/dop251/goja"
 )
 
-var isoDateOnlyPattern = regexp.MustCompile(`^([+-]\d{6}|\d{4})(-\d{2}(-\d{2})?)?$`)
+// isoDatePattern is the ECMAScript date-time string format's date part.
+const isoDatePattern = `([+-]\d{6}|\d{4})(-\d{2}(-\d{2})?)?`
+
+var (
+	isoDateOnlyPattern = regexp.MustCompile(`^` + isoDatePattern + `$`)
+	// isoLocalDateTimePattern matches date-times without an offset, which
+	// ECMAScript reads as local time.
+	isoLocalDateTimePattern = regexp.MustCompile(`^` + isoDatePattern + `T\d{2}:\d{2}(:\d{2}([.,]\d+)?)?$`)
+)
 
 const (
 	dateTimeLayout          = "Mon Jan 02 2006 15:04:05 GMT-0700 (MST)"
@@ -246,24 +254,30 @@ func installDateTimezone(vm *goja.Runtime, loc *time.Location) error {
 		}
 		return vm.ToValue(ms)
 	}
-	parseLocalMs := func(s string) goja.Value {
-		if ms, handled, ok := parseLocalISODateTime(s, loc); handled {
-			if !ok {
-				return goja.NaN()
-			}
-			return vm.ToValue(ms)
-		}
+	parse := func(s string) goja.Value {
 		parsed, err := origParse(goja.Undefined(), vm.ToValue(s))
 		if err != nil {
 			panic(err)
 		}
-		if goja.IsNaN(parsed) || hasExplicitTimezone(s) {
-			return parsed
+		return parsed
+	}
+	parseLocalMs := func(s string) goja.Value {
+		// A zone-less string is parsed with a UTC designator appended, which
+		// yields its wall clock without passing through the process zone.
+		var wall goja.Value
+		switch {
+		case isoLocalDateTimePattern.MatchString(s):
+			wall = parse(s + "Z")
+		case hasExplicitTimezone(s):
+			return parse(s)
+		default:
+			wall = parse(s + " UTC")
 		}
-		lt := time.UnixMilli(parsed.ToInteger()).In(time.Local)
-		inLoc := time.Date(lt.Year(), lt.Month(), lt.Day(), lt.Hour(), lt.Minute(), lt.Second(), lt.Nanosecond(), loc)
-		ms := inLoc.UnixMilli()
-		if math.Abs(float64(ms)) > maxECMAScriptTimeMillis {
+		if goja.IsNaN(wall) {
+			return wall
+		}
+		ms, ok := makeLocalTimeMillis(dateFields(time.UnixMilli(wall.ToInteger()).UTC()), loc)
+		if !ok {
 			return goja.NaN()
 		}
 		return vm.ToValue(ms)
@@ -337,15 +351,7 @@ func applyDateFields(t time.Time, loc *time.Location, startIdx int, args []goja.
 	if len(args) == 0 {
 		return 0, false
 	}
-	fields := [7]int64{
-		int64(t.Year()),
-		int64(t.Month()) - 1,
-		int64(t.Day()),
-		int64(t.Hour()),
-		int64(t.Minute()),
-		int64(t.Second()),
-		int64(t.Nanosecond() / 1e6),
-	}
+	fields := dateFields(t)
 	for i, arg := range args {
 		idx := startIdx + i
 		if idx >= len(fields) {
@@ -358,6 +364,20 @@ func applyDateFields(t time.Time, loc *time.Location, startIdx int, args []goja.
 		fields[idx] = v
 	}
 	return makeLocalTimeMillis(fields, loc)
+}
+
+// dateFields returns t's year, zero-based month, day, hours, minutes,
+// seconds, and milliseconds.
+func dateFields(t time.Time) [7]int64 {
+	return [7]int64{
+		int64(t.Year()),
+		int64(t.Month()) - 1,
+		int64(t.Day()),
+		int64(t.Hour()),
+		int64(t.Minute()),
+		int64(t.Second()),
+		int64(t.Nanosecond() / 1e6),
+	}
 }
 
 func makeLocalTimeMillis(fields [7]int64, loc *time.Location) (int64, bool) {
@@ -415,102 +435,6 @@ func normPair(hi, lo, base int64) (int64, int64, bool) {
 	return hi, lo, true
 }
 
-// parseLocalISODateTime intercepts ECMAScript date-time ISO strings that carry
-// a 'T' time component and no explicit timezone suffix so they parse in loc.
-func parseLocalISODateTime(s string, loc *time.Location) (ms int64, handled bool, ok bool) {
-	datePart, timePart, hasT := strings.Cut(s, "T")
-	if !hasT {
-		return 0, false, false
-	}
-	if strings.HasSuffix(timePart, "Z") || strings.ContainsAny(timePart, "+-") {
-		return 0, false, false
-	}
-	if datePart == "" || timePart == "" {
-		return 0, false, false
-	}
-	yStr, md, _ := strings.Cut(datePart, "-")
-	var year, month, day int
-	var err error
-	if len(yStr) == 4 {
-		year, err = strconv.Atoi(yStr)
-		if err != nil {
-			return 0, false, false
-		}
-	} else {
-		return 0, false, false
-	}
-	month, day = 1, 1
-	if md != "" {
-		mStr, dStr, hasDay := strings.Cut(md, "-")
-		if len(mStr) != 2 {
-			return 0, false, false
-		}
-		month, err = strconv.Atoi(mStr)
-		if err != nil || month < 1 || month > 12 {
-			return 0, true, false
-		}
-		if hasDay {
-			if len(dStr) != 2 {
-				return 0, false, false
-			}
-			day, err = strconv.Atoi(dStr)
-			if err != nil || day < 1 || day > 31 {
-				return 0, true, false
-			}
-		}
-	}
-	hmPart, fracPart, hasFrac := strings.Cut(timePart, ".")
-	if !hasFrac {
-		hmPart, fracPart, hasFrac = strings.Cut(timePart, ",")
-	}
-	parts := strings.Split(hmPart, ":")
-	if len(parts) < 2 || len(parts) > 3 {
-		return 0, false, false
-	}
-	if len(parts[0]) != 2 || len(parts[1]) != 2 || (len(parts) == 3 && len(parts[2]) != 2) {
-		return 0, false, false
-	}
-	hour, err := strconv.Atoi(parts[0])
-	if err != nil || hour > 24 {
-		return 0, true, false
-	}
-	min, err := strconv.Atoi(parts[1])
-	if err != nil || min > 59 {
-		return 0, true, false
-	}
-	sec := 0
-	if len(parts) == 3 {
-		sec, err = strconv.Atoi(parts[2])
-		if err != nil || sec > 59 {
-			return 0, true, false
-		}
-	}
-	msec := 0
-	if hasFrac {
-		if len(parts) != 3 || fracPart == "" {
-			return 0, false, false
-		}
-		mul := 100
-		for i := 0; i < len(fracPart); i++ {
-			c := fracPart[i]
-			if c < '0' || c > '9' {
-				return 0, false, false
-			}
-			msec += int(c-'0') * mul
-			mul /= 10
-		}
-	}
-	if hour == 24 && (min != 0 || sec != 0 || msec != 0) {
-		return 0, true, false
-	}
-	t := time.Date(year, time.Month(month), day, hour, min, sec, msec*1e6, loc)
-	res := t.UnixMilli()
-	if math.Abs(float64(res)) > maxECMAScriptTimeMillis {
-		return 0, true, false
-	}
-	return res, true, true
-}
-
 func hasExplicitTimezone(s string) bool {
 	if _, tail, ok := strings.Cut(s, "T"); ok {
 		if strings.HasSuffix(tail, "Z") || strings.ContainsAny(tail, "+-") {
@@ -518,11 +442,10 @@ func hasExplicitTimezone(s string) bool {
 		}
 	}
 	// ISO date-only forms ("2026", "2026-11", "2026-11-13") parse as UTC per ES spec.
-	trimmed := strings.TrimSpace(s)
-	if isoDateOnlyPattern.MatchString(trimmed) {
+	if isoDateOnlyPattern.MatchString(s) {
 		return true
 	}
-	fields := strings.FieldsFunc(strings.ToLower(trimmed), func(r rune) bool {
+	fields := strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
 		return r == ' ' || r == ',' || r == '(' || r == ')'
 	})
 	for _, tok := range fields {
