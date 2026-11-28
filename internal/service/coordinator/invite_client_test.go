@@ -7,6 +7,7 @@ import (
 	"context"
 	"net"
 	"sort"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -242,26 +243,100 @@ func TestClientInviteNoCoordinators(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// lostDelete deletes the invite and loses the answer.
-type lostDelete struct {
+// sharedInvites holds the invite IDs that coordinators share.
+type sharedInvites struct {
+	mu  sync.Mutex
+	ids map[string]bool
+}
+
+func newSharedInvites(ids ...string) *sharedInvites {
+	shared := &sharedInvites{ids: map[string]bool{}}
+	for _, id := range ids {
+		shared.ids[id] = true
+	}
+	return shared
+}
+
+func (s *sharedInvites) has(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ids[id]
+}
+
+// sharingCoordinator lists and deletes the shared invites. With
+// loseAnswer, it deletes and answers Unavailable, as when the answer is
+// lost. With failFirst, its first delete answers Unavailable and deletes
+// nothing, as when a call times out before it runs.
+type sharingCoordinator struct {
 	coordinatorv1.UnimplementedCoordinatorServiceServer
-	calls atomic.Int32
+	shared     *sharedInvites
+	loseAnswer bool
+	failFirst  bool
+	deletes    atomic.Int32
 }
 
-func (s *lostDelete) DeleteInvite(context.Context, *coordinatorv1.DeleteInviteRequest) (*coordinatorv1.DeleteInviteResponse, error) {
-	s.calls.Add(1)
-	return nil, status.Error(codes.Unavailable, "connection reset")
+func (c *sharingCoordinator) ListInvites(context.Context, *coordinatorv1.ListInvitesRequest) (*coordinatorv1.ListInvitesResponse, error) {
+	c.shared.mu.Lock()
+	defer c.shared.mu.Unlock()
+	resp := &coordinatorv1.ListInvitesResponse{}
+	for id := range c.shared.ids {
+		resp.Invites = append(resp.Invites, &coordinatorv1.InviteRecord{Id: id})
+	}
+	return resp, nil
 }
 
-// A coordinator that deleted the invite and lost its answer leaves the next
-// one to find no invite, which is the delete succeeding.
-func TestClientDeleteInviteLostAnswer(t *testing.T) {
+func (c *sharingCoordinator) DeleteInvite(_ context.Context, req *coordinatorv1.DeleteInviteRequest) (*coordinatorv1.DeleteInviteResponse, error) {
+	if c.deletes.Add(1) == 1 && c.failFirst {
+		return nil, status.Error(codes.Unavailable, "timed out before the delete ran")
+	}
+	c.shared.mu.Lock()
+	defer c.shared.mu.Unlock()
+	if !c.shared.ids[req.Id] {
+		return nil, status.Error(codes.NotFound, "no invite has this ID")
+	}
+	delete(c.shared.ids, req.Id)
+	if c.loseAnswer {
+		return nil, status.Error(codes.Unavailable, "connection reset")
+	}
+	return &coordinatorv1.DeleteInviteResponse{}, nil
+}
+
+// A delete whose answer was lost succeeds once the invites show it gone,
+// with another coordinator to ask or none. A call that ran no delete does
+// not count as one: an ID that no invite has stays NotFound, and an invite
+// still listed fails the delete.
+func TestClientDeleteInviteOutcome(t *testing.T) {
 	t.Parallel()
 
-	lost := &lostDelete{}
-	err := inviteClientOf(t, serving(lost), serving(&inviteServer{})).DeleteInvite(t.Context(), "invite-1")
-	require.NoError(t, err)
-	assert.Equal(t, int32(1), lost.calls.Load())
+	t.Run("lost answer, then another coordinator", func(t *testing.T) {
+		t.Parallel()
+		shared := newSharedInvites("invite-1")
+		lost := &sharingCoordinator{shared: shared, loseAnswer: true}
+		err := inviteClientOf(t, serving(lost), serving(&sharingCoordinator{shared: shared})).DeleteInvite(t.Context(), "invite-1")
+		require.NoError(t, err)
+		assert.False(t, shared.has("invite-1"))
+	})
+	t.Run("lost answer, one coordinator", func(t *testing.T) {
+		t.Parallel()
+		shared := newSharedInvites("invite-1")
+		err := inviteClientOf(t, serving(&sharingCoordinator{shared: shared, loseAnswer: true})).DeleteInvite(t.Context(), "invite-1")
+		require.NoError(t, err)
+		assert.False(t, shared.has("invite-1"))
+	})
+	t.Run("no such invite after a call that ran no delete", func(t *testing.T) {
+		t.Parallel()
+		shared := newSharedInvites()
+		failing := &sharingCoordinator{shared: shared, failFirst: true}
+		err := inviteClientOf(t, serving(failing), serving(&sharingCoordinator{shared: shared})).DeleteInvite(t.Context(), "missing")
+		assert.Equal(t, codes.NotFound, status.Code(err), "%v", err)
+	})
+	t.Run("one coordinator that ran no delete", func(t *testing.T) {
+		t.Parallel()
+		shared := newSharedInvites("invite-1")
+		err := inviteClientOf(t, serving(&sharingCoordinator{shared: shared, failFirst: true})).DeleteInvite(t.Context(), "invite-1")
+		assert.Equal(t, codes.Unavailable, status.Code(err), "%v", err)
+		assert.True(t, shared.has("invite-1"))
+	})
 }
 
 // invitesServer lists the invites with the IDs ids.
