@@ -872,7 +872,11 @@ or `stop`:
   host, does not say which certificate the worker holds. The removal fails
   with `FailedPrecondition` and says to update every coordinator first.
 - A removal by a worker ID finds each certificate whose `worker_id` or
-  `worker_ids` names it, and the removal records keep those IDs.
+  `worker_ids` names it, and the removal records keep those IDs. A
+  certificate in removal names the IDs of both its records: the at most 8
+  its removal record kept when the removal began, with the workers the
+  removal named, and the at most 8 that heartbeats wrote to its
+  certificate record since.
 - Coordinators order the enrollments and removals of one worker ID
   through one shared record per worker ID: a removal counts itself there
   before it looks for the worker's certificates, and an enrollment, after

@@ -170,8 +170,9 @@ func TestWorkerCertificateStore_MarkRemoving(t *testing.T) {
 
 // A removal that names a worker the newer heartbeat already carries still
 // writes it to the removal record, which ListRemovals reads. The worker IDs
-// that heartbeats report during the removal reach the record and its final
-// revoked state, apart from the named worker.
+// that heartbeats report during the removal reach the certificate record,
+// and the certificate names them beside the removal record's own, also
+// once revoked.
 func TestWorkerCertificateStore_MarkRemovingNamesHeartbeatWorker(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -211,34 +212,97 @@ func TestWorkerCertificateStore_MarkRemovingNamesHeartbeatWorker(t *testing.T) {
 		beat.LastHeartbeatAt = removingAt.Add(time.Duration(80+i) * time.Hour)
 		recordHeartbeat(t, s, beat)
 	}
-	want := []string{"worker-2", "worker-3", "worker-4", "worker-5", "worker-6", "worker-7", "worker-8", "worker-9"}
+	want := []string{
+		"worker-cert-1", "worker-a", "worker-b",
+		"worker-2", "worker-3", "worker-4", "worker-5", "worker-6", "worker-7", "worker-8", "worker-9",
+	}
 	assert.Equal(t, want, seenIDs(getCertificate(t, s, "cert-1")))
 	revoked := setState(t, s, "cert-1", persis.WorkerCertificateRevoked)
 	assert.Equal(t, want, seenIDs(revoked))
 	assert.Equal(t, "worker-b", named(), "the revoked record keeps the named worker")
 }
 
-// The worker a removal names joins the removal record's worker IDs, and a
-// newer heartbeat's IDs join the certificate record's. Reads and later
-// writes of the removal keep both histories (Spec 108 §Removal).
-func TestWorkerCertificateStore_RemovalKeepsBothWorkerIDHistories(t *testing.T) {
+// A certificate in removal names the worker IDs of both its records: the
+// one its removal named, which its certificate record never saw, and the
+// one a newer heartbeat reported.
+func TestWorkerCertificateStore_GetDuringRemovalKeepsBothWorkerIDs(t *testing.T) {
+	t.Parallel()
+	s, _ := newWorkerCertificateStore(t)
+	createCertificate(t, s, workerCertificate("cert-1"))
+	removingAt := enrolledAt.Add(time.Hour)
+	_, err := s.MarkRemoving(t.Context(), "cert-1", "worker-a", clockAt(removingAt))
+	require.NoError(t, err)
+	beat := workerCertificate("cert-1")
+	beat.WorkerID = "worker-b"
+	beat.LastHeartbeatAt = removingAt.Add(time.Hour)
+	recordHeartbeat(t, s, beat)
+
+	got := getCertificate(t, s, "cert-1")
+	assert.Equal(t, []string{"worker-cert-1", "worker-a", "worker-b"}, seenIDs(got))
+	assert.Equal(t, "worker-b", got.WorkerID)
+}
+
+// A heartbeat writes a new worker ID to the certificate record while a
+// revocation checks that the certificate is idle. The certificate names
+// that ID once revoked, and the revoked record keeps that heartbeat, also
+// once the certificate record is gone (Spec 108 §Removal).
+func TestWorkerCertificateStore_RevokeIfIdleKeepsHeartbeatDuringCheck(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s, col := newWorkerCertificateStore(t)
+	createCertificate(t, s, workerCertificate("cert-1"))
+	removingAt := enrolledAt.Add(time.Hour)
+	_, err := s.MarkRemoving(ctx, "cert-1", "worker-a", clockAt(removingAt))
+	require.NoError(t, err)
+
+	_, revoked, err := s.RevokeIfIdle(ctx, "cert-1", func(context.Context) (bool, error) {
+		beat := workerCertificate("cert-1")
+		beat.WorkerID = "worker-b"
+		beat.LastHeartbeatAt = removingAt.Add(time.Minute)
+		recordHeartbeat(t, s, beat)
+		return true, nil
+	})
+	require.NoError(t, err)
+	require.True(t, revoked)
+	assert.Equal(t, []string{"worker-cert-1", "worker-a", "worker-b"}, seenIDs(getCertificate(t, s, "cert-1")))
+	require.NoError(t, col.Delete(ctx, "certs/cert-1"))
+	got := getCertificate(t, s, "cert-1")
+	assert.Equal(t, persis.WorkerCertificateRevoked, got.State)
+	assert.Equal(t, "worker-b", got.WorkerID)
+}
+
+// A certificate in removal ran under eight IDs, and its worker restarted
+// under eight new ones, which push the earlier IDs out of the certificate
+// record. The certificate names all sixteen, before and after its
+// revocation, as the removal record keeps the earlier eight (Spec 108
+// §Removal).
+func TestWorkerCertificateStore_RemovalKeepsIDsAtHistoryLimit(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	s, _ := newWorkerCertificateStore(t)
 	createCertificate(t, s, workerCertificate("cert-1"))
-	removingAt := enrolledAt.Add(time.Hour)
-	_, err := s.MarkRemoving(ctx, "cert-1", "worker-holder", clockAt(removingAt))
-	require.NoError(t, err)
 	beat := workerCertificate("cert-1")
-	beat.WorkerID = "worker-new"
-	beat.LastHeartbeatAt = removingAt.Add(time.Minute)
-	recordHeartbeat(t, s, beat)
-
-	want := []string{"worker-cert-1", "worker-holder", "worker-new"}
-	assert.Equal(t, want, seenIDs(getCertificate(t, s, "cert-1")))
-	_, err = s.MarkRemoving(ctx, "cert-1", "worker-holder", clockAt(removingAt.Add(2*time.Minute)))
+	var want []string
+	sight := func(id string, at time.Time) {
+		beat.WorkerID = id
+		beat.LastHeartbeatAt = at
+		recordHeartbeat(t, s, beat)
+		want = append(want, id)
+	}
+	for i := range 7 {
+		sight(fmt.Sprintf("before-%d", i), enrolledAt.Add(time.Duration(i+1)*time.Minute))
+	}
+	want = append([]string{"worker-cert-1"}, want...)
+	removingAt := enrolledAt.Add(time.Hour)
+	_, err := s.MarkRemoving(ctx, "cert-1", "before-6", clockAt(removingAt))
 	require.NoError(t, err)
+	for i := range 8 {
+		sight(fmt.Sprintf("restarted-%d", i), removingAt.Add(time.Duration(i+1)*time.Minute))
+	}
+
+	assert.Equal(t, want, seenIDs(getCertificate(t, s, "cert-1")))
 	assert.Equal(t, want, seenIDs(setState(t, s, "cert-1", persis.WorkerCertificateRevoked)))
+	assert.Equal(t, want, seenIDs(getCertificate(t, s, "cert-1")))
 }
 
 // A removal that cannot be read fails the read, so a revoked certificate is
