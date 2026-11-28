@@ -171,7 +171,16 @@ extraEnv:
         key: token
 ```
 
-Workers outside the cluster set the same value in `peer.token`. Dagu releases after 2.27.0 read these settings.
+Workers outside the cluster set the same value in `peer.token`. Give them the `ca.crt` from the `peer.existingCASecret` Secret too, and set `peer.ca_cert_file` to that file with `peer.insecure: false`, so they use TLS and never fall back to plaintext:
+
+```yaml
+peer:
+  token: "<the token>"
+  ca_cert_file: /etc/dagu/ca.crt
+  insecure: false
+```
+
+Dagu releases after 2.27.0 read these settings.
 
 ### Graceful Shutdown
 
