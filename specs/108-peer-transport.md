@@ -905,7 +905,8 @@ or `stop`:
   found. The removal tells the two apart by `enrolled_as` and
   `enrolled_removals`. A removal of a connected worker leaves a
   certificate that another connected worker ID holds as it is, though its
-  `worker_ids` name the removed one.
+  `worker_ids` name the removed one, also when that worker's heartbeat
+  reaches a coordinator that predates the certificate ID in heartbeats.
 - The removal decides from the heartbeats as it reads them. A worker that
   connects again while the removal runs is removed all the same: its next
   call is refused, and the coordinator logs that it connected.

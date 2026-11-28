@@ -244,8 +244,8 @@ func TestWorkerCertificateStore_GetDuringRemovalKeepsBothWorkerIDs(t *testing.T)
 
 // A heartbeat writes a new worker ID to the certificate record while a
 // revocation checks that the certificate is idle. The certificate names
-// that ID once revoked, and the revoked record keeps that heartbeat, also
-// once the certificate record is gone (Spec 108 §Removal).
+// that ID once revoked, and the revoked record keeps that heartbeat and
+// every ID, also once the certificate record is gone (Spec 108 §Removal).
 func TestWorkerCertificateStore_RevokeIfIdleKeepsHeartbeatDuringCheck(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -269,6 +269,7 @@ func TestWorkerCertificateStore_RevokeIfIdleKeepsHeartbeatDuringCheck(t *testing
 	got := getCertificate(t, s, "cert-1")
 	assert.Equal(t, persis.WorkerCertificateRevoked, got.State)
 	assert.Equal(t, "worker-b", got.WorkerID)
+	assert.Equal(t, []string{"worker-cert-1", "worker-a", "worker-b"}, seenIDs(got))
 }
 
 // A certificate in removal ran under eight IDs, and its worker restarted

@@ -367,7 +367,8 @@ func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatc
 // certificate before this listing, which finds it, or fails. It spares an
 // enrollment that started after the count, unless it carries the key of a
 // known certificate, and a certificate that another worker ID connects
-// with.
+// with, also through a coordinator predating the certificate ID in
+// heartbeats.
 func (h *Handler) revokeEnrolledAlongside(ctx context.Context, workerID string, removals int64, known map[string]bool) ([]string, error) {
 	certs, err := h.workerCertificates.List(ctx)
 	if err != nil {
@@ -392,6 +393,11 @@ func (h *Handler) revokeEnrolledAlongside(ctx context.Context, workerID string, 
 			continue
 		}
 		if holder := freshHolder(cert.ID, presence, now, h.staleHeartbeatThreshold); holder != "" && holder != workerID {
+			continue
+		}
+		// A worker may connect with it through a coordinator predating the
+		// certificate ID in heartbeats.
+		if legacyHolder(cert, presence, now, h.staleHeartbeatThreshold) {
 			continue
 		}
 		if enrolledBefore(cert, workerID, removals) || sharesKey(cert, knownCerts) {

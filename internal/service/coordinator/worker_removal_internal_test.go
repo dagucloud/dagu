@@ -2092,19 +2092,30 @@ func TestEnrollmentDuringRemovalOfHeldCertificate(t *testing.T) {
 
 // A worker on certificate X ran as node-a and now runs as node-b, and
 // another worker took node-a on certificate Y. A removal of node-a removes
-// Y and leaves X, which node-b still connects with, active (Spec 108
-// §Removal).
+// Y and leaves X, which node-b still connects with, active, also when
+// node-b's heartbeat reaches a coordinator that predates the certificate ID
+// in heartbeats (Spec 108 §Removal).
 func TestRemoveConnectedIDOnceHeldElsewhere(t *testing.T) {
-	f := newRemovalFixture(t)
-	moved := f.enroll(t, "node-a")
-	f.heartbeat(t, f.h, moved)
-	f.heartbeatAs(t, moved, "node-b", removalStart.Add(2*time.Minute))
-	replacement := f.enroll(t, "node-a")
-	f.heartbeat(t, f.h, replacement)
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprintf("legacy=%t", legacy), func(t *testing.T) {
+			f := newRemovalFixture(t)
+			moved := f.enroll(t, "node-a")
+			f.heartbeat(t, f.h, moved)
+			f.heartbeatAs(t, moved, "node-b", removalStart.Add(2*time.Minute))
+			if legacy {
+				require.NoError(t, f.heartbeats.Upsert(t.Context(), dispatch.WorkerHeartbeatRecord{
+					WorkerID: "node-b", Host: "host-node-b", LastHeartbeatAt: f.now.UnixMilli(),
+					Connection: dispatch.WorkerConnectionCertificate,
+				}))
+			}
+			replacement := f.enroll(t, "node-a")
+			f.heartbeat(t, f.h, replacement)
 
-	resp := f.remove(t, replacement)
-	assert.Equal(t, []string{replacement.certID}, resp.CertificateIds)
-	assert.Equal(t, persis.WorkerCertificateActive, f.state(t, moved))
+			resp := f.remove(t, replacement)
+			assert.Equal(t, []string{replacement.certID}, resp.CertificateIds)
+			assert.Equal(t, persis.WorkerCertificateActive, f.state(t, moved))
+		})
+	}
 }
 
 // A repeat of a bound dispatch admitted before a removal elsewhere succeeds

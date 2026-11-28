@@ -565,10 +565,10 @@ func (s *WorkerCertificateStore) RevokeIfIdle(ctx context.Context, id string, id
 		if err != nil {
 			return err
 		}
+		// The revoked record is the last write of the removal, so it keeps
+		// the IDs of both records, at most 16.
 		cert.State = persis.WorkerCertificateRevoked
-		own := removal.WorkerIDs
 		removal.workerCertificateStoredRecord = storedWorkerCertificate(cert)
-		removal.WorkerIDs = own
 		removal.State = cert.State
 		next, err := encodeRemovalRecord(cert.ID, removal)
 		if err != nil {
