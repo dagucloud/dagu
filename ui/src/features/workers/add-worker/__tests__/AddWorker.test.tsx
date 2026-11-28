@@ -1326,12 +1326,19 @@ describe('AddWorker', () => {
     expect(screen.getByText(/The usual causes/)).toBeInTheDocument();
   });
 
-  it('keeps the focus on Look for the worker again while it reads', async () => {
+  // The retry keeps focus while it reads and when the result switches
+  // between a complete miss and a failed read.
+  const complete = { workers: [], errors: [] };
+  const partial = { workers: [], errors: ['node b is unreachable'] };
+  it.each([
+    ['a miss to a failed read', complete, partial],
+    ['a failed read to a miss', partial, complete],
+  ])('keeps the focus on the retry from %s', async (_, first, next) => {
     vi.useFakeTimers();
     await open(readiness());
     typeAddress('192.168.1.20:50055');
     await createInvite();
-    api.GET.mockResolvedValue(answer(200, { workers: [], errors: [] }));
+    api.GET.mockResolvedValue(answer(200, first));
     await act(async () => {
       vi.advanceTimersByTime(60_000);
     });
@@ -1344,8 +1351,13 @@ describe('AddWorker', () => {
     fireEvent.click(retry);
     await act(async () => {});
     expect(document.activeElement).toBe(retry);
-    later.resolve(answer(200, { workers: [], errors: [] }));
+    later.resolve(answer(200, next));
     await act(async () => {});
     expect(document.activeElement).toBe(retry);
+    expect(
+      screen.getByText(
+        next === complete ? /The usual causes/ : /could not be read/
+      )
+    ).toBeInTheDocument();
   });
 });

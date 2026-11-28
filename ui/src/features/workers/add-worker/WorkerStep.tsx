@@ -488,18 +488,6 @@ function Arrival({
   const check = input && checkCommand(tab, input);
   const address = invite.address;
   const port = address.slice(address.lastIndexOf(':') + 1);
-  const lookAgain = (
-    <Button
-      size="xs"
-      aria-disabled={reading || undefined}
-      onClick={() => {
-        if (!reading) void readWorkers();
-      }}
-    >
-      {reading ? <Spinner /> : <RefreshCw />}
-      <I18nText text="Look for the worker again" />
-    </Button>
-  );
   return (
     <div hidden={hidden} className="space-y-2 text-sm">
       {/* One status region stays mounted, so the join is announced. */}
@@ -548,7 +536,6 @@ function Arrival({
           ))}
         </ul>
       )}
-      {!joined && outcome === 'unread' && lookAgain}
       {!joined && outcome === 'absent' && (
         <>
           <ul className="list-disc space-y-0.5 pl-5">
@@ -579,8 +566,20 @@ function Arrival({
               <CommandBlock text={check} label="Copy the command" />
             </>
           )}
-          {lookAgain}
         </>
+      )}
+      {/* One button for both outcomes, so focus survives a switch. */}
+      {!joined && outcome !== 'waiting' && (
+        <Button
+          size="xs"
+          aria-disabled={reading || undefined}
+          onClick={() => {
+            if (!reading) void readWorkers();
+          }}
+        >
+          {reading ? <Spinner /> : <RefreshCw />}
+          <I18nText text="Look for the worker again" />
+        </Button>
       )}
     </div>
   );
