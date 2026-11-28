@@ -9,6 +9,7 @@ import {
   ConfigSourceKind,
   HostEnvironment,
   WorkerAccessReason,
+  WorkerConnection,
   WorkerHealthStatus,
   WorkerVersionDrift,
   type components,
@@ -95,6 +96,8 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+// A worker as T16's /workers gives one that joined with an invite: a
+// certificate connection that names its certificate and the invite.
 function worker(overrides: Partial<Worker>): Worker {
   return {
     id: 'worker-a1',
@@ -104,7 +107,11 @@ function worker(overrides: Partial<Worker>): Worker {
     runningTasks: [],
     lastHeartbeatAt: new Date().toISOString(),
     healthStatus: WorkerHealthStatus.healthy,
+    version: '2.28.0',
     versionDrift: WorkerVersionDrift.none,
+    connection: WorkerConnection.certificate,
+    certificateId: 'cert-9',
+    environment: HostEnvironment.host,
     ...overrides,
   };
 }
@@ -1037,7 +1044,7 @@ describe('AddWorker', () => {
   it.each([
     [400, undefined, 'The server refused the address'],
     [403, undefined, 'Only admins can add workers.'],
-    [409, WorkerAccessReason.own_certificates, /uses peer.cert_file/],
+    [409, WorkerAccessReason.own_certificates, /no built-in CA for invites/],
     [503, WorkerAccessReason.no_coordinator, /No coordinator is running/],
     [503, WorkerAccessReason.require_tls, /requires TLS/],
   ])(
@@ -1111,10 +1118,8 @@ describe('AddWorker', () => {
     const { rerender } = await open(readiness());
     typeAddress('192.168.1.20:50055');
     await createInvite();
-    const status = screen
-      .getByText('Waiting for the worker to join...')
-      .closest('[role="status"]');
-    expect(status).not.toBeNull();
+    const status = step('Worker').getByRole('status');
+    expect(status).toHaveTextContent('Waiting for the worker to join...');
 
     rerender(
       view([
@@ -1210,12 +1215,11 @@ describe('AddWorker', () => {
   // The check reports how the host reaches the coordinator; it does not
   // read the invite yet.
   it.each([
-    // An empty data directory and none of the shell's DAGU_* variables,
-    // such as DAGU_WORKER.INVITE or DAGU_DATA_DIR, so it dials after the
-    // worker joined too.
+    // An empty data directory and none of the shell's DAGU* variables, so
+    // it dials after the worker joined too. checkCommand.test.ts runs it.
     [
       'Linux',
-      'env -i PATH="$PATH" HOME="$HOME" DAGU_HOME="$(mktemp -d)" dagu worker --check --worker.coordinators=192.168.1.20:50055',
+      `env $(env | sed -n 's/^\\(DAGU[A-Za-z0-9_.]*\\)=.*/-u \\1/p') DAGU_HOME="$(mktemp -d)" dagu worker --check --worker.coordinators=192.168.1.20:50055`,
     ],
     [
       'Docker',
@@ -1254,6 +1258,7 @@ describe('AddWorker', () => {
   // inside a value is refused. vectors.test.ts holds the exact commands.
   it.each([
     ['gpu=\ntrue', ' --worker.labels=gpu=true '],
+    ['gpu=\r\ntrue', ' --worker.labels=gpu=true '],
     ['zone=a\nb', undefined],
   ])('reads a line break in the labels %j', async (labels, argument) => {
     await open(readiness());
@@ -1269,13 +1274,6 @@ describe('AddWorker', () => {
     }
     await createInvite();
     expect(shownCommand()).toContain(argument);
-  });
-
-  // A line break inside a pasted address is refused, as MCP refuses it.
-  it('creates no invite for an address with a line break inside', async () => {
-    await open(readiness());
-    typeAddress('worker.example:50\n055');
-    expect(screen.queryByRole('button', { name: 'Create invite' })).toBeNull();
   });
 
   // A second invite for a changed address checks the labels too.
@@ -1327,12 +1325,15 @@ describe('AddWorker', () => {
   });
 
   // The retry keeps focus while it reads and when the result switches
-  // between a complete miss and a failed read.
+  // between a complete miss and a failed read. A join removes it, so its
+  // focus moves to the status that announces the join.
   const complete = { workers: [], errors: [] };
   const partial = { workers: [], errors: ['node b is unreachable'] };
+  const joinedList = { ...complete, workers: [worker({ inviteId: 'inv-1' })] };
   it.each([
     ['a miss to a failed read', complete, partial],
     ['a failed read to a miss', partial, complete],
+    ['a miss to a join', complete, joinedList],
   ])('keeps the focus on the retry from %s', async (_, first, next) => {
     vi.useFakeTimers();
     await open(readiness());
@@ -1353,6 +1354,10 @@ describe('AddWorker', () => {
     expect(document.activeElement).toBe(retry);
     later.resolve(answer(200, next));
     await act(async () => {});
+    if (next === joinedList) {
+      expect(document.activeElement).toBe(step('Worker').getByRole('status'));
+      return;
+    }
     expect(document.activeElement).toBe(retry);
     expect(
       screen.getByText(

@@ -301,11 +301,12 @@ export function checkCommand(
     '--check',
     `--worker.coordinators=${input.address}`,
   ];
-  // An empty data directory and no inherited DAGU_* variable, such as
+  // An empty data directory and no inherited DAGU* variable, such as
   // either spelling of the invite or a data directory, so the check dials
-  // on a host where the worker already joined.
+  // on a host where the worker already joined. The rest of the shell's
+  // environment, such as its proxies, stays.
   if (tab === WorkerTab.linux) {
-    return `env -i PATH="$PATH" HOME="$HOME" DAGU_HOME="$(mktemp -d)" ${shellCommand(args)}`;
+    return `env $(env | sed -n 's/^\\(DAGU[A-Za-z0-9_.]*\\)=.*/-u \\1/p') DAGU_HOME="$(mktemp -d)" ${shellCommand(args)}`;
   }
   if (!input.image) return undefined;
   return shellCommand(['docker', 'run', '--rm', input.image, ...args]);

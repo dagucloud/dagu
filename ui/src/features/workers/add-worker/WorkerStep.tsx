@@ -441,10 +441,17 @@ function Arrival({
   );
   const [reading, setReading] = React.useState(false);
 
+  const retry = React.useRef<HTMLButtonElement>(null);
+  const status = React.useRef<HTMLParagraphElement>(null);
+  const refocus = React.useRef(false);
   const record = React.useCallback(
     (list: Worker[]) => {
       const found = list.filter((w) => w.inviteId === invite.id);
       if (found.length === 0) return false;
+      // A join removes the retry, so its focus moves to the status.
+      if (retry.current && retry.current === document.activeElement) {
+        refocus.current = true;
+      }
       setSeen((prev) => [
         ...prev,
         ...found.filter((w) => !prev.some((p) => p.id === w.id)),
@@ -479,6 +486,11 @@ function Arrival({
 
   const joined = seen.length > 0;
   React.useEffect(() => {
+    if (!joined || !refocus.current) return;
+    refocus.current = false;
+    status.current?.focus();
+  }, [joined]);
+  React.useEffect(() => {
     if (joined) return;
     const left = invite.createdAt + ARRIVAL_TIMEOUT_MS - Date.now();
     const timer = setTimeout(() => void readWorkers(), Math.max(left, 0));
@@ -491,7 +503,12 @@ function Arrival({
   return (
     <div hidden={hidden} className="space-y-2 text-sm">
       {/* One status region stays mounted, so the join is announced. */}
-      <p role="status" className="flex items-center gap-2">
+      <p
+        ref={status}
+        role="status"
+        tabIndex={-1}
+        className="flex items-center gap-2 outline-none"
+      >
         {joined ? (
           <I18nText
             text={
@@ -571,6 +588,7 @@ function Arrival({
       {/* One button for both outcomes, so focus survives a switch. */}
       {!joined && outcome !== 'waiting' && (
         <Button
+          ref={retry}
           size="xs"
           aria-disabled={reading || undefined}
           onClick={() => {
