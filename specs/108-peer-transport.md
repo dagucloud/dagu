@@ -16,8 +16,9 @@ and `peer.ca_key_file`, [`dagu peer init`](#dagu-peer-init), the
 [Coordinator Certificate](#coordinator-certificate),
 [One Port](#one-port) except the revoked set,
 [Require TLS](#require-tls), the [h2c Reasons](#h2c-reasons), the
-`connection` and `plaintextReason` of the [Workers List](#workers-list)
-and its Dagu Cloud report, the [h2c Callers](#h2c-callers), the `Connection` column and the h2c
+`connection` and `plaintextReason` of the [Workers List](#workers-list),
+`connection` and `plaintext_reason` in its Dagu Cloud report, the
+[h2c Callers](#h2c-callers), the `Connection` column and the h2c
 callers of the [Workers Page](#workers-page), the coordinator call of
 [Join Readiness](#join-readiness), the [Invites](#invites) and their
 [Coordinator Calls](#coordinator-calls) except removal and the daily
