@@ -10,7 +10,6 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"errors"
-	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -22,10 +21,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
-	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
-	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
@@ -35,13 +31,6 @@ const (
 	// certificates in removal, so it applies another coordinator's removal
 	// within this interval.
 	removalRereadInterval = 30 * time.Second
-	// strandedRunWindow is how long after a revocation a coordinator looks
-	// for the runs bound to its worker that no worker took, a few claim
-	// timeouts, so a claim that expires late is still found. A task marked
-	// retiring is resumed only within it too, so one stays marked when
-	// every coordinator stops mid-retirement and stays down for the whole
-	// window.
-	strandedRunWindow = 10 * time.Minute
 	// recordPruneInterval is how often a coordinator prunes the certificate
 	// and invite records.
 	recordPruneInterval = 24 * time.Hour
@@ -128,10 +117,6 @@ func (r *workerRemovals) addLocked(removals []persis.WorkerCertificateRemoval) {
 			continue
 		}
 		r.byID[removal.ID] = removal
-		now := time.Now
-		if r.now != nil {
-			now = r.now
-		}
 		switch removal.State {
 		case persis.WorkerCertificateRevoked:
 			delete(r.settledAt, removal.ID)
@@ -140,6 +125,10 @@ func (r *workerRemovals) addLocked(removals []persis.WorkerCertificateRemoval) {
 			if _, seen := r.removingSeen[removal.ID]; !seen {
 				if r.removingSeen == nil {
 					r.removingSeen = make(map[string]time.Time)
+				}
+				now := time.Now
+				if r.now != nil {
+					now = r.now
 				}
 				r.removingSeen[removal.ID] = now()
 			}
@@ -196,25 +185,6 @@ func (r *workerRemovals) get(id string) (persis.WorkerCertificateRemoval, bool) 
 	defer r.mu.RUnlock()
 	removal, ok := r.byID[id]
 	return removal, ok
-}
-
-// recentlyRevoked returns every worker ID that the removal records of the
-// certificates revoked less than window before now name.
-func (r *workerRemovals) recentlyRevoked(window time.Duration, now time.Time) []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	var workerIDs []string
-	for _, removal := range r.byID {
-		if removal.State != persis.WorkerCertificateRevoked || removal.RevokedAt.IsZero() || now.Sub(removal.RevokedAt) >= window {
-			continue
-		}
-		for _, workerID := range append([]string{removal.WorkerID}, removal.WorkerIDs...) {
-			if workerID != "" && !slices.Contains(workerIDs, workerID) {
-				workerIDs = append(workerIDs, workerID)
-			}
-		}
-	}
-	return workerIDs
 }
 
 // removing returns the certificates in state removing.
@@ -608,9 +578,8 @@ func (h *Handler) waitPeerMaintenance() {
 	h.peerMaintenance.Wait()
 }
 
-// rereadRemovals reads the certificates in removal, revokes each removing
-// one that is due, and fails the runs that recent revocations left with no
-// worker. A failed read keeps the last copy.
+// rereadRemovals reads the certificates in removal and revokes each
+// removing one that is due. A failed read keeps the last copy.
 func (h *Handler) rereadRemovals(ctx context.Context) {
 	removals, err := h.workerCertificates.ListRemovals(ctx)
 	if err != nil {
@@ -621,7 +590,6 @@ func (h *Handler) rereadRemovals(ctx context.Context) {
 	if removing := h.removals.removing(); len(removing) > 0 {
 		h.settleRemovals(ctx, removing, h.clock())
 	}
-	h.failStrandedRuns(ctx)
 }
 
 // settleRemovals revokes each certificate of removing that is due.
@@ -667,119 +635,6 @@ func (h *Handler) revokeIdle(ctx context.Context, removal persis.WorkerCertifica
 	if revoked {
 		logger.Info(ctx, "Worker certificate revoked", slog.String("certificate-id", cert.ID), tag.WorkerID(removal.WorkerID))
 	}
-}
-
-// failStrandedRuns fails each run bound to a worker ID that a certificate
-// revoked less than strandedRunWindow ago names, which no worker took,
-// pending or claimed without an acceptance, and frees its place in its
-// queue. It runs at each reread, so a revocation at startup, one by
-// another coordinator, and a claim that came late are all found by a later
-// pass.
-func (h *Handler) failStrandedRuns(ctx context.Context) {
-	if h.dispatchTaskStore == nil || h.dagRunRepository == nil {
-		return
-	}
-	now := h.clock()
-	workerIDs := h.removals.recentlyRevoked(strandedRunWindow, now)
-	if len(workerIDs) == 0 {
-		return
-	}
-	tasks, err := h.dispatchTaskStore.ListBoundTo(ctx, workerIDs)
-	if err != nil {
-		logger.Warn(ctx, "Failed to list the tasks of removed workers", tag.Error(err))
-		return
-	}
-	for _, bound := range tasks {
-		h.failStrandedRun(ctx, bound, now)
-	}
-}
-
-// failStrandedRun fails the run of the task of bound and releases its place
-// in its queue. Unless the task is being retired already, it first checks
-// that no active certificate or fresh heartbeat names the task's worker ID,
-// as one that enrolled again under it does, and marks the task, so no
-// worker claims or accepts it after. Then it fails the run, releases its
-// place, and deletes the task. A pass that stops on the way leaves the mark
-// for the next one, which goes on from there.
-func (h *Handler) failStrandedRun(ctx context.Context, bound dispatch.BoundDispatch, now time.Time) {
-	task := bound.Task
-	storeCtx := context.WithoutCancel(ctx)
-	if !bound.Retiring {
-		identified, err := h.workerIdentified(storeCtx, task.TargetWorkerID, now)
-		if err != nil {
-			logger.Warn(ctx, "Failed to check the worker of a removed worker's task", tag.WorkerID(task.TargetWorkerID), tag.Error(err))
-			return
-		}
-		if identified {
-			return
-		}
-		if err := h.dispatchTaskStore.MarkRetiring(storeCtx, task); err != nil {
-			if !errors.Is(err, dispatch.ErrDispatchTaskNotFound) {
-				logger.Warn(ctx, "Failed to retire the task of a removed worker", tag.RunID(task.DAGRunID), tag.Error(err))
-			}
-			return
-		}
-	}
-	if !h.failRetiredRun(storeCtx, task, now) {
-		return
-	}
-	if err := h.dispatchTaskStore.DeleteRetiring(storeCtx, task); err != nil {
-		logger.Warn(ctx, "Failed to delete the task of a removed worker", tag.RunID(task.DAGRunID), tag.Error(err))
-	}
-}
-
-// failRetiredRun fails the run of the retiring task while the run still
-// waits for it, and releases the run's place in its queue. It reports
-// whether the task may go: false while the run cannot be read or written.
-func (h *Handler) failRetiredRun(ctx context.Context, task *dispatch.DispatchTask, now time.Time) bool {
-	held := h.runLocks.lock(task.DAGRunID)
-	defer h.runLocks.unlock(task.DAGRunID, held)
-
-	rootRef := ir.DAGRunRef{Name: task.RootDAGRunName, ID: task.RootDAGRunID}
-	attempt, runStatus, err := h.resolveLatestAttempt(ctx, task.Target, task.DAGRunID, rootRef)
-	switch {
-	case errors.Is(err, dagrun.ErrDAGRunIDNotFound), errors.Is(err, dagrun.ErrNoStatusData):
-		return true
-	case err != nil || runStatus == nil:
-		return false
-	}
-	if (runStatus.Status == ir.Queued || runStatus.Status == ir.NotStarted) && runStatus.WorkerID == "" &&
-		(task.AttemptID == "" || runStatus.AttemptID == task.AttemptID) {
-		// runStatus may be the cached status other readers share.
-		failed := *runStatus
-		failed.Status = ir.Failed
-		failed.FinishedAt = stringutil.FormatTime(now)
-		failed.Error = fmt.Sprintf("worker %s was removed before it took the run", task.TargetWorkerID)
-		if err := h.writeHeldAttemptStatus(ctx, task.DAGRunID, attempt, failed); err != nil {
-			logger.Warn(ctx, "Failed to fail a run bound to a removed worker", tag.RunID(task.DAGRunID), tag.Error(err))
-			return false
-		}
-		runStatus = &failed
-		logger.Warn(ctx, "A run bound to a removed worker failed", tag.RunID(task.DAGRunID), tag.WorkerID(task.TargetWorkerID))
-	}
-	h.finalizeAdmissionForStatus(ctx, runStatus, attempt.ID())
-	return true
-}
-
-// workerIdentified reports whether an active certificate or a fresh
-// heartbeat names the worker ID workerID now. It reads the heartbeat after
-// the certificates, so a worker that enrolled and reported meanwhile is
-// seen by one of the two reads.
-func (h *Handler) workerIdentified(ctx context.Context, workerID string, now time.Time) (bool, error) {
-	certs, err := h.workerCertificates.List(ctx)
-	if err != nil {
-		return false, err
-	}
-	if slices.ContainsFunc(certs, func(cert persis.WorkerCertificate) bool {
-		return cert.State == persis.WorkerCertificateActive && namesWorker(cert, workerID)
-	}) {
-		return true, nil
-	}
-	hb, err := h.workerPresence(ctx, workerID)
-	if err != nil {
-		return false, err
-	}
-	return hb != nil && dispatch.WorkerHeartbeatFresh(*hb, now, h.staleHeartbeatThreshold), nil
 }
 
 // removalDue reports whether the removing certificate removal is to be
@@ -939,19 +794,8 @@ func removalOf(cert persis.WorkerCertificate) persis.WorkerCertificateRemoval {
 		KeyFingerprint: cert.KeyFingerprint,
 		State:          cert.State,
 		WorkerID:       cmp.Or(cert.HolderID, cert.WorkerID),
-		WorkerIDs:      workerIDNames(cert.WorkerIDs),
 		RemovingAt:     cert.RemovingAt,
-		RevokedAt:      cert.RevokedAt,
 	}
-}
-
-// workerIDNames returns the IDs of ids.
-func workerIDNames(ids []persis.WorkerIDSeen) []string {
-	names := make([]string, 0, len(ids))
-	for _, seen := range ids {
-		names = append(names, seen.ID)
-	}
-	return names
 }
 
 // keyRemoved reports whether fingerprint is the key fingerprint of a

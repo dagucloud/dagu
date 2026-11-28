@@ -71,15 +71,6 @@ func clockAt(at time.Time) func() time.Time {
 	return func() time.Time { return at }
 }
 
-// revokedNow returns cert, which a revocation wrote, without the time of
-// the revocation, which it checks is recorded.
-func revokedNow(t *testing.T, cert persis.WorkerCertificate) persis.WorkerCertificate {
-	t.Helper()
-	assert.False(t, cert.RevokedAt.IsZero(), "the revocation records its time")
-	cert.RevokedAt = time.Time{}
-	return cert
-}
-
 func setState(t *testing.T, s *store.WorkerCertificateStore, id string, state persis.WorkerCertificateState) persis.WorkerCertificate {
 	t.Helper()
 	cert, err := s.SetState(t.Context(), id, state)
@@ -134,20 +125,14 @@ func TestWorkerCertificateStore_ListRemovals(t *testing.T) {
 
 	removals, err := s.ListRemovals(ctx)
 	require.NoError(t, err)
-	for i := range removals {
-		if removals[i].State == persis.WorkerCertificateRevoked {
-			assert.False(t, removals[i].RevokedAt.IsZero(), "the revocation records its time")
-			removals[i].RevokedAt = time.Time{}
-		}
-	}
 	assert.ElementsMatch(t, []persis.WorkerCertificateRemoval{
 		{
 			ID: "removing", KeyFingerprint: workerCertificate("removing").KeyFingerprint, State: persis.WorkerCertificateRemoving,
-			WorkerID: "worker-removing", WorkerIDs: []string{"worker-removing"}, RemovingAt: removingAt,
+			WorkerID: "worker-removing", RemovingAt: removingAt,
 		},
 		{
 			ID: "revoked", KeyFingerprint: workerCertificate("revoked").KeyFingerprint, State: persis.WorkerCertificateRevoked,
-			WorkerID: "worker-revoked", WorkerIDs: []string{"worker-revoked"},
+			WorkerID: "worker-revoked",
 		},
 	}, removals)
 }
@@ -288,9 +273,9 @@ func TestWorkerCertificateStore_RevokeIfIdleKeepsHeartbeatDuringCheck(t *testing
 }
 
 // A removal names worker-holder, and a later heartbeat reports
-// worker-late to the certificate record before a revocation by state. After
-// a restart, the listing of removals, which reads the removal records
-// alone, names every ID of both records (Spec 108 §Removal).
+// worker-late to the certificate record before a revocation by state. The
+// revoked record keeps every ID of both records, also read alone after a
+// restart once the certificate record is gone (Spec 108 §Removal).
 func TestWorkerCertificateStore_RevocationKeepsBothRecordsIDs(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -305,12 +290,12 @@ func TestWorkerCertificateStore_RevocationKeepsBothRecordsIDs(t *testing.T) {
 	recordHeartbeat(t, s, beat)
 	setState(t, s, "cert-1", persis.WorkerCertificateRevoked)
 
+	require.NoError(t, col.Delete(ctx, "certs/cert-1"))
 	restarted, err := store.NewWorkerCertificateStore(col)
 	require.NoError(t, err)
-	removals, err := restarted.ListRemovals(ctx)
+	got, err := restarted.Get(ctx, "cert-1")
 	require.NoError(t, err)
-	require.Len(t, removals, 1)
-	assert.ElementsMatch(t, []string{"worker-cert-1", "worker-holder", "worker-late"}, removals[0].WorkerIDs)
+	assert.Equal(t, []string{"worker-cert-1", "worker-holder", "worker-late"}, seenIDs(got))
 }
 
 // A certificate in removal ran under eight IDs, and its worker restarted
@@ -403,12 +388,11 @@ func TestWorkerCertificateStore_RemovalDuringPrune(t *testing.T) {
 
 	want := cert
 	want.State = persis.WorkerCertificateRevoked
-	assert.Equal(t, want, revokedNow(t, setState(t, s, "cert-1", persis.WorkerCertificateRevoked)))
-	assert.Equal(t, want, revokedNow(t, getCertificate(t, s, "cert-1")))
+	assert.Equal(t, want, setState(t, s, "cert-1", persis.WorkerCertificateRevoked))
+	assert.Equal(t, want, getCertificate(t, s, "cert-1"))
 	certs, err := s.List(ctx)
 	require.NoError(t, err)
-	require.Len(t, certs, 1)
-	assert.Equal(t, want, revokedNow(t, certs[0]))
+	assert.Equal(t, []persis.WorkerCertificate{want}, certs)
 }
 
 // A heartbeat replaces a certificate record that cannot be read, whether
@@ -450,7 +434,7 @@ func TestWorkerCertificateStore_RemovalWithUnreadableRecord(t *testing.T) {
 	want.State = persis.WorkerCertificateRemoving
 	assert.Equal(t, want, getCertificate(t, s, "cert-1"))
 	want.State = persis.WorkerCertificateRevoked
-	assert.Equal(t, want, revokedNow(t, setState(t, s, "cert-1", persis.WorkerCertificateRevoked)))
+	assert.Equal(t, want, setState(t, s, "cert-1", persis.WorkerCertificateRevoked))
 }
 
 // Another coordinator read the certificate record before a prune deleted

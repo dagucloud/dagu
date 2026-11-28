@@ -66,7 +66,6 @@ type workerCertificateRemovalStoredRecord struct {
 	workerCertificateStoredRecord
 	State      persis.WorkerCertificateState `json:"state"`
 	RemovingAt time.Time                     `json:"removing_at,omitzero"`
-	RevokedAt  time.Time                     `json:"revoked_at,omitzero"`
 	// HolderID is the worker the removal named, apart from the worker IDs
 	// the heartbeats report.
 	HolderID string `json:"holder_id,omitempty"`
@@ -217,9 +216,7 @@ func (s *WorkerCertificateStore) ListRemovals(ctx context.Context) ([]persis.Wor
 			KeyFingerprint: cert.KeyFingerprint,
 			State:          cert.State,
 			WorkerID:       cmp.Or(cert.HolderID, cert.WorkerID),
-			WorkerIDs:      workerIDNames(cert.WorkerIDs),
 			RemovingAt:     cert.RemovingAt,
-			RevokedAt:      cert.RevokedAt,
 		})
 	}
 	return removals, nil
@@ -571,10 +568,8 @@ func (s *WorkerCertificateStore) RevokeIfIdle(ctx context.Context, id string, id
 		// The revoked record is the last write of the removal, so it keeps
 		// the IDs of both records, at most 16.
 		cert.State = persis.WorkerCertificateRevoked
-		cert.RevokedAt = time.Now().UTC()
 		removal.workerCertificateStoredRecord = storedWorkerCertificate(cert)
 		removal.State = cert.State
-		removal.RevokedAt = cert.RevokedAt
 		next, err := encodeRemovalRecord(cert.ID, removal)
 		if err != nil {
 			return err
@@ -615,7 +610,6 @@ func (s *WorkerCertificateStore) SetState(ctx context.Context, id string, state 
 		if state == persis.WorkerCertificateRevoked {
 			// The revoked record is the last write of the removal, so it
 			// keeps the IDs of both records, as a finish revocation does.
-			cert.RevokedAt = time.Now().UTC()
 			ids = cert.WorkerIDs
 		}
 		next, err := encodeWorkerCertificateRemoval(cert, ids, acceptancesOf(current))
@@ -792,7 +786,6 @@ func encodeWorkerCertificateRemoval(cert persis.WorkerCertificate, ids []persis.
 		workerCertificateStoredRecord: storedWorkerCertificate(cert),
 		State:                         cert.State,
 		RemovingAt:                    cert.RemovingAt.UTC(),
-		RevokedAt:                     cert.RevokedAt.UTC(),
 		HolderID:                      cert.HolderID,
 		Acceptances:                   acceptances,
 	})
@@ -815,15 +808,6 @@ func decodeWorkerCertificateRemovalRecord(rec *persis.Record) (workerCertificate
 		return workerCertificateRemovalStoredRecord{}, fmt.Errorf("worker certificate store: decode %q: %w", rec.ID, err)
 	}
 	return payload, nil
-}
-
-// workerIDNames returns the IDs of ids.
-func workerIDNames(ids []persis.WorkerIDSeen) []string {
-	names := make([]string, 0, len(ids))
-	for _, seen := range ids {
-		names = append(names, seen.ID)
-	}
-	return names
 }
 
 // removalWorkerIDs returns the worker IDs that the removal record current
@@ -864,7 +848,6 @@ func decodeWorkerCertificateRemoval(rec *persis.Record) (persis.WorkerCertificat
 	}
 	cert := payload.certificate(payload.State)
 	cert.RemovingAt = payload.RemovingAt
-	cert.RevokedAt = payload.RevokedAt
 	cert.HolderID = payload.HolderID
 	return cert, nil
 }

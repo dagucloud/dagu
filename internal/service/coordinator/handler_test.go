@@ -1895,18 +1895,6 @@ func (s *failingDispatchTaskStore) ListStalePending(context.Context, time.Time) 
 	return nil, nil
 }
 
-func (s *failingDispatchTaskStore) ListBoundTo(context.Context, []string) ([]dispatch.BoundDispatch, error) {
-	return nil, nil
-}
-
-func (s *failingDispatchTaskStore) MarkRetiring(context.Context, *dispatch.DispatchTask) error {
-	return nil
-}
-
-func (s *failingDispatchTaskStore) DeleteRetiring(context.Context, *dispatch.DispatchTask) error {
-	return nil
-}
-
 func (s *failingDispatchTaskStore) DeletePending(context.Context, string) error {
 	return nil
 }

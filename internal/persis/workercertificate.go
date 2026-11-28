@@ -136,9 +136,6 @@ type WorkerCertificate struct {
 	EnrolledRemovals int64
 	// RemovingAt is when the certificate became removing, or zero.
 	RemovingAt time.Time
-	// RevokedAt is when the certificate was revoked, or zero, also for a
-	// record revoked before the field.
-	RevokedAt time.Time
 	// HolderID is the worker a removal named as holding the certificate, or
 	// empty. Heartbeats leave it as it is.
 	HolderID string
@@ -151,12 +148,9 @@ type WorkerCertificateRemoval struct {
 	KeyFingerprint []byte
 	State          WorkerCertificateState
 	// WorkerID is the worker the removal named, or the certificate's
-	// [WorkerCertificate.WorkerID] when it named none, and WorkerIDs the
-	// worker IDs the removal record keeps.
+	// [WorkerCertificate.WorkerID] when it named none.
 	WorkerID   string
-	WorkerIDs  []string
 	RemovingAt time.Time
-	RevokedAt  time.Time
 }
 
 // WorkerIDSeen is a worker ID a certificate's heartbeats reported, and when

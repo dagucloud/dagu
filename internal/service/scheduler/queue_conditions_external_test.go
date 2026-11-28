@@ -1545,18 +1545,6 @@ func (s *queueConditionDispatchTaskStore) ListStalePending(context.Context, time
 	return nil, nil
 }
 
-func (s *queueConditionDispatchTaskStore) ListBoundTo(context.Context, []string) ([]dispatch.BoundDispatch, error) {
-	return nil, nil
-}
-
-func (s *queueConditionDispatchTaskStore) MarkRetiring(context.Context, *dispatch.DispatchTask) error {
-	return nil
-}
-
-func (s *queueConditionDispatchTaskStore) DeleteRetiring(context.Context, *dispatch.DispatchTask) error {
-	return nil
-}
-
 func (s *queueConditionDispatchTaskStore) DeletePending(context.Context, string) error {
 	return nil
 }
