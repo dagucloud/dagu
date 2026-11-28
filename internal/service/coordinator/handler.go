@@ -305,15 +305,15 @@ type HandlerConfig struct {
 	JoinReadiness JoinReadinessConfig
 
 	// PeerCA signs the certificates Enroll issues. Without it, the invite
-	// calls and Enroll fail with FailedPrecondition, and WorkerInvites and
-	// WorkerCertificates are unused.
+	// calls and Enroll fail with FailedPrecondition, and WorkerInviteStore
+	// and WorkerCertificateStore are unused.
 	PeerCA *PeerCA
 
-	// WorkerInvites keeps the invites that admit enrollments.
-	WorkerInvites persis.WorkerInviteStore
+	// WorkerInviteStore keeps the invites that admit enrollments.
+	WorkerInviteStore persis.WorkerInviteStore
 
-	// WorkerCertificates records the certificates Enroll issues.
-	WorkerCertificates persis.WorkerCertificateStore
+	// WorkerCertificateStore records the certificates Enroll issues.
+	WorkerCertificateStore persis.WorkerCertificateStore
 
 	// StaleHeartbeatThreshold is the duration after which a worker's heartbeat
 	// is considered stale. Defaults to 30 seconds if not set.
@@ -390,8 +390,8 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		joinReadiness:             cfg.JoinReadiness,
 		hostProbe:                 systemHostProbe(),
 		peerCA:                    cfg.PeerCA,
-		workerInvites:             cfg.WorkerInvites,
-		workerCertificates:        cfg.WorkerCertificates,
+		workerInvites:             cfg.WorkerInviteStore,
+		workerCertificates:        cfg.WorkerCertificateStore,
 		staleHeartbeatThreshold:   cfg.StaleHeartbeatThreshold,
 		staleLeaseThreshold:       cfg.StaleLeaseThreshold,
 		workerWaitTimeout:         cfg.WorkerWaitTimeout,

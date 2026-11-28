@@ -530,6 +530,7 @@ worker                                          coordinator
 
 - it arrives over TLS
 - the secret matches an invite that has not ended
+- the certificate signing request verifies and holds an ECDSA P-256 key
 - the invite is reusable, or the worker can keep its certificate
 - the request's key is not the key of a revoked certificate
 

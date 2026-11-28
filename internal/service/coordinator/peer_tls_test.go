@@ -91,10 +91,10 @@ func startPeerTLSServerWithAuth(t *testing.T, auth *coordinator.PeerTokenAuth, h
 	require.NoError(t, err)
 	auth.AcceptWorkerCertificates(ca)
 	handler := coordinator.NewHandler(coordinator.HandlerConfig{
-		JoinReadiness:      coordinator.JoinReadinessConfig{ListenHost: "0.0.0.0", Port: 50055, BuiltinTLS: true},
-		PeerCA:             ca,
-		WorkerInvites:      invites,
-		WorkerCertificates: certs,
+		JoinReadiness:          coordinator.JoinReadinessConfig{ListenHost: "0.0.0.0", Port: 50055, BuiltinTLS: true},
+		PeerCA:                 ca,
+		WorkerInviteStore:      invites,
+		WorkerCertificateStore: certs,
 	})
 	logs := &lockedBuffer{}
 	log := logger.NewLogger(logger.WithWriter(logs), logger.WithDebug(), logger.WithQuiet())

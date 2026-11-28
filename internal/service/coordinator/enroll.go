@@ -31,8 +31,8 @@ import (
 )
 
 const (
-	// workerCertInviteURNPrefix starts the URI by which a worker
-	// certificate names its invite.
+	// workerCertInviteURNPrefix is the start of the opaque part of the urn:
+	// URI by which a worker certificate names its invite.
 	workerCertInviteURNPrefix = "dagu:invite:"
 	// invalidInviteMessage refuses an invite that is malformed, unknown,
 	// deleted, expired, or used up, without telling which.
@@ -76,6 +76,9 @@ func (h *Handler) Enroll(ctx context.Context, req *coordinatorv1.EnrollRequest) 
 		logger.Error(ctx, "Failed to issue a worker certificate", tag.Error(err))
 		return nil, status.Error(codes.Internal, "failed to issue the worker certificate")
 	}
+	// The invite is used at the time it admits the worker, after signing,
+	// so one that ends meanwhile admits nothing.
+	now = time.Now().UTC()
 	if _, err := h.workerInvites.Use(ctx, invite.ID, now); err != nil {
 		return nil, inviteUseError(ctx, err)
 	}
@@ -89,7 +92,11 @@ func (h *Handler) Enroll(ctx context.Context, req *coordinatorv1.EnrollRequest) 
 		Host:           req.Host,
 		CreatedAt:      now,
 	}); err != nil {
-		logger.Error(ctx, "Failed to record a worker certificate", slog.String("certificate-id", certID), tag.Error(err))
+		logger.Error(ctx, "Failed to record a worker certificate",
+			slog.String("certificate-id", certID),
+			slog.String("invite-id", invite.ID),
+			tag.Error(err),
+		)
 		return nil, status.Error(codes.Internal, "failed to record the worker certificate")
 	}
 	logger.Info(ctx, "Worker enrolled",

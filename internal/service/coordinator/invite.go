@@ -151,8 +151,8 @@ func (h *Handler) requirePeerCA() error {
 		"invites need the built-in CA: this coordinator could not create or read its CA; see its start warning")
 }
 
-// newInvite returns a new invite for the CA certificate ca and the SHA-256 of
-// its secret.
+// newInvite returns a new invite for the CA certificate ca, and what its
+// record keeps in place of the secret.
 func newInvite(ca *x509.Certificate) (invite string, secretHash []byte, err error) {
 	secret := make([]byte, inviteSecretSize)
 	if _, err := rand.Read(secret); err != nil {
@@ -183,7 +183,7 @@ func caPin(ca *x509.Certificate) string {
 	return inviteEncoding.EncodeToString(sum[:])
 }
 
-// inviteSecretHash is the hash an invite's record keeps of its secret.
+// inviteSecretHash returns what an invite's record keeps in place of secret.
 func inviteSecretHash(secret []byte) []byte {
 	sum := sha256.Sum256(secret)
 	return sum[:]
