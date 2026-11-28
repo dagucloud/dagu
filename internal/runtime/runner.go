@@ -582,16 +582,28 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 			r.processCompletedNode(ctx, plan, node, readyCh)
 
 		case <-ctxDoneCh:
-			r.mu.Lock()
-			if r.lastError == nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				r.lastError = ctx.Err()
-			}
-			r.mu.Unlock()
+			r.recordDeadline(ctx)
 			ctxDoneCh = nil
 		}
 	}
 
 	wg.Wait()
+	// When the deadline and the end of the last node are ready together, the
+	// select above may take the node and end the loop without the deadline.
+	// A run whose nodes all succeeded keeps that outcome.
+	if !r.isSucceed(plan) {
+		r.recordDeadline(ctx)
+	}
+}
+
+// recordDeadline records the passed deadline of ctx as the run's error,
+// unless another error is recorded.
+func (r *Runner) recordDeadline(ctx context.Context) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.lastError == nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		r.lastError = ctx.Err()
+	}
 }
 
 func (r *Runner) shouldRunFailureHandler(status ir.Status) bool {
