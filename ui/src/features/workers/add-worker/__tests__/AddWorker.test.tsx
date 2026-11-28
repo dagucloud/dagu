@@ -341,8 +341,8 @@ describe('AddWorker', () => {
     const { rerender } = await open(reading(first));
     expect(screen.getByLabelText(ADDRESS)).toHaveValue(last);
     api.GET.mockResolvedValue(answer(200, reading(next)));
-    rerender(view(true));
-    rerender(view(false));
+    rerender(view([], true));
+    rerender(view([], false));
     await settle();
     expect(screen.getByLabelText(ADDRESS)).toHaveValue(last);
     expect(screen.queryByText(/now reports/)).toBeNull();
@@ -963,13 +963,9 @@ describe('AddWorker', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Copy the command' }));
     await settle();
     expect(writeText).toHaveBeenCalledWith(command);
-    // "Copied" names only the command it copied, not the next tab's.
     expect(
       screen.getByRole('button', { name: 'Command copied' })
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('tab', { name: 'Docker' }));
-    expect(shownCommand()).toMatch(/^docker run /);
-    expect(screen.queryByRole('button', { name: 'Command copied' })).toBeNull();
   });
 
   // The whole ID names the objects, so IDs that share a prefix do not.
@@ -1242,22 +1238,7 @@ describe('AddWorker', () => {
     await settle();
   });
 
-  // Leaving the new command clears its completion, so coming back does not
-  // announce it again.
-  it('clears the completion when the command is left', async () => {
-    await open(readiness());
-    typeAddress('192.168.1.20:50055');
-    const status = step('Worker').getAllByRole('status')[0];
-    await createInvite();
-    expect(status).toHaveTextContent('Invite created. Its command is below.');
-    fireEvent.click(screen.getByRole('tab', { name: 'Kubernetes' }));
-    expect(status).toHaveTextContent('');
-    fireEvent.click(screen.getByRole('tab', { name: 'Linux' }));
-    expect(status).toHaveTextContent('');
-  });
-
-  // Create invite goes away with the new invite, so the keyboard focus
-  // moves to the command's copy button, not back to the address.
+  // A new invite's copy button takes the keyboard focus.
   it('moves the focus to the new command', async () => {
     const user = userEvent.setup();
     await open(readiness());
@@ -1271,9 +1252,10 @@ describe('AddWorker', () => {
     );
   });
 
-  // A replacement invite for a new address keeps the first one and its
-  // wait; going back to the first address shows the first invite again.
-  it('keeps each invite and its own read', async () => {
+  // Each invite keeps its own command and wait, newest first and open. The
+  // form only feeds the next invite: changing the address or the labels
+  // never swaps or changes a command made before.
+  it('lists each invite with its own command and read', async () => {
     vi.useFakeTimers();
     await open(readiness());
     typeAddress('192.168.1.20:50055');
@@ -1285,10 +1267,20 @@ describe('AddWorker', () => {
     api.POST.mockResolvedValueOnce(answer(201, { id: 'b', invite: second }));
     fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
     await settle();
-    expect(shownCommand()).toContain(second);
-
     typeAddress('192.168.1.20:50055');
-    expect(shownCommand()).toContain(`--worker.invite=${INVITE}`);
+    fireEvent.change(screen.getByLabelText('Labels (optional)'), {
+      target: { value: 'os=linux' },
+    });
+
+    const commands = screen
+      .getAllByText(/--worker\.invite=/, { selector: 'pre' })
+      .map((pre) => pre.textContent);
+    expect(commands).toEqual([
+      `dagu worker --worker.coordinators=192.168.1.21:50055 --worker.invite=${second}`,
+      `dagu worker --worker.coordinators=192.168.1.20:50055 --worker.invite=${INVITE}`,
+    ]);
+    const items = document.querySelectorAll('details');
+    expect([...items].map((d) => d.open)).toEqual([true, false]);
     api.GET.mockResolvedValue(answer(200, { workers: [], errors: [] }));
     await act(async () => {
       vi.advanceTimersByTime(60_000);
@@ -1297,42 +1289,44 @@ describe('AddWorker', () => {
     expect(reads).toHaveLength(2);
   });
 
-  // A reading during the request leaves the frozen field; one after it
-  // moves the untouched field, and the command keeps its own address.
+  // A reading during the request never rewrites the field; it offers the
+  // moved endpoint, and the invite keeps the address it was made with. The
+  // next invite uses the address the admin takes.
   it('keeps the command on the address the invite was made for', async () => {
     const { rerender } = await open(
       readiness({ advertise: 'coord.example.com' })
     );
     const created = deferred<unknown>();
-    api.POST.mockReturnValue(created.promise);
+    api.POST.mockReturnValueOnce(created.promise);
     fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
     const moved = readiness({ advertise: 'coord.example.com', port: 50155 });
     api.GET.mockResolvedValue(answer(200, moved));
     rerender(view([], true));
     rerender(view([], false));
     await settle();
+    created.resolve(answer(201, { id: 'inv-1', invite: INVITE }));
+    await settle();
     expect(screen.getByLabelText(ADDRESS)).toHaveValue(
       'coord.example.com:50055'
     );
-    created.resolve(answer(201, { id: 'inv-1', invite: INVITE }));
-    await settle();
-    rerender(view([], true));
-    rerender(view([], false));
-    await settle();
-
     expect(shownCommand()).toContain(
       '--worker.coordinators=coord.example.com:50055 '
     );
-    expect(
-      screen.getByText(
-        'This invite was made for coord.example.com:50055. To use coord.example.com:50155, create another invite.'
-      )
-    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use this address' }));
+    api.POST.mockResolvedValueOnce(
+      answer(201, { id: 'inv-2', invite: INVITE })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
+    await settle();
+    expect(api.POST).toHaveBeenLastCalledWith('/workers/invites', {
+      body: { reusable: false, address: 'coord.example.com:50155' },
+    });
   });
 
-  // A label may be 255 characters; jsdom cannot lay out, so the classes that
-  // let it wrap in a narrow dialog stand in, checked at 390 px by hand.
-  it('lets a long host name wrap in the notice and the details', async () => {
+  // A host name may be 253 characters; jsdom cannot lay out, so the class
+  // that lets it wrap in a narrow dialog stands in, checked at 390 px by hand.
+  it('lets a long host name wrap in the invite and its details', async () => {
     vi.useFakeTimers();
     const host = `${'h'.repeat(63)}.example`;
     await open(readiness());
@@ -1342,9 +1336,8 @@ describe('AddWorker', () => {
     await act(async () => {
       vi.advanceTimersByTime(60_000);
     });
-    typeAddress('192.168.1.20:50055');
     expect(
-      screen.getByText(/This invite was made for/).closest('div')
+      screen.getByText(`${host}:50055`, { selector: 'span' }).closest('summary')
     ).toHaveClass('break-words');
     expect(
       screen.getByText(`The worker cannot reach ${host}:50055.`).closest('div')

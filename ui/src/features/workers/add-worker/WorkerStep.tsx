@@ -18,7 +18,6 @@ import {
   publishedImage,
   workerCommand,
   WorkerTab,
-  type CommandInput,
 } from './commands';
 import {
   CommandBlock,
@@ -32,7 +31,10 @@ type Worker = components['schemas']['Worker'];
 /** How long the dialog waits before it lists the usual causes. */
 export const ARRIVAL_TIMEOUT_MS = 60_000;
 
-/** An invite this dialog created, with its kind and the address it was made for. */
+/**
+ * An invite this dialog created, with the values it was made from: its
+ * command never follows a later change of the form.
+ */
 export interface CreatedInvite {
   id: string;
   invite: string;
@@ -40,6 +42,9 @@ export interface CreatedInvite {
   createdAt: number;
   address: string;
   kind: WorkerInviteKind;
+  tab: WorkerTab;
+  /** The labels as the command carries them. */
+  labels: string;
 }
 
 const LOCAL_NODE = 'local';
@@ -73,10 +78,11 @@ const TABS: { id: WorkerTab; label: string }[] = [
 ];
 
 /**
- * Step 3: the way to run the worker, its invite, and the wait for it. The
- * tab sets the invite kind: a pod has no lasting data directory, so
- * Kubernetes takes a reusable invite only. The dialog keeps the invites,
- * so one stays on screen when readiness changes after it was created.
+ * Step 3: the form for the next invite, then every invite this dialog
+ * created, newest first. The tab sets the invite kind: a pod has no lasting
+ * data directory, so Kubernetes takes a reusable invite only. The address
+ * and labels are only inputs for the next invite; readiness gates only
+ * Create invite.
  */
 export function WorkerStep({
   address,
@@ -107,55 +113,26 @@ export function WorkerStep({
   );
   const [creating, setCreating] = React.useState(false);
   const [problem, setProblem] = React.useState<RequestProblem>();
-  // The Create invite button goes away with a new invite, so the focus
-  // moves to the new command's copy button once, unless the admin moved it
-  // while the request ran.
-  const [focusCopy, setFocusCopy] = React.useState(false);
+  // The new invite's copy button takes the focus once, unless the admin
+  // moved it while the request ran.
+  const [focusId, setFocusId] = React.useState<string>();
   React.useEffect(() => {
-    if (focusCopy) setFocusCopy(false);
-  }, [focusCopy]);
-  const [createdId, setCreatedId] = React.useState<string>();
-  const createdRef = React.useRef(false);
+    if (focusId) setFocusId(undefined);
+  }, [focusId]);
+
+  if (!address && invites.length === 0 && !creating && !problem) return null;
 
   const kind =
     tab === WorkerTab.kubernetes ? WorkerInviteKind.reusable : chosenKind;
-  // The newest invite of the kind made for the field's address, else the
-  // newest of the kind, so going back to an earlier address shows its own.
-  const ofKind = invites.filter((i) => i.kind === kind).reverse();
-  const invite = ofKind.find((i) => i.address === address) ?? ofKind[0];
-
-  // Leaving the new command clears its completion, so it is not announced
-  // again on the way back.
-  React.useEffect(() => {
-    if (createdId && invite?.id !== createdId) {
-      setCreatedId(undefined);
-      onStatus(undefined);
-    }
-  }, [createdId, invite?.id, onStatus]);
-
-  // Readiness gates new invites; a request or its refusal stays in view.
-  if (!address && invites.length === 0 && !creating && !problem) return null;
   const labels = normalizeLabels(labelsInput);
   const image = publishedImage(version);
   const panelId = `${TAB_PREFIX}-panel`;
-  // The commands use the address an invite was made for, so a later change
-  // of the field, by the admin or a new reading, never retargets them.
-  const inputFor = (made: CreatedInvite): CommandInput | undefined =>
-    'labels' in labels
-      ? {
-          address: made.address,
-          labels: labels.labels,
-          inviteId: made.id,
-          invite: made.invite,
-          image,
-        }
-      : undefined;
-  const panelShowsInvite = !(tab !== WorkerTab.linux && !image);
+  const showsForm = tab === WorkerTab.linux || !!image;
 
   const create = async () => {
-    if (!address) return;
+    if (!address || !('labels' in labels)) return;
     const from = document.activeElement;
-    createdRef.current = false;
+    const made = { address, kind, tab, labels: labels.labels };
     setCreating(true);
     onCreating(true);
     onStatus('Creating invite…');
@@ -165,9 +142,7 @@ export function WorkerStep({
         body: { reusable: kind === WorkerInviteKind.reusable, address },
       });
       if (data) {
-        onInvite({ ...data, createdAt: Date.now(), address, kind });
-        createdRef.current = true;
-        setCreatedId(data.id);
+        onInvite({ ...data, ...made, createdAt: Date.now() });
         onStatus('Invite created. Its command is below.');
         const now = document.activeElement;
         const kept =
@@ -175,8 +150,10 @@ export function WorkerStep({
           now === from ||
           now === document.body ||
           now.getAttribute('role') === 'dialog';
-        if (kept) setFocusCopy(true);
+        if (kept) setFocusId(data.id);
       } else {
+        // A refusal shows as an alert, so the status says nothing more.
+        onStatus(undefined);
         setProblem(
           requestProblem(
             response.status,
@@ -186,10 +163,9 @@ export function WorkerStep({
         );
       }
     } catch {
+      onStatus(undefined);
       setProblem({ text: 'The request failed.' });
     } finally {
-      // A refusal shows as an alert, so the status says nothing more.
-      if (!createdRef.current) onStatus(undefined);
       setCreating(false);
       onCreating(false);
     }
@@ -216,79 +192,72 @@ export function WorkerStep({
         aria-labelledby={tabStripTabId(TAB_PREFIX, tab)}
         // Only text shows on a development build's container tabs, so the
         // panel itself takes the focus after the tab.
-        tabIndex={panelShowsInvite ? undefined : 0}
+        tabIndex={showsForm ? undefined : 0}
         className="space-y-3"
       >
-        {tab !== WorkerTab.linux && !image ? (
+        {showsForm ? (
+          <InviteForm
+            tab={tab}
+            labelsInput={labelsInput}
+            onLabelsChange={setLabelsInput}
+            kind={kind}
+            onKindChange={setChosenKind}
+            address={address}
+            creating={creating}
+            problem={problem}
+            onCreate={() => void create()}
+          />
+        ) : (
           <p className="text-sm">
             <I18nText
               text="This server is a development build ({version}), so no published image matches it. Run a released Dagu to add a worker with Docker or Kubernetes, or use the Linux tab."
               values={{ version }}
             />
           </p>
-        ) : (
-          <WorkerCommand
-            tab={tab}
-            labelsInput={labelsInput}
-            onLabelsChange={setLabelsInput}
-            kind={kind}
-            onKindChange={setChosenKind}
-            invite={invite}
-            address={address}
-            creating={creating}
-            problem={problem}
-            onCreate={() => void create()}
-            input={invite && inputFor(invite)}
-            focusCopy={focusCopy}
-          />
         )}
-        {/* Every invite keeps its wait for the life of the dialog, so a
-            join is not forgotten when the admin switches tabs. */}
-        {invites.map((made) => (
-          <Arrival
+      </div>
+      {/* Each invite keeps its command and its wait for the life of the
+          dialog; the newest shows open. */}
+      {invites
+        .slice()
+        .reverse()
+        .map((made, i) => (
+          <InviteItem
             key={made.id}
-            hidden={!panelShowsInvite || made.id !== invite?.id}
-            invite={made}
-            tab={tab}
+            made={made}
+            open={i === 0}
             image={image}
             workers={workers}
+            focusCopy={made.id === focusId}
           />
         ))}
-      </div>
     </>
   );
 }
 
-function WorkerCommand({
+function InviteForm({
   tab,
   labelsInput,
   onLabelsChange,
   kind,
   onKindChange,
-  invite,
   address,
   creating,
   problem,
   onCreate,
-  input,
-  focusCopy,
 }: {
   tab: WorkerTab;
   labelsInput: string;
   onLabelsChange: (input: string) => void;
   kind: WorkerInviteKind;
   onKindChange: (kind: WorkerInviteKind) => void;
-  invite?: CreatedInvite;
   /** The validated address of step 2, if any. */
   address?: string;
   creating: boolean;
   problem?: RequestProblem;
   onCreate: () => void;
-  input?: CommandInput;
-  focusCopy: boolean;
 }) {
   const labels = normalizeLabels(labelsInput);
-  const command = input && workerCommand(tab, input);
   return (
     <>
       <div className="space-y-1.5">
@@ -323,82 +292,90 @@ function WorkerCommand({
           </p>
         )}
       </div>
-
       <KindChoice
         tab={tab}
         kind={kind}
         locked={creating}
         onChange={onKindChange}
       />
-
-      {!invite ? (
-        <div className="space-y-2">
-          <Button
-            variant="primary"
-            size="sm"
-            disabled={!address || creating || 'problem' in labels}
-            onClick={onCreate}
-          >
-            {creating && <Spinner />}
-            <I18nText text="Create invite" />
-          </Button>
-          {problem && <ProblemText problem={problem} />}
-        </div>
-      ) : (
-        <div className="space-y-3">
-          <p className="text-xs text-muted-foreground">
-            <InviteTerms invite={invite} kind={kind} />{' '}
-            <I18nText text="The invite is shown only here. Closing the dialog keeps it." />
-          </p>
-          {command && (
-            <>
-              <p className="text-sm">
-                <I18nText text={RUN_WHERE[tab]} />
-                {tab === WorkerTab.linux && (
-                  <>
-                    {' '}
-                    <a
-                      href={INSTALL_DOCS_URL}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="underline underline-offset-2"
-                    >
-                      <I18nText text="Installation guide" />
-                    </a>
-                  </>
-                )}
-              </p>
-              <CommandBlock
-                text={command}
-                label="Copy the command"
-                copiedLabel="Command copied"
-                autoFocus={focusCopy}
-              />
-            </>
-          )}
-          {/* A host name may be 253 characters without a space. */}
-          {address && address !== invite.address && (
-            <div className="space-y-2 text-sm break-words">
-              <p>
-                <I18nText
-                  text="This invite was made for {address}. To use {next}, create another invite."
-                  values={{ address: invite.address, next: address }}
-                />
-              </p>
-              <Button
-                size="xs"
-                disabled={creating || 'problem' in labels}
-                onClick={onCreate}
-              >
-                {creating && <Spinner />}
-                <I18nText text="Create invite" />
-              </Button>
-            </div>
-          )}
-          {problem && <ProblemText problem={problem} />}
-        </div>
-      )}
+      <div className="space-y-2">
+        <Button
+          variant="primary"
+          size="sm"
+          disabled={!address || creating || 'problem' in labels}
+          onClick={onCreate}
+        >
+          {creating && <Spinner />}
+          <I18nText text="Create invite" />
+        </Button>
+        {problem && <ProblemText problem={problem} />}
+      </div>
     </>
+  );
+}
+
+/** One created invite: its terms, its command, and the wait for it. */
+function InviteItem({
+  made,
+  open,
+  image,
+  workers,
+  focusCopy,
+}: {
+  made: CreatedInvite;
+  open: boolean;
+  image?: string;
+  workers: Worker[];
+  focusCopy: boolean;
+}) {
+  const command = workerCommand(made.tab, {
+    address: made.address,
+    labels: made.labels,
+    inviteId: made.id,
+    invite: made.invite,
+    image,
+  });
+  const label = TABS.find((t) => t.id === made.tab)?.label;
+  return (
+    <details open={open} className="rounded-md border px-3 py-2 text-sm">
+      {/* A host name may be 253 characters without a space. */}
+      <summary className="cursor-pointer break-words">
+        {label} <span className="font-mono">{made.address}</span>
+      </summary>
+      <div className="mt-2 space-y-3">
+        <p className="text-xs text-muted-foreground">
+          <InviteTerms invite={made} kind={made.kind} />{' '}
+          <I18nText text="The invite is shown only here. Closing the dialog keeps it." />
+        </p>
+        {command && (
+          <>
+            <p>
+              <I18nText text={RUN_WHERE[made.tab]} />
+              {made.tab === WorkerTab.linux && (
+                <>
+                  {' '}
+                  <a
+                    href={INSTALL_DOCS_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline underline-offset-2"
+                  >
+                    <I18nText text="Installation guide" />
+                  </a>
+                </>
+              )}
+            </p>
+            <CommandBlock
+              text={command}
+              label="Copy the command"
+              copiedLabel="Command copied"
+              autoFocus={focusCopy}
+            />
+          </>
+        )}
+        <Arrival invite={made} image={image} workers={workers} />
+      </div>
+    </details>
   );
 }
 
@@ -492,18 +469,15 @@ function InviteTerms({
  * without the worker lists the usual causes. A read that fails says so.
  */
 function Arrival({
-  hidden,
   invite,
-  tab,
   image,
   workers,
 }: {
-  hidden: boolean;
   invite: CreatedInvite;
-  tab: WorkerTab;
   image?: string;
   workers: Worker[];
 }) {
+  const tab = invite.tab;
   const client = useClient();
   const [seen, setSeen] = React.useState<Worker[]>([]);
   const [outcome, setOutcome] = React.useState<'waiting' | 'absent' | 'unread'>(
@@ -576,7 +550,7 @@ function Arrival({
   const address = invite.address;
   const port = address.slice(address.lastIndexOf(':') + 1);
   return (
-    <div hidden={hidden} className="space-y-2 text-sm break-words">
+    <div className="space-y-2 break-words">
       {/* One status region stays mounted, so the join is announced. */}
       <p
         ref={status}

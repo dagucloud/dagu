@@ -1351,8 +1351,9 @@ and prints the message:
   canonical form, `key` or `key=value`, with the space and line breaks
   around its key and value removed, as the worker drops them.
 - Step 3 offers a new invite only after steps 1 and 2, and not while a
-  reading of step 1 runs, as after a restart; commands already made stay
-  in view. Its tab sets the invite kind:
+  reading of step 1 runs, as after a restart; readiness gates only Create
+  invite, and invites already made stay in view. Its tab sets the invite
+  kind:
 
   | Tab | Invite | Command |
   | --- | --- | --- |
@@ -1386,18 +1387,17 @@ and prints the message:
 - The dialog waits on the page's existing `/workers` refresh for a worker
   with the invite's ID, and then shows its ID and labels. Closing the dialog
   keeps the invite.
-- The dialog keeps each invite and its wait until it closes, across tabs,
-  readings, and replacement invites. Each tab shows the newest invite of
-  its kind made for the field's address, else the newest of its kind, so
-  going back to an earlier address shows that address's invite. The
-  dialog stays open while an invite request is pending, and the address,
-  the labels, the tab, and the invite kind hold until it ends, so the
-  invite and its command follow the values sent. One status region,
-  mounted outside what readiness hides, says that the invite is being
-  created and then that it was, and clears once its command is left. A
-  new invite moves the focus to its command's copy button only if the
-  focus is still where the request left it. At 60 seconds without a
-  worker it reads `/workers` once
+- The dialog lists each invite it created until it closes, newest first
+  and open, each with the address, kind, tab, and labels it was made
+  with, its command, and its wait. The form only feeds the next invite:
+  changing the address or the labels never changes a command made
+  before. The dialog stays open while an invite request is pending, and
+  the address, the labels, the tab, and the invite kind hold until it
+  ends. One status region, mounted outside what readiness hides, says
+  that the invite is being created and then that it was. A new invite
+  moves the focus to its command's copy button only if the focus is
+  still where the request left it. At 60 seconds without a worker each
+  invite reads `/workers` once
   itself, since the page's refresh may be paused; a failed or partial read
   says the list could not be read.
 - When no worker arrives within 60 seconds and a complete read of

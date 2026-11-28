@@ -130,7 +130,6 @@ export function AddWorkerDialog({
   // A pending invite request keeps the dialog open and freezes the form, so
   // its invite shows for the values it was made from.
   const [creating, setCreating] = React.useState(false);
-  const frozen = React.useRef(false);
   // The invite progress and result, outside what readiness hides.
   const [status, setStatus] = React.useState<string>();
   const touched = React.useRef(false);
@@ -359,7 +358,6 @@ export function AddWorkerDialog({
             invites={invites}
             onInvite={(invite) => setInvites((prev) => [...prev, invite])}
             onCreating={(pending) => {
-              frozen.current = pending;
               setCreating(pending);
             }}
             onStatus={setStatus}

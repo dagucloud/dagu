@@ -56,8 +56,6 @@ export const addWorkerMessages = defineMessages({
     'Shown after step 1': 'Shown after step 1',
     'The workers list could not be read, so the dialog cannot tell whether the worker joined.':
       'The workers list could not be read, so the dialog cannot tell whether the worker joined.',
-    'This invite was made for {address}. To use {next}, create another invite.':
-      'This invite was made for {address}. To use {next}, create another invite.',
     'Label {position} sets a key an earlier label sets; keys compare without case.':
       'Label {position} sets a key an earlier label sets; keys compare without case.',
     'Label {position} is empty. Write one key or key=value.':
@@ -223,8 +221,6 @@ export const addWorkerMessages = defineMessages({
     'Shown after step 1': '完成步骤 1 后显示',
     'The workers list could not be read, so the dialog cannot tell whether the worker joined.':
       '无法读取 Worker 列表，因此对话框无法判断 Worker 是否已加入。',
-    'This invite was made for {address}. To use {next}, create another invite.':
-      '此邀请是为 {address} 创建的。要使用 {next}，请创建另一个邀请。',
     'Label {position} sets a key an earlier label sets; keys compare without case.':
       '第 {position} 个标签设置的键已由前面的标签设置；键不区分大小写。',
     'Label {position} is empty. Write one key or key=value.':
@@ -390,8 +386,6 @@ export const addWorkerMessages = defineMessages({
     'Shown after step 1': 'ステップ 1 の後に表示',
     'The workers list could not be read, so the dialog cannot tell whether the worker joined.':
       'ワーカーの一覧を読めなかったため、ワーカーが参加したかどうか分かりません。',
-    'This invite was made for {address}. To use {next}, create another invite.':
-      'この招待は {address} 用に作成されました。{next} を使うには、別の招待を作成してください。',
     'Label {position} sets a key an earlier label sets; keys compare without case.':
       'ラベル {position} は前のラベルと同じキーを設定しています。キーは大文字と小文字を区別しません。',
     'Label {position} is empty. Write one key or key=value.':
@@ -560,8 +554,6 @@ export const addWorkerMessages = defineMessages({
     'Shown after step 1': 'Erscheint nach Schritt 1',
     'The workers list could not be read, so the dialog cannot tell whether the worker joined.':
       'Die Worker-Liste konnte nicht gelesen werden, daher kann der Dialog nicht sagen, ob der Worker beigetreten ist.',
-    'This invite was made for {address}. To use {next}, create another invite.':
-      'Diese Einladung wurde für {address} erstellt. Um {next} zu verwenden, erstellen Sie eine weitere Einladung.',
     'Label {position} sets a key an earlier label sets; keys compare without case.':
       'Label {position} setzt einen Schlüssel, den ein früheres Label setzt; Schlüssel werden ohne Groß- und Kleinschreibung verglichen.',
     'Label {position} is empty. Write one key or key=value.':
@@ -736,8 +728,6 @@ export const addWorkerMessages = defineMessages({
     'Shown after step 1': 'Affiché après l’étape 1',
     'The workers list could not be read, so the dialog cannot tell whether the worker joined.':
       'La liste des workers n’a pas pu être lue, donc la boîte de dialogue ne peut pas dire si le worker a rejoint.',
-    'This invite was made for {address}. To use {next}, create another invite.':
-      'Cette invitation a été créée pour {address}. Pour utiliser {next}, créez une autre invitation.',
     'Label {position} sets a key an earlier label sets; keys compare without case.':
       'Le label {position} définit une clé qu’un label précédent définit déjà ; les clés se comparent sans tenir compte de la casse.',
     'Label {position} is empty. Write one key or key=value.':
