@@ -98,6 +98,13 @@ type Credential struct {
 	CertSent bool
 	// PeerToken is where the peer token comes from.
 	PeerToken PeerTokenSource
+	// CertificateID and InviteID name the worker certificate the client
+	// presents and the invite it enrolled with; empty without one.
+	CertificateID string
+	InviteID      string
+	// Invite reports a worker that enrolls with worker.invite, so its
+	// calls carry no credential before it enrolls.
+	Invite bool
 }
 
 // PeerTokenSource is where a client's peer token comes from.
@@ -179,7 +186,7 @@ func Check(ctx context.Context, config *Config, member serviceregistry.HostInfo)
 	// h2cSource is the source of h2c, which the calls send as their reason;
 	// empty on TLS.
 	var h2cSource string
-	if plan.roots == nil && (config.Insecure || config.picksTransportPerConnection()) {
+	if plan.h2c() && (config.Insecure || config.picksTransportPerConnection()) {
 		h2cSource = plan.choice.source
 	} else {
 		result.TLS, result.Credential.CertSent = checkHandshake(connectCtx, config, plan, conn, member.Host)
@@ -218,7 +225,9 @@ func checkPlan(ctx context.Context, config *Config, address string) (connectionP
 
 // checkAnswer asks the coordinator for its health and its worker list with
 // the client's credential, over h2c from h2cSource or, when it is empty,
-// over the TLS of plan.
+// over the TLS of plan. A worker that enrolls has no credential yet, so it
+// gets the health check only. A refusal of a revoked worker certificate is
+// returned as is, so IsWorkerRemoved reports it.
 func checkAnswer(ctx context.Context, config *Config, plan connectionPlan, host, address, h2cSource string) error {
 	opts, err := getDialOptions(config)
 	if err != nil {
@@ -230,13 +239,7 @@ func checkAnswer(ctx context.Context, config *Config, plan connectionPlan, host,
 	case h2c:
 		opts = append(opts, grpc.WithTransportCredentials(h2cCredentials{source: h2cSource}))
 	default:
-		// Built-in TLS checks the name every coordinator certificate
-		// carries, not the dialed address.
-		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
-			RootCAs:    plan.roots,
-			MinVersion: tls.VersionTLS13,
-			ServerName: coordinatorCertName,
-		})))
+		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(builtinTLSConfig(plan))))
 	}
 	conn, err := grpc.NewClient(address, opts...)
 	if err != nil {
@@ -257,10 +260,16 @@ func checkAnswer(ctx context.Context, config *Config, plan connectionPlan, host,
 	if health.Status != grpc_health_v1.HealthCheckResponse_SERVING {
 		return fmt.Errorf("the coordinator is not serving (%s), %s", strings.ToLower(health.Status.String()), credentialedCallSkipped)
 	}
+	if plan.pin != "" {
+		return nil
+	}
 	// The health service takes no credential; the worker list does.
 	if _, err := coordinatorv1.NewCoordinatorServiceClient(conn).GetWorkers(ctx, &coordinatorv1.GetWorkersRequest{}); err != nil {
 		if isRequireTLSRefusal(err) {
 			return requireTLSError{source: h2cSource}
+		}
+		if IsWorkerRemoved(err) {
+			return err
 		}
 		return fmt.Errorf("serving, but %w", callError(config, err))
 	}
@@ -315,6 +324,17 @@ func noAnswer(config *Config) error {
 // clientCredential returns what a client with config presents.
 func clientCredential(config *Config) Credential {
 	var credential Credential
+	switch {
+	case config.workerCert != nil:
+		// An invite worker sends neither the peer token nor TLS files.
+		if leaf := config.workerCert.Leaf; leaf != nil {
+			credential.CertificateID, credential.InviteID = leaf.Subject.CommonName, inviteIDOf(leaf)
+		}
+		return credential
+	case config.invite != nil:
+		credential.Invite = true
+		return credential
+	}
 	if !config.Insecure && config.CertFile != "" && config.KeyFile != "" {
 		credential.CertFile = config.CertFile
 	}

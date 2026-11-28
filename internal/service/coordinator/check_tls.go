@@ -69,7 +69,9 @@ func checkHandshake(ctx context.Context, config *Config, plan connectionPlan, co
 	}
 	state := tlsConn.ConnectionState()
 	handshake := &TLSHandshake{
-		Verified:    len(state.VerifiedChains) > 0,
+		// A pinned handshake verifies the chain itself, and fails without
+		// a match.
+		Verified:    len(state.VerifiedChains) > 0 || plan.pin != "",
 		Certificate: describeServerCertificate(state.PeerCertificates, state.VerifiedChains),
 	}
 	if err == nil {
@@ -84,6 +86,10 @@ func checkHandshake(ctx context.Context, config *Config, plan connectionPlan, co
 		handshake.Err = noAnswer(config)
 	case notTLS:
 		handshake.Err = errors.New("the coordinator answered without TLS on this port")
+	case errors.Is(err, ErrInviteCAMismatch):
+		handshake.Err = errors.New("the coordinator belongs to a different Dagu: its CA does not match the invite")
+	case errors.Is(err, errNotBuiltinCertificate):
+		handshake.Err = errors.New("the coordinator serves TLS with its own certificates, so this worker cannot join it with an invite")
 	default:
 		handshake.Err = err
 	}
@@ -93,13 +99,10 @@ func checkHandshake(ctx context.Context, config *Config, plan connectionPlan, co
 // handshakeConfig returns the TLS configuration of a connection on plan to
 // host, and the name the server certificate must carry.
 func handshakeConfig(config *Config, plan connectionPlan, host string) (*tls.Config, string, error) {
-	if plan.roots != nil {
-		return &tls.Config{
-			RootCAs:    plan.roots,
-			MinVersion: tls.VersionTLS13,
-			ServerName: coordinatorCertName,
-			NextProtos: []string{"h2"},
-		}, coordinatorCertName, nil
+	if !plan.h2c() {
+		tlsConfig := builtinTLSConfig(plan)
+		tlsConfig.NextProtos = []string{"h2"}
+		return tlsConfig, coordinatorCertName, nil
 	}
 	tlsConfig, err := clientTLSConfig(config)
 	if err != nil {
@@ -109,6 +112,25 @@ func handshakeConfig(config *Config, plan connectionPlan, host string) (*tls.Con
 	tlsConfig.ServerName = host
 	tlsConfig.NextProtos = []string{"h2"}
 	return tlsConfig, host, nil
+}
+
+// builtinTLSConfig returns the TLS configuration of a built-in TLS
+// connection on plan. It checks the name every coordinator certificate
+// carries, not the dialed address, and presents the worker certificate of
+// plan, if any.
+func builtinTLSConfig(plan connectionPlan) *tls.Config {
+	tlsConfig := &tls.Config{RootCAs: plan.roots, MinVersion: tls.VersionTLS13, ServerName: coordinatorCertName}
+	if plan.cert != nil {
+		tlsConfig.Certificates = []tls.Certificate{*plan.cert}
+	}
+	if plan.pin != "" {
+		// verifyPinnedChain checks the chain against the pin instead.
+		tlsConfig.InsecureSkipVerify = true //nolint:gosec
+		tlsConfig.VerifyConnection = func(state tls.ConnectionState) error {
+			return verifyPinnedChain(state.PeerCertificates, plan.pin)
+		}
+	}
+	return tlsConfig
 }
 
 // fallbackFrom returns the source of the h2c the client falls back to after

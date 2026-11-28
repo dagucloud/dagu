@@ -564,7 +564,9 @@ func (cli *clientImpl) attemptCall(ctx context.Context, members []serviceregistr
 			cli.recordFailure(err)
 
 			// Permanent errors (e.g. selector mismatch) should not try other coordinators.
-			if errors.Is(err, backoff.ErrPermanent) {
+			// A revoked certificate is refused by each coordinator once it
+			// rereads the revoked set, so one refusal decides.
+			if errors.Is(err, backoff.ErrPermanent) || IsWorkerRemoved(err) {
 				return err
 			}
 			lastErr = err
@@ -1366,6 +1368,9 @@ func (cli *clientImpl) Heartbeat(ctx context.Context, req *coordinatorv1.Heartbe
 		cancel()
 		if lastErr == nil {
 			return resp, nil
+		}
+		if IsWorkerRemoved(lastErr) {
+			return nil, lastErr
 		}
 	}
 	return nil, heartbeatContextError(ctx, lastErr)
