@@ -1325,8 +1325,18 @@ The Workers page is the list of workers on System status.
   back as a new pod with an empty data directory, which enrolls again
   while its reusable invite exists, so the confirmation offers to delete
   the invite first.
-- **Invites** lists invites with kind, creator, creation and expiry times,
-  use count, and last use, and deletes one.
+- **Invites** lists invites with kind, a short ID, creator, creation and
+  expiry times, use count, and last use, and deletes one. The confirmation
+  names the invite by its short ID, kind, and creation time. An invite that
+  was used up or expired shows as such for 7 days after it ended, then
+  leaves the list, also while the page's refresh is paused.
+- The list reads the invites when the page opens, when its refresh
+  resumes, and once 5 seconds after the last of the workers that join. A
+  worker that leaves and comes back is no join. It reads nothing while the
+  tab is hidden and does not retry a failed read.
+- On a remote node, the page lists the invites but offers no **Delete**,
+  and says it works on the local server only, since the server does not
+  forward it.
 - System status lists the [h2c callers](#h2c-callers) under each
   coordinator, with host, the line and change above, and the time of the
   last call. It uses its existing fetch of
