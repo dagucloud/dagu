@@ -40,6 +40,8 @@ Flags:
   --worker.labels -l string                Worker labels for capability matching (format: key1=value1,key2=value2);
                                            keys and values are lowercased, and an invalid label stops the worker
   --worker.coordinators string             Coordinator addresses (format: host1:port1,host2:port2)
+  --worker.invite string                   Invite from "Add worker" or dagu worker invite; the worker
+                                           enrolls once and keeps its certificate in its data directory
   --worker.shutdown-timeout string         How long to drain running DAG runs on SIGINT/SIGTERM before
                                            canceling them (default: 60s, 0 waits without a bound)
   --check                                  Check the connection to each coordinator and exit, without
@@ -92,6 +94,7 @@ var workerFlags = []commandLineFlag{
 	workerHealthPortFlag,
 	workerLabelsFlag,
 	workerCoordinatorsFlag,
+	workerInviteFlag,
 	workerShutdownTimeoutFlag,
 	workerCheckFlag,
 	// Peer configuration flags for TLS
@@ -125,10 +128,11 @@ func runWorker(ctx *Context, _ []string) error {
 	maxActiveRuns := ctx.Config.Worker.MaxActiveRuns
 	labels := ctx.Config.Worker.Labels
 
-	coordinatorCli, err := createCoordinatorClient(ctx)
+	membership, coordinatorCli, err := joinCoordinators(ctx, signalCtx, workerID)
 	if err != nil {
 		return err
 	}
+	defer func() { _ = membership.Close() }()
 
 	w := worker.NewWorker(
 		workerID,
@@ -173,27 +177,30 @@ func runWorker(ctx *Context, _ []string) error {
 		}
 	}()
 
-	// Wait for either context cancellation or an error
+	// Wait for a shutdown signal, the loss of the certificate lock to
+	// another worker, or an error.
+	var stopErr error
 	select {
 	case <-signalCtx.Done():
-		// Let a second SIGINT end shutdown; SIGTERM stays absorbed.
-		stop()
-		shutdownTimeout := ctx.Config.Worker.ShutdownTimeout
-		if shutdownTimeout > 0 {
-			// Tasks may first run to their end for the drain timeout.
-			shutdownTimeout += ctx.Config.SignalHandling.DrainTimeout
-		}
-		logger.Info(ctx, "Worker shutting down", slog.Duration("timeout", shutdownTimeout))
-		stopCtx, cancel := workerStopContext(ctx.Context, shutdownTimeout)
-		defer cancel()
-		if err := w.Stop(stopCtx); err != nil {
-			return fmt.Errorf("failed to stop worker: %w", err)
-		}
+	case <-membership.Lost():
+		stopErr = worker.ErrLockLost
 	case err := <-errCh:
 		return fmt.Errorf("worker failed: %w", err)
 	}
-
-	return nil
+	// Let a second SIGINT end shutdown; SIGTERM stays absorbed.
+	stop()
+	shutdownTimeout := ctx.Config.Worker.ShutdownTimeout
+	if shutdownTimeout > 0 {
+		// Tasks may first run to their end for the drain timeout.
+		shutdownTimeout += ctx.Config.SignalHandling.DrainTimeout
+	}
+	logger.Info(ctx, "Worker shutting down", slog.Duration("timeout", shutdownTimeout))
+	stopCtx, cancel := workerStopContext(ctx.Context, shutdownTimeout)
+	defer cancel()
+	if err := w.Stop(stopCtx); err != nil {
+		return fmt.Errorf("failed to stop worker: %w", err)
+	}
+	return stopErr
 }
 
 // workerStopContext returns the context for Worker.Stop. A positive timeout
@@ -205,7 +212,23 @@ func workerStopContext(parent context.Context, timeout time.Duration) (context.C
 	return context.WithCancel(parent)
 }
 
-// createCoordinatorClient creates the worker coordinator client.
-func createCoordinatorClient(ctx *Context) (coordinator.Client, error) {
-	return worker.NewCoordinatorClient(ctx.Context, ctx.Config, ctx.serverStores.ServiceRegistry)
+// joinCoordinators prepares how the worker calls its coordinators, logs its
+// start line, enrolls with worker.invite when the worker holds no
+// certificate, and creates its client. Enrollment ends with signalCtx.
+func joinCoordinators(ctx *Context, signalCtx context.Context, workerID string) (*worker.Membership, coordinator.Client, error) {
+	membership, err := worker.OpenMembership(signalCtx, ctx.Config, ctx.serverStores.ServiceRegistry)
+	if err != nil {
+		return nil, nil, err
+	}
+	logClientTransport(ctx, "worker", ctx.Config, membership.ClientConfig())
+	if err := membership.Enroll(signalCtx, workerID); err != nil {
+		_ = membership.Close()
+		return nil, nil, err
+	}
+	client, err := worker.NewCoordinatorClient(ctx, ctx.Config, membership.ClientConfig())
+	if err != nil {
+		_ = membership.Close()
+		return nil, nil, err
+	}
+	return membership, client, nil
 }

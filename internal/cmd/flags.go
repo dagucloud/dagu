@@ -327,6 +327,12 @@ var (
 		usage:     "Required coordinator addresses (format: host1:port1,host2:port2)",
 		bindViper: true,
 	}
+
+	workerInviteFlag = commandLineFlag{
+		name:      "worker.invite",
+		usage:     "Invite from \"Add worker\" or dagu worker invite, to join over built-in TLS",
+		bindViper: true,
+	}
 )
 
 // Peer TLS flags

@@ -19,17 +19,10 @@ import (
 // ErrNoCoordinators is the error of a worker without worker.coordinators.
 var ErrNoCoordinators = errors.New("worker.coordinators is required")
 
-// NewCoordinatorClient creates a client using the worker's configured
-// coordinators. localRegistry is the service registry in the worker's data
-// directory, which tells whether those coordinators serve built-in TLS.
-func NewCoordinatorClient(ctx context.Context, cfg *config.Config, localRegistry serviceregistry.ServiceRegistry) (coordinator.Client, error) {
-	if len(cfg.Worker.Coordinators) == 0 {
-		return nil, ErrNoCoordinators
-	}
-	clientConfig, err := CoordinatorClientConfig(cfg, localRegistry)
-	if err != nil {
-		return nil, err
-	}
+// NewCoordinatorClient creates a client that dials the worker's configured
+// coordinators with clientConfig, such as the ClientConfig of the worker's
+// Membership.
+func NewCoordinatorClient(ctx context.Context, cfg *config.Config, clientConfig *coordinator.Config) (coordinator.Client, error) {
 	registry, err := CoordinatorRegistry(cfg)
 	if err != nil {
 		return nil, err
@@ -43,13 +36,20 @@ func NewCoordinatorClient(ctx context.Context, cfg *config.Config, localRegistry
 // coordinator client dials with. localRegistry is the service registry in
 // the worker's data directory.
 func CoordinatorClientConfig(cfg *config.Config, localRegistry serviceregistry.ServiceRegistry) (*coordinator.Config, error) {
-	clientConfig := coordinator.ConfigFromPeer(cfg.Core.Peer)
-	clientConfig.WorkspaceBundleDir = workspacebundle.StoreDir(cfg.Paths.DataDir)
-	clientConfig.LocalRegistry = localRegistry
+	clientConfig := clientConfigOf(cfg, localRegistry)
 	if err := clientConfig.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid coordinator client configuration: %w", err)
 	}
 	return clientConfig, nil
+}
+
+// clientConfigOf returns the worker's client configuration before
+// validation.
+func clientConfigOf(cfg *config.Config, localRegistry serviceregistry.ServiceRegistry) *coordinator.Config {
+	clientConfig := coordinator.ConfigFromPeer(cfg.Core.Peer)
+	clientConfig.WorkspaceBundleDir = workspacebundle.StoreDir(cfg.Paths.DataDir)
+	clientConfig.LocalRegistry = localRegistry
+	return clientConfig
 }
 
 // CoordinatorRegistry returns the coordinators the worker calls. It fails

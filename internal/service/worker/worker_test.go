@@ -19,6 +19,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -575,6 +576,8 @@ func TestWorkerHeartbeatCarriesMachine(t *testing.T) {
 			}
 			assert.Equal(t, host, req.Host)
 			assert.Equal(t, config.Version, req.Version)
+			assert.Equal(t, coordinator.ProcessEnvironment(), req.Environment)
+			assert.NotEqual(t, coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_UNSPECIFIED, req.Environment)
 			assert.True(t, proto.Equal(tc.want, req.Machine), "machine sample: %v", req.Machine)
 		})
 	}

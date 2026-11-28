@@ -34,6 +34,12 @@ type peerSetting struct {
 // transport at level info. Other commands log both at level debug, so their
 // terminal output does not change.
 func logPeerTransport(ctx context.Context, command string, cfg *config.Config) {
+	logClientTransport(ctx, command, cfg, coordinator.ConfigFromPeer(cfg.Core.Peer))
+}
+
+// logClientTransport is logPeerTransport for a command whose client dials
+// with client, such as a worker with a worker certificate.
+func logClientTransport(ctx context.Context, command string, cfg *config.Config, client *coordinator.Config) {
 	logIgnored, logLine := logger.Debug, logger.Debug
 	switch command {
 	case "coordinator":
@@ -47,7 +53,7 @@ func logPeerTransport(ctx context.Context, command string, cfg *config.Config) {
 	case "worker":
 		logIgnored, logLine = logger.Warn, logger.Info
 	}
-	line, ignored := peerTransport(cfg)
+	line, ignored := peerTransport(cfg, client)
 	if line == "" {
 		return
 	}
@@ -72,12 +78,13 @@ func ignoredSettingWarning(setting peerSetting) string {
 	)
 }
 
-// peerTransport returns the start line for the peer client transport and the
-// TLS settings that it ignores. The line is empty when peer.insecure is false
-// without a TLS setting or a TLS source, as the client then fails to start.
-func peerTransport(cfg *config.Config) (string, []peerSetting) {
+// peerTransport returns the start line for client, the peer client
+// transport, and the TLS settings that it ignores. The line is empty when
+// peer.insecure is false without a TLS setting or a TLS source, as the
+// client then fails to start.
+func peerTransport(cfg *config.Config, client *coordinator.Config) (string, []peerSetting) {
 	peer := cfg.Core.Peer
-	transport, err := coordinator.ConfigFromPeer(peer).StartTransport()
+	transport, err := client.StartTransport()
 	if err != nil {
 		return "", nil
 	}
