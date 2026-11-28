@@ -208,14 +208,17 @@ This spec adds these transitions to Spec 107, for the grants `api_key` and
   and to the models reader, with one exception: a local-model preset or
   `custom` sends the key over `http` to a base URL that a person entered.
 - A redirect from a request that carries the key fails the request.
+- A loopback base URL names the Dagu host. A run on a worker fails
+  admission with such a connection, since its gateway is not there.
 - On a connection with a stored key, a change that adds or changes a base
   URL or a models URL needs the key again in the same request, so no one
   can send a stored key to a URL of their choosing.
 - Each base URL and models URL is a credential past its origin, since a
   path or query can hold a secret. Dagu stores it encrypted, as the key.
   Reads, errors, and audit entries show only the origin.
-- Dagu removes the key, and each URL past its origin, from everything a
-  provider returns before Dagu stores it, shows it, or passes it to a
+- Dagu removes the key, and each URL past its origin or any part of it
+  that can hold a secret, from everything a provider returns before Dagu
+  stores it, shows it, or passes it to a
   step: responses, errors, and catalogs. A model ID that holds one is
   dropped.
 
@@ -326,7 +329,7 @@ serves all of them with one key.
 
 | Key | Rule |
 | --- | --- |
-| `connection` | The name of a model connection of the run's project. A literal: a reference fails validation. `with.connection`, the `connection` of each model entry and of each `fallback` entry, and `llm.connection` when the DAG has a step that can use it, are sources of Spec 107 [Declared Connections](107-connections.md#declared-connections) |
+| `connection` | The name of a model connection of the run's project. A literal: a reference fails validation. `with.connection` and each `fallback` entry's `connection` on a provider with an adapter, the `connection` of each chat model entry, and `llm.connection` when the DAG has a step that can use it, are sources of Spec 107 [Declared Connections](107-connections.md#declared-connections) |
 | `model` | A model ID of the connection, or an alias that the CLI's adapter lists. May be a `${...}` reference |
 | `effort` | `low`, `medium`, `high`, `xhigh`, or `max`. `chat.completion` keeps `thinking` of Spec 059 instead |
 
@@ -560,7 +563,7 @@ This spec adds to the routes of Spec 107:
 | `POST /oauth-apps/{id}/shares` | Share a shared key with projects, or with all projects |
 | `GET /connections/{name}/models` | The catalog. It calls no provider |
 | `POST /connections/{name}/models/reload` | Read the models now, and answer with the catalog |
-| `GET /model-choices?dag=<name>&provider=<cli>` | The connections that a step of the DAG can use, with models, display names, effort levels, aliases, and the reason a connection is disabled |
+| `GET /model-choices?project=<name>&dag=<name>&provider=<cli>` | The connections that a step of the DAG can use, with models, display names, effort levels, aliases, and the reason a connection is disabled. It resolves and authorizes the DAG in `project`, as Spec 102 states |
 
 - No response holds a key or a value derived from it. A response holds
   `keySet` and `keyUpdatedAt`.
