@@ -125,7 +125,7 @@ function InviteList({ workers, live, refreshes }: WorkerInvitesProps) {
   // remote node, which still lists them.
   const local = remoteNode === 'local';
   const read = React.useCallback(() => void mutate(), [mutate]);
-  const requestRead = useInviteReads({ workers, live, refreshes, read });
+  useInviteReads({ workers, live, refreshes, read });
   const closeDialog = React.useCallback(
     (request: number) =>
       setDeleting((current) => (current?.request === request ? null : current)),
@@ -221,7 +221,6 @@ function InviteList({ workers, live, refreshes }: WorkerInvitesProps) {
           key={deleting.request}
           invite={deleting.invite}
           onClose={() => closeDialog(deleting.request)}
-          onChanged={requestRead}
         />
       )}
     </div>
@@ -229,13 +228,14 @@ function InviteList({ workers, live, refreshes }: WorkerInvitesProps) {
 }
 
 /**
- * Decides when the invites list reads the invites: once on open, once when the page's refresh resumes or is refreshed by
+ * Decides when the invites list reads the invites: once on open, after the
+ * first workers list, so that every worker listed then joined before the
+ * read; once when the page's refresh resumes or is refreshed by
  * hand, once after a delete, and once after workers join, since a join uses
  * an invite. A join is a worker ID, certificate, or invite not listed
  * before, so a worker that leaves and comes back is no join. Joins within
  * JOIN_REREAD_DELAY_MS cost one read. Nothing is read while the tab is
- * hidden; a read that falls due then waits until it shows. Returns the
- * function that asks for a read.
+ * hidden; a read that falls due then waits until it shows.
  */
 function useInviteReads({
   workers,
@@ -247,11 +247,13 @@ function useInviteReads({
   live: boolean;
   refreshes: number;
   read: () => void;
-}): () => void {
+}) {
   const visible = usePageVisible();
   const [due, setDue] = React.useState<{ delay: number } | null>({
     delay: 0,
   });
+  // Whether the first workers list arrived; no read runs before it.
+  const [ready, setReady] = React.useState(false);
   const requestRead = React.useCallback(() => setDue({ delay: 0 }), []);
 
   const seen = React.useRef<Set<string> | null>(null);
@@ -266,6 +268,7 @@ function useInviteReads({
     const listed = joins ? joins.split('\n') : [];
     if (seen.current === null) {
       seen.current = new Set(listed);
+      setReady(true);
       return;
     }
     const known = seen.current;
@@ -289,15 +292,13 @@ function useInviteReads({
   }, [refreshes, requestRead]);
 
   React.useEffect(() => {
-    if (!due || !visible) return;
+    if (!due || !visible || !ready) return;
     const timer = setTimeout(() => {
       setDue(null);
       read();
     }, due.delay);
     return () => clearTimeout(timer);
-  }, [due, visible, read]);
-
-  return requestRead;
+  }, [due, visible, ready, read]);
 }
 
 /** The advice for an invite ID that the coordinator does not know. */
@@ -435,15 +436,12 @@ function deleteGone(ts: (source: string) => string): WorkerErrorAdvice {
 function DeleteInviteDialog({
   invite,
   onClose,
-  onChanged,
 }: {
   invite: WorkerInvite;
   onClose: () => void;
-  /** Asks the list to read the invites again. */
-  onChanged: () => void;
 }) {
   const { ts } = useI18n();
-  const { deleteInvite } = useWorkerActions();
+  const { deleteInvite, rereadInvites } = useWorkerActions();
   const [error, setError] = React.useState<unknown>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const gone = error instanceof WorkerRequestError && error.status === 404;
@@ -459,7 +457,9 @@ function DeleteInviteDialog({
       setError(err);
     } finally {
       setSubmitting(false);
-      onChanged();
+      // The server deletes on its own coordinators, so the local list is
+      // read again, also after a switch to another node and back.
+      rereadInvites('local');
     }
   };
 

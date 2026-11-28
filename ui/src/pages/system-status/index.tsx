@@ -283,7 +283,7 @@ function SystemStatus() {
         />
       </div>
       <WorkerInvites
-        workers={workersData?.workers}
+        workers={workersData?.workers ?? (workersError ? [] : undefined)}
         live={autoRefresh}
         refreshes={refreshes}
       />

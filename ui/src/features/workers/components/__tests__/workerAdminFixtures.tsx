@@ -93,8 +93,9 @@ export function installServer() {
           : url.pathname === '/api/v1/workers/invites'
             ? server.invites
             : { status: 404, body: { code: 'not_found', message: 'none' } };
-      return answer.status === 204
-        ? new Response(null, { status: 204 })
+      // An answer without a body, such as a 204 or a bare 502 from a proxy.
+      return answer.body === undefined
+        ? new Response(null, { status: answer.status })
         : new Response(JSON.stringify(answer.body ?? {}), {
             status: answer.status,
             headers: { 'Content-Type': 'application/json' },

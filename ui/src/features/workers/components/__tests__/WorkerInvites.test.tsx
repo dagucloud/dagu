@@ -37,11 +37,12 @@ interface PageState {
 
 // Renders the list as System status does; `update` changes what the page
 // passes, as its refresh of /workers, its auto refresh, or a manual refresh.
+// `null` renders the list before the page's first workers list arrived.
 function renderInvites(
-  workers: Worker[] | undefined = [worker('worker-a')],
+  workers: Worker[] | null = [worker('worker-a')],
   live = true
 ) {
-  let state: PageState = { workers, live, refreshes: 0 };
+  let state: PageState = { workers: workers ?? undefined, live, refreshes: 0 };
   const view = render(<WorkerInvites {...state} />, { wrapper: Providers });
   return {
     ...view,
@@ -182,7 +183,7 @@ describe('WorkerInvites', () => {
         lastUsedAt: new Date(Date.now() - 7 * 24 * 3600e3 + 30e3).toISOString(),
       }),
     ]);
-    renderInvites(undefined, false);
+    renderInvites([], false);
     expect(await rows()).toHaveLength(2);
     expect(
       screen.getByRole('listitem', { name: 'Invite expiring' })
@@ -319,7 +320,7 @@ describe('WorkerInvites', () => {
     [
       'require_tls',
       'The coordinator requires TLS, and this server called it over plaintext.',
-      'Remove peer.insecure: true from the server config, then restart it.',
+      'Remove peer.insecure: true from the server config if it is set, and check that the network path to the coordinator passes TLS.',
     ],
     [
       'older_coordinator',
@@ -349,9 +350,9 @@ describe('WorkerInvites', () => {
     ).toBeInTheDocument();
   });
 
-  // coordinator_refused names no fixed cause, so the coordinator's words
-  // are the cause.
-  it("shows the coordinator's words when it refused the server", async () => {
+  // The page never shows the server's words. A coordinator refusal names no
+  // fixed cause, so the advice says where to look.
+  it('explains a coordinator refusal without its words', async () => {
     const words = 'the coordinator refused the server: certificate expired';
     server.invites = refused(
       503,
@@ -362,25 +363,35 @@ describe('WorkerInvites', () => {
 
     renderInvites();
 
-    expect(await screen.findByText(words)).toBeInTheDocument();
     expect(
-      screen.getByText('Make the change the message names, then try again.')
+      await screen.findByText('The coordinator refused the server.')
     ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Check the coordinator log for the reason, or run dagu worker --check on this host, then try again.'
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(words)).not.toBeInTheDocument();
   });
 
-  // Without a reason the message is only shown, never read for meaning.
   // A reason the page does not know, even one named like a built-in
-  // property, falls back to the message.
-  it('treats an unknown reason as no reason', async () => {
-    server.invites = refused(503, 'server words', 'internal_error', 'toString');
+  // property, is treated as no reason: the advice follows the status.
+  it.each(['toString', 'constructor', 'some_new_reason'])(
+    'treats the unknown reason %s as no reason',
+    async (reason) => {
+      server.invites = refused(503, 'server words', 'internal_error', reason);
 
-    renderInvites();
+      renderInvites();
 
-    expect(await screen.findByText('server words')).toBeInTheDocument();
-    expect(
-      screen.getByText('Please try again or check the server connection.')
-    ).toBeInTheDocument();
-  });
+      expect(
+        await screen.findByText('The request failed.')
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText('Please try again or check the server connection.')
+      ).toBeInTheDocument();
+      expect(screen.queryByText('server words')).not.toBeInTheDocument();
+    }
+  );
 
   // The list explains a failed read itself; the page's notice of a failed
   // background read would repeat the server's words.
@@ -410,18 +421,85 @@ describe('WorkerInvites', () => {
     expect(screen.queryByText(/data directory/)).not.toBeInTheDocument();
   });
 
-  it('shows the message of a refusal without a reason as it is', async () => {
+  // Without a reason, the advice follows the status, and the message is
+  // never read for meaning or shown.
+  it('explains a refusal without a reason by its status', async () => {
     const words =
       'invites need the built-in CA: this coordinator uses peer.cert_file';
     server.invites = refused(409, words);
 
     renderInvites();
 
-    expect(await screen.findByText(words)).toBeInTheDocument();
     expect(
-      screen.getByText('Please try again or check the server connection.')
+      await screen.findByText('The coordinator refused the request.')
     ).toBeInTheDocument();
+    expect(screen.queryByText(words)).not.toBeInTheDocument();
     expect(screen.queryByText(/To use invites/)).not.toBeInTheDocument();
+  });
+
+  // A proxy can answer with a bare status and no body; that is a failure,
+  // not an empty list or a done delete.
+  it('treats a bare 502 read as a failure', async () => {
+    server.invites = { status: 502 };
+
+    renderInvites();
+
+    expect(await screen.findByText('The request failed.')).toBeInTheDocument();
+    expect(screen.queryByText('Loading invites...')).not.toBeInTheDocument();
+  });
+
+  it('keeps the dialog open on a bare 502 delete', async () => {
+    server.invites = invitesAnswer([invite('inv-1')]);
+    server.del = () => ({ status: 502 });
+    renderInvites();
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Delete invite inv-1/ })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    const alert = await within(screen.getByRole('dialog')).findByRole('alert');
+    expect(alert).toHaveTextContent('The request failed.');
+  });
+
+  // Every worker in the first workers list joined before the first read of
+  // the invites, so a late first list cannot hide a join.
+  it('reads the invites only after the first workers list', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { update } = renderInvites(null);
+    await act(() => vi.advanceTimersByTimeAsync(JOIN_REREAD_DELAY_MS));
+    expect(reads()).toBe(0);
+
+    update([worker('worker-a')]);
+
+    await waitFor(() => expect(reads()).toBe(1));
+  });
+
+  // The server deletes on its own coordinators, so a delete that ends after
+  // a switch to another node and back reads the local invites again.
+  it('reads the local invites after a delete that ends on return', async () => {
+    server.invites = invitesAnswer([invite('inv-1')]);
+    let answer: (value: { status: number }) => void = () => undefined;
+    server.del = () => new Promise((resolve) => (answer = resolve));
+    const { rerender } = renderInvites();
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Delete invite inv-1/ })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    server.node = 'node-b';
+    rerender();
+    server.node = 'local';
+    rerender();
+    const localReads = () =>
+      requests('GET', '/workers/invites').filter(
+        (request) => request.query.get('remoteNode') === 'local'
+      ).length;
+    await waitFor(() => expect(localReads()).toBe(2));
+
+    server.invites = invitesAnswer([]);
+    await act(async () => answer({ status: 204 }));
+
+    await waitFor(() => expect(localReads()).toBe(3));
+    expect(await screen.findByText('No invites')).toBeInTheDocument();
   });
 
   // A failed read is not retried on its own: each retry would be a
@@ -453,9 +531,9 @@ describe('WorkerInvites', () => {
   // back is no join.
   it('reads once after workers join, and not when one comes back', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    const { update } = renderInvites(undefined);
-    await screen.findByText('No invites');
+    const { update } = renderInvites(null);
     update([worker('worker-a')]);
+    await screen.findByText('No invites');
     expect(reads()).toBe(1);
 
     update([worker('worker-a'), worker('worker-b')]);

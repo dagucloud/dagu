@@ -1330,18 +1330,23 @@ The Workers page is the list of workers on System status.
   names the invite by its short ID, kind, and creation time. An invite that
   was used up or expired shows as such for 7 days after it ended, then
   leaves the list, also while the page's refresh is paused.
-- The list reads the invites when the page opens or shows another node,
+- The list reads the invites once the page's first workers list arrived,
+  when the page opens or shows another node,
   when its refresh resumes or is run by hand, after a delete, and once 5
   seconds after the last of the workers that join. A join is a worker ID,
   certificate, or invite the list did not show before, so a worker that
   leaves and comes back is no join. The list reads nothing while the tab is
-  hidden, and does not retry a failed read on its own.
+  hidden, and does not retry a failed read on its own. A delete reads the
+  local invites again when it ends, also after a switch to another node
+  and back.
 - On a remote node, the page lists the invites but offers no **Delete**,
   and says it works on the local server only, since the server does not
   forward it.
 - A refused call shows its cause and the change to make, chosen by the
-  `details.reason` of a 409 or a 503. The page shows the message itself
-  only for `coordinator_refused` and for an answer without a known reason.
+  `details.reason` of a 409 or a 503, else by the HTTP status. The page
+  never shows the server's message, in the list, a dialog, or a page
+  notice. An answer other than a 2xx, with or without a body, is a
+  failure.
 - System status lists the [h2c callers](#h2c-callers) under each
   coordinator, with host, the line and change above, and the time of the
   last call. It uses its existing fetch of

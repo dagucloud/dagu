@@ -60,18 +60,20 @@ export const workerAdminMessages = defineMessages({
       'Give the server the same peer.token as the coordinator.',
     'The coordinator requires TLS, and this server called it over plaintext.':
       'The coordinator requires TLS, and this server called it over plaintext.',
-    'Remove {setting} from the server config, then restart it.':
-      'Remove {setting} from the server config, then restart it.',
+    'Remove {setting} from the server config if it is set, and check that the network path to the coordinator passes TLS.':
+      'Remove {setting} from the server config if it is set, and check that the network path to the coordinator passes TLS.',
     'The coordinator refused the server.':
       'The coordinator refused the server.',
-    'Make the change the message names, then try again.':
-      'Make the change the message names, then try again.',
+    'Check the coordinator log for the reason, or run {command} on this host, then try again.':
+      'Check the coordinator log for the reason, or run {command} on this host, then try again.',
     'The coordinator runs an earlier Dagu release without worker invites.':
       'The coordinator runs an earlier Dagu release without worker invites.',
     'Upgrade the coordinator.': 'Upgrade the coordinator.',
     'This invite is already gone.': 'This invite is already gone.',
     'The list is read again. Close this dialog.':
       'The list is read again. Close this dialog.',
+    'The coordinator refused the request.':
+      'The coordinator refused the request.',
   },
   'zh-CN': {
     'Only admins can manage workers and invites.':
@@ -127,17 +129,18 @@ export const workerAdminMessages = defineMessages({
       '请为服务器设置与 Coordinator 相同的 peer.token。',
     'The coordinator requires TLS, and this server called it over plaintext.':
       'Coordinator 要求 TLS，而此服务器以明文调用了它。',
-    'Remove {setting} from the server config, then restart it.':
-      '请从服务器配置中删除 {setting}，然后重启。',
+    'Remove {setting} from the server config if it is set, and check that the network path to the coordinator passes TLS.':
+      '如果服务器配置中设置了 {setting}，请将其删除，并检查到 Coordinator 的网络路径是否允许 TLS 通过。',
     'The coordinator refused the server.': 'Coordinator 拒绝了此服务器。',
-    'Make the change the message names, then try again.':
-      '请按消息所述进行修改，然后重试。',
+    'Check the coordinator log for the reason, or run {command} on this host, then try again.':
+      '请查看 Coordinator 日志了解原因，或在此主机上运行 {command}，然后重试。',
     'The coordinator runs an earlier Dagu release without worker invites.':
       'Coordinator 运行的是不支持 Worker 邀请的较早 Dagu 版本。',
     'Upgrade the coordinator.': '请升级 Coordinator。',
     'This invite is already gone.': '此邀请已不存在。',
     'The list is read again. Close this dialog.':
       '列表将重新读取。请关闭此对话框。',
+    'The coordinator refused the request.': 'Coordinator 拒绝了该请求。',
   },
   ja: {
     'Only admins can manage workers and invites.':
@@ -193,12 +196,12 @@ export const workerAdminMessages = defineMessages({
       'サーバーにコーディネーターと同じ peer.token を設定してください。',
     'The coordinator requires TLS, and this server called it over plaintext.':
       'コーディネーターは TLS を必要としますが、このサーバーは平文で呼び出しました。',
-    'Remove {setting} from the server config, then restart it.':
-      'サーバーの設定から {setting} を削除して再起動してください。',
+    'Remove {setting} from the server config if it is set, and check that the network path to the coordinator passes TLS.':
+      'サーバーの設定に {setting} があれば削除し、コーディネーターまでのネットワーク経路が TLS を通すか確認してください。',
     'The coordinator refused the server.':
       'コーディネーターがこのサーバーを拒否しました。',
-    'Make the change the message names, then try again.':
-      'メッセージにある変更を行ってから、もう一度お試しください。',
+    'Check the coordinator log for the reason, or run {command} on this host, then try again.':
+      'コーディネーターのログで理由を確認するか、このホストで {command} を実行してから、もう一度お試しください。',
     'The coordinator runs an earlier Dagu release without worker invites.':
       'コーディネーターはワーカー招待のない以前の Dagu を動かしています。',
     'Upgrade the coordinator.':
@@ -206,6 +209,8 @@ export const workerAdminMessages = defineMessages({
     'This invite is already gone.': 'この招待はすでにありません。',
     'The list is read again. Close this dialog.':
       '一覧を読み直します。このダイアログを閉じてください。',
+    'The coordinator refused the request.':
+      'コーディネーターがリクエストを拒否しました。',
   },
   de: {
     'Only admins can manage workers and invites.':
@@ -262,18 +267,20 @@ export const workerAdminMessages = defineMessages({
       'Geben Sie dem Server dasselbe peer.token wie dem Coordinator.',
     'The coordinator requires TLS, and this server called it over plaintext.':
       'Der Coordinator verlangt TLS, und dieser Server hat ihn im Klartext aufgerufen.',
-    'Remove {setting} from the server config, then restart it.':
-      'Entfernen Sie {setting} aus der Serverkonfiguration und starten Sie ihn neu.',
+    'Remove {setting} from the server config if it is set, and check that the network path to the coordinator passes TLS.':
+      'Entfernen Sie {setting} aus der Serverkonfiguration, falls gesetzt, und prüfen Sie, ob der Netzwerkpfad zum Coordinator TLS durchlässt.',
     'The coordinator refused the server.':
       'Der Coordinator hat den Server abgelehnt.',
-    'Make the change the message names, then try again.':
-      'Nehmen Sie die Änderung vor, die die Meldung nennt, und versuchen Sie es erneut.',
+    'Check the coordinator log for the reason, or run {command} on this host, then try again.':
+      'Sehen Sie im Log des Coordinators nach dem Grund, oder führen Sie {command} auf diesem Host aus, und versuchen Sie es dann erneut.',
     'The coordinator runs an earlier Dagu release without worker invites.':
       'Der Coordinator läuft mit einer älteren Dagu-Version ohne Worker-Einladungen.',
     'Upgrade the coordinator.': 'Aktualisieren Sie den Coordinator.',
     'This invite is already gone.': 'Diese Einladung gibt es schon nicht mehr.',
     'The list is read again. Close this dialog.':
       'Die Liste wird neu gelesen. Schließen Sie diesen Dialog.',
+    'The coordinator refused the request.':
+      'Der Coordinator hat die Anfrage abgelehnt.',
   },
   fr: {
     'Only admins can manage workers and invites.':
@@ -330,17 +337,19 @@ export const workerAdminMessages = defineMessages({
       'Donnez au serveur le même peer.token que le coordinateur.',
     'The coordinator requires TLS, and this server called it over plaintext.':
       'Le coordinateur exige TLS, et ce serveur l’a appelé en clair.',
-    'Remove {setting} from the server config, then restart it.':
-      'Retirez {setting} de la configuration du serveur, puis redémarrez-le.',
+    'Remove {setting} from the server config if it is set, and check that the network path to the coordinator passes TLS.':
+      'Retirez {setting} de la configuration du serveur s’il y figure, et vérifiez que le chemin réseau vers le coordinateur laisse passer TLS.',
     'The coordinator refused the server.':
       'Le coordinateur a refusé le serveur.',
-    'Make the change the message names, then try again.':
-      'Faites la modification que le message indique, puis réessayez.',
+    'Check the coordinator log for the reason, or run {command} on this host, then try again.':
+      'Consultez le journal du coordinateur pour connaître la raison, ou lancez {command} sur cet hôte, puis réessayez.',
     'The coordinator runs an earlier Dagu release without worker invites.':
       'Le coordinateur exécute une version antérieure de Dagu sans invitations de workers.',
     'Upgrade the coordinator.': 'Mettez à jour le coordinateur.',
     'This invite is already gone.': 'Cette invitation n’existe déjà plus.',
     'The list is read again. Close this dialog.':
       'La liste est relue. Fermez cette boîte de dialogue.',
+    'The coordinator refused the request.':
+      'Le coordinateur a refusé la requête.',
   },
 });

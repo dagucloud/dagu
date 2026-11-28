@@ -7,23 +7,25 @@
  * @module features/workers/hooks
  */
 import { useCallback } from 'react';
-import { ErrorCode, WorkerAccessReason } from '@/api/v1/schema';
+import useSWR, { useSWRConfig } from 'swr';
+import { WorkerAccessReason, type components } from '@/api/v1/schema';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
-import { useClient, useQuery } from '@/hooks/api';
+import { useClient } from '@/hooks/api';
 import type { StaticTranslationValues } from '@/i18n/translateStatic';
-import { getQueryErrorCode, getQueryErrorMessage } from '@/lib/queryErrors';
+
+type WorkerInvitesList = components['schemas']['WorkerInvitesListResponse'];
 
 /**
- * A refused worker admin request, with its HTTP status and, for a 409 or a
- * 503, the reason the API names in `details.reason`.
+ * A failed worker admin request: its HTTP status, 0 when no answer came,
+ * and, for a 409 or a 503, the reason the API names in `details.reason`.
+ * The server's message is kept out: the page never shows it.
  */
 export class WorkerRequestError extends Error {
   constructor(
     readonly status: number,
-    message: string,
     readonly reason?: string
   ) {
-    super(message);
+    super(`worker admin request failed with ${status}`);
   }
 }
 
@@ -33,17 +35,45 @@ export interface WorkerErrorAdvice {
   change: string;
 }
 
+/** The cache key of the invites of one node. */
+export function invitesKey(node: string): readonly [string, string] {
+  return ['worker-invites', node];
+}
+
+// Runs a read now, or once the tab shows when it is hidden, so that no read
+// leaves a hidden tab.
+function whenVisible(run: () => void) {
+  if (document.visibilityState !== 'hidden') {
+    run();
+    return;
+  }
+  const onShow = () => {
+    if (document.visibilityState === 'hidden') return;
+    document.removeEventListener('visibilitychange', onShow);
+    run();
+  };
+  document.addEventListener('visibilitychange', onShow);
+}
+
 /**
- * Reads the invites. Nothing reads them on its own: no read on mount, no
- * retry, and no read on focus or reconnect. The caller decides when to read
- * with `mutate`, and explains a failed read itself: the page's notice of a
- * failed background read would show the server's words.
+ * Reads the invites of the selected node. Nothing reads them on its own: no
+ * read on mount, no retry, and no read on focus or reconnect. The caller
+ * decides when to read with `mutate`, and explains a failed read itself:
+ * the page's notice of a failed background read would show the server's
+ * words. Any answer other than a 2xx with a list is a failure.
  */
 export function useWorkerInvites(enabled: boolean) {
+  const client = useClient();
   const remoteNode = useRemoteNode();
-  const { data, error, mutate } = useQuery(
-    '/workers/invites',
-    enabled ? { params: { query: { remoteNode } } } : null,
+  const { data, error, mutate } = useSWR<WorkerInvitesList, unknown>(
+    enabled ? invitesKey(remoteNode) : null,
+    async () => {
+      const { data, error, response } = await client.GET('/workers/invites', {
+        params: { query: { remoteNode } },
+      });
+      if (!response.ok || !data) throw requestError(response.status, error);
+      return data;
+    },
     {
       shouldRetryOnError: false,
       revalidateOnFocus: false,
@@ -67,6 +97,14 @@ export function useWorkerInvites(enabled: boolean) {
  */
 export function useWorkerActions() {
   const client = useClient();
+  const { mutate } = useSWRConfig();
+
+  // Reads the invites of a node again once the tab shows, also when the
+  // list that asked is gone, as after a switch to another node and back.
+  const rereadInvites = useCallback(
+    (node: string) => whenVisible(() => void mutate(invitesKey(node))),
+    [mutate]
+  );
 
   const deleteInvite = useCallback(
     async (inviteId: string) => {
@@ -74,30 +112,21 @@ export function useWorkerActions() {
         '/workers/invites/{inviteId}',
         { params: { path: { inviteId } } }
       );
-      if (error) {
-        throw requestError(response.status, error);
-      }
+      if (!response.ok) throw requestError(response.status, error);
     },
     [client]
   );
 
-  return { deleteInvite };
+  return { deleteInvite, rereadInvites };
 }
 
 function requestError(status: number, body: unknown): WorkerRequestError {
+  const reason = (body as { details?: { reason?: unknown } } | undefined)
+    ?.details?.reason;
   return new WorkerRequestError(
     status,
-    getQueryErrorMessage(body, ''),
-    reasonOf(body)
+    typeof reason === 'string' ? reason : undefined
   );
-}
-
-// The API names why a worker access call failed in `details.reason`.
-function reasonOf(error: unknown): string | undefined {
-  if (error instanceof WorkerRequestError) return error.reason;
-  const reason = (error as { details?: { reason?: unknown } } | undefined)
-    ?.details?.reason;
-  return typeof reason === 'string' ? reason : undefined;
 }
 
 type Translate = (source: string, values?: StaticTranslationValues) => string;
@@ -107,8 +136,7 @@ export type ReasonAdvice = Partial<
   Record<WorkerAccessReason, (ts: Translate) => WorkerErrorAdvice>
 >;
 
-// The reasons any worker access call can fail with. The coordinator's own
-// words matter only for coordinator_refused, which names no fixed cause.
+// The reasons any worker access call can fail with.
 const ACCESS_REASONS: ReasonAdvice = {
   [WorkerAccessReason.own_certificates]: (ts) => ({
     cause: ts(
@@ -138,9 +166,17 @@ const ACCESS_REASONS: ReasonAdvice = {
     cause: ts(
       'The coordinator requires TLS, and this server called it over plaintext.'
     ),
-    change: ts('Remove {setting} from the server config, then restart it.', {
-      setting: 'peer.insecure: true',
-    }),
+    change: ts(
+      'Remove {setting} from the server config if it is set, and check that the network path to the coordinator passes TLS.',
+      { setting: 'peer.insecure: true' }
+    ),
+  }),
+  [WorkerAccessReason.coordinator_refused]: (ts) => ({
+    cause: ts('The coordinator refused the server.'),
+    change: ts(
+      'Check the coordinator log for the reason, or run {command} on this host, then try again.',
+      { command: 'dagu worker --check' }
+    ),
   }),
   [WorkerAccessReason.older_coordinator]: (ts) => ({
     cause: ts(
@@ -158,42 +194,43 @@ const ACCESS_REASONS: ReasonAdvice = {
 
 /**
  * The cause of a failed request and the change that fixes it, chosen by the
- * reason the API names. `reasons` adds the reasons of one call, such as a
- * removal's. Without a known reason, the server's message is the cause.
+ * reason the API names, else by the HTTP status. `reasons` adds the reasons
+ * of one call, such as a removal's. The server's message is never shown.
  */
 export function describeWorkerError(
   error: unknown,
   advice: { notFound: WorkerErrorAdvice; reasons?: ReasonAdvice },
   ts: Translate
 ): WorkerErrorAdvice {
-  const message = getQueryErrorMessage(error, '');
-  const reason = reasonOf(error) as WorkerAccessReason | undefined;
-  if (reason === WorkerAccessReason.coordinator_refused) {
-    return {
-      cause: message || ts('The coordinator refused the server.'),
-      change: ts('Make the change the message names, then try again.'),
-    };
-  }
+  const failure = error instanceof WorkerRequestError ? error : undefined;
+  const reason = failure?.reason;
   const known = reason
     ? (ownAdvice(advice.reasons, reason) ?? ownAdvice(ACCESS_REASONS, reason))
     : undefined;
   if (known) return known(ts);
 
-  const status =
-    error instanceof WorkerRequestError
-      ? error.status
-      : statusOfCode(getQueryErrorCode(error));
-  if (status === 403) {
-    return {
-      cause: ts('Only admins can manage workers and invites.'),
-      change: ts('Sign in with an admin account, or ask an admin.'),
-    };
+  switch (failure?.status) {
+    case 403:
+      return {
+        cause: ts('Only admins can manage workers and invites.'),
+        change: ts('Sign in with an admin account, or ask an admin.'),
+      };
+    case 404:
+      return advice.notFound;
+    case 409:
+      return {
+        cause: ts('The coordinator refused the request.'),
+        change: ts(
+          'Check the coordinator log for the reason, or run {command} on this host, then try again.',
+          { command: 'dagu worker --check' }
+        ),
+      };
+    default:
+      return {
+        cause: ts('The request failed.'),
+        change: ts('Please try again or check the server connection.'),
+      };
   }
-  if (status === 404) return advice.notFound;
-  return {
-    cause: message || ts('The request failed.'),
-    change: ts('Please try again or check the server connection.'),
-  };
 }
 
 // Looks a reason up among a table's own entries only, so that a name such as
@@ -205,17 +242,4 @@ function ownAdvice(
   return table && Object.prototype.hasOwnProperty.call(table, reason)
     ? table[reason as WorkerAccessReason]
     : undefined;
-}
-
-// A list read rejects with the error body, which carries a code and no
-// status.
-function statusOfCode(code: string | undefined): number {
-  switch (code) {
-    case ErrorCode.forbidden:
-      return 403;
-    case ErrorCode.not_found:
-      return 404;
-    default:
-      return 0;
-  }
 }
