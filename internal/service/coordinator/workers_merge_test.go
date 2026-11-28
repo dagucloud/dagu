@@ -139,3 +139,34 @@ func TestClientGetWorkers_CertificateFieldsStayWithCertificate(t *testing.T) {
 		})
 	}
 }
+
+// Two reports of the same certificate, one without its invite: the list
+// keeps the invite, whichever is asked first.
+func TestClientGetWorkers_KeepsInviteOfSameCertificate(t *testing.T) {
+	t.Parallel()
+
+	heartbeat := time.Now().Unix()
+	bare := workersFrom(&coordinatorv1.WorkerInfo{
+		WorkerId: "worker-1", LastHeartbeatAt: heartbeat, Connection: coordinatorv1.WorkerConnection_WORKER_CONNECTION_CERTIFICATE,
+		CertificateId: "cert-1",
+	})
+	full := workersFrom(&coordinatorv1.WorkerInfo{
+		WorkerId: "worker-1", LastHeartbeatAt: heartbeat, Connection: coordinatorv1.WorkerConnection_WORKER_CONNECTION_CERTIFICATE,
+		CertificateId: "cert-1", InviteId: "invite-1",
+	})
+	for name, kinds := range map[string][]memberKind{"bare first": {bare, full}, "full first": {full, bare}} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			members := make([]serviceregistry.HostInfo, len(kinds))
+			for i, listener := range sortedListeners(t, len(kinds)) {
+				members[i] = kinds[i](t, listener)
+			}
+			client := coordinator.New(&mockServiceMonitor{members: members}, coordinator.DefaultConfig())
+			t.Cleanup(func() { _ = client.Cleanup(context.Background()) })
+			workers, err := client.GetWorkers(t.Context())
+			require.NoError(t, err)
+			require.Len(t, workers, 1)
+			assert.Equal(t, "invite-1", workers[0].InviteId)
+		})
+	}
+}

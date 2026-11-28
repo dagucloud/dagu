@@ -5,6 +5,7 @@ package spec108_peer_transport_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -16,6 +17,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -246,4 +248,52 @@ func (s startAll) holdRun(t *testing.T, dagu *harness.Runner, worker coordinator
 	require.NoError(t, err)
 	require.True(t, ack.Accepted, id)
 	return &coordinatorv1.RunningTask{DagName: "held_" + id, DagRunId: task.DagRunId, AttemptKey: task.AttemptKey}
+}
+
+// removingMinimum is how long a certificate stays removing at least.
+const removingMinimum = 30 * time.Second
+
+// A removed worker leaves the workers list once its certificate is revoked,
+// though its heartbeat row stays until stale cleanup, and shows removing
+// until then (Spec 108 §Workers List).
+func TestRemovedWorkerLeavesList(t *testing.T) {
+	dagu := harness.NewRunner(t)
+	peer := newPeerFixture(t, dagu)
+	services := startStartAll(t, dagu, append(peer.env, "DAGU_AUTH_MODE=none")...)
+	defer services.process.Stop()
+
+	code, body := services.call(t, http.MethodPost, "/api/v1/workers/invites", `{}`)
+	require.Equal(t, http.StatusCreated, code, body)
+	var created struct {
+		Invite string `json:"invite"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &created))
+	worker, certID := peer.enrollWorker(t, services.coordinator, created.Invite, "idle")
+	heartbeat := func() error {
+		_, err := worker.Heartbeat(callContext(t), &coordinatorv1.HeartbeatRequest{WorkerId: "idle", Host: "host-idle"})
+		return err
+	}
+	require.NoError(t, heartbeat())
+	services.waitForWorker(t, "idle")
+
+	code, body = services.call(t, http.MethodDelete, "/api/v1/workers/idle?certificateId="+certID, "")
+	require.Equal(t, http.StatusOK, code, body)
+	assert.True(t, services.waitForWorker(t, "idle").Removing)
+
+	// A worker that holds no run is revoked once its removal is 30 seconds
+	// old, at a heartbeat.
+	ctx, cancel := context.WithTimeout(t.Context(), removingMinimum+harness.WaitTimeout(t))
+	defer cancel()
+	for {
+		_ = heartbeat()
+		if listed, _ := services.lists(ctx, "idle"); listed == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("the workers list still lists the removed worker")
+		case <-time.After(time.Second):
+		}
+	}
+	assert.Error(t, heartbeat(), "the revoked certificate is refused")
 }

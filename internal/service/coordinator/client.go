@@ -1310,6 +1310,10 @@ func fillWorkerMetadata(worker, other *coordinatorv1.WorkerInfo) {
 		worker.CertificateId = other.CertificateId
 		worker.InviteId = other.InviteId
 	}
+	// A report of the same certificate may lack its invite.
+	if worker.InviteId == "" && worker.CertificateId != "" && worker.CertificateId == other.CertificateId {
+		worker.InviteId = other.InviteId
+	}
 	// Removing describes a certificate, and heartbeats in the same second
 	// may carry two. For the same one, a coordinator that has not reread
 	// the removals yet reports false.

@@ -2145,6 +2145,9 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 		workers := make([]*coordinatorv1.WorkerInfo, 0, len(h.heartbeats))
 		now := time.Now()
 		for _, hb := range h.heartbeats {
+			if h.certificateRevoked(hb.certificateID) {
+				continue
+			}
 			workerInfo := &coordinatorv1.WorkerInfo{
 				WorkerId:        hb.workerID,
 				Labels:          hb.labels,
@@ -2175,6 +2178,9 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 	now := time.Now()
 
 	for _, hb := range records {
+		if h.certificateRevoked(hb.CertificateID) {
+			continue
+		}
 		workerInfo := &coordinatorv1.WorkerInfo{
 			WorkerId:        hb.WorkerID,
 			Labels:          hb.Labels,
@@ -2197,6 +2203,18 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 	}
 
 	return &coordinatorv1.GetWorkersResponse{Workers: workers}, nil
+}
+
+// certificateRevoked reports whether the worker certificate certID is in
+// the coordinator's revoked set. A heartbeat row of a revoked certificate
+// stays until stale cleanup, but its worker is removed, so the list leaves
+// it out.
+func (h *Handler) certificateRevoked(certID string) bool {
+	if certID == "" {
+		return false
+	}
+	removal, ok := h.removals.get(certID)
+	return ok && removal.State == persis.WorkerCertificateRevoked
 }
 
 // addCertificate sets, on the listed worker, the certificate certID it

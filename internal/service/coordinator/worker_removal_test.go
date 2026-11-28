@@ -484,3 +484,24 @@ func TestRemoveWorkerMismatchKeepsFinish(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, record.StopRunsAt.IsZero(), "the removal still lets the runs finish")
 }
+
+// The workers list leaves out the heartbeat row of a revoked certificate,
+// which stays until stale cleanup, and still lists a removing one.
+func TestGetWorkersLeavesOutRevoked(t *testing.T) {
+	t.Parallel()
+	server := startPeerTLSServer(t, certHosts)
+	key, cert, _ := server.enrolled(t)
+	server.heartbeat(t, key, cert, enrollWorkerID)
+	_, err := server.removeCertificate(t, cert.Subject.CommonName)
+	require.NoError(t, err)
+	assert.True(t, server.listed(t, enrollWorkerID).Removing)
+
+	_, err = server.shared.certs.SetState(t.Context(), cert.Subject.CommonName, persis.WorkerCertificateRevoked)
+	require.NoError(t, err)
+	coordinator.RereadRemovalsForTest(server.handler)
+	resp, err := server.tlsClient(t).GetWorkers(callContext(t), &coordinatorv1.GetWorkersRequest{})
+	require.NoError(t, err)
+	for _, worker := range resp.Workers {
+		assert.NotEqual(t, enrollWorkerID, worker.WorkerId, "a revoked certificate's worker is left out")
+	}
+}

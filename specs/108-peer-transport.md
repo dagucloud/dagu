@@ -962,6 +962,9 @@ as the REST API always does:
   - `plaintext`: h2c.
 - A `certificate` worker also has `certificateId`, `inviteId`, and
   `removing: true` while its certificate is `removing`.
+- A worker whose certificate the coordinator's revoked set holds is left
+  out, though its heartbeat record stays until stale cleanup, so a removed
+  worker leaves the list once it is revoked.
 - A `plaintext` worker also has `plaintextReason`: `peer.insecure`,
   `no TLS source`, `tls failed on the network path`, or `older version`.
 - The coordinator keeps `connection` and `plaintextReason` in the worker's
