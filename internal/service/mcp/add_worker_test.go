@@ -210,8 +210,8 @@ func TestAddWorkerCreatesInvite(t *testing.T) {
 	require.Contains(t, actions["mcp.tool_call.succeeded"], `"invite_id":"invite-1"`)
 }
 
-// A reusable invite has no expiry by default. The command keeps an IPv6
-// address and labels with spaces, quotes, and dollar signs as given.
+// A reusable invite has no expiry by default. The command quotes the IPv6
+// address, whose brackets a shell would expand.
 func TestAddWorkerReusableInvite(t *testing.T) {
 	t.Parallel()
 
@@ -221,14 +221,14 @@ func TestAddWorkerReusableInvite(t *testing.T) {
 	result, data := addWorker(t, cloudUser(auth.RoleAdmin), svc, map[string]any{
 		"address":  "[2001:db8::1]:50055",
 		"reusable": true,
-		"labels":   []string{"team=data eng", "note=it's $HOME"},
+		"labels":   []string{"team=data-eng", "pool=gpu/a100"},
 	})
 
 	require.False(t, result.IsError, data)
 	output := structuredMap(t, result)
 	require.Equal(t, daguapi.WorkerInviteKindReusable, output["kind"])
 	require.NotContains(t, output, "expiresAt")
-	require.Equal(t, `dagu worker '--worker.coordinators=[2001:db8::1]:50055' '--worker.labels=team=data eng,note=it'\''s $HOME' --worker.invite=`+testWorkerInvite,
+	require.Equal(t, `dagu worker '--worker.coordinators=[2001:db8::1]:50055' --worker.labels=team=data-eng,pool=gpu/a100 --worker.invite=`+testWorkerInvite,
 		output["commands"].(map[string]string)["linux"])
 	require.True(t, stub.created.GetReusable())
 }
@@ -302,6 +302,10 @@ func TestAddWorkerInputValidation(t *testing.T) {
 		"reusable on backfill": {input: `{"action":"backfill","name":"etl","reusable":true}`, field: executeFieldReusable},
 		"label without value":  {input: `{"action":"add_worker","labels":["gpu"]}`, field: executeFieldLabels},
 		"comma in a label":     {input: `{"action":"add_worker","labels":["zone=a,b"]}`, field: executeFieldLabels},
+		"space in a label":     {input: `{"action":"add_worker","labels":["team=data eng"]}`, field: executeFieldLabels},
+		"quote in a label":     {input: `{"action":"add_worker","labels":["note=it's"]}`, field: executeFieldLabels},
+		"dollar in a label":    {input: `{"action":"add_worker","labels":["leak=$(DAGU_WORKER_INVITE)"]}`, field: executeFieldLabels},
+		"bad label key":        {input: `{"action":"add_worker","labels":["gpu/type=a100"]}`, field: executeFieldLabels},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -334,20 +338,20 @@ func TestWorkerImage(t *testing.T) {
 	}
 }
 
-// The container commands keep the address and labels as given. The
-// manifest takes the invite from the Secret only, and a $ in a label does
-// not expand a variable such as the invite's.
+// The container commands keep the address as given. The manifest takes
+// the invite from the Secret only, and a $ in the address, which a host
+// name may hold, does not expand a variable such as the invite's.
 func TestWorkerContainerCommands(t *testing.T) {
 	t.Parallel()
 
-	labels := []string{"team=data eng", "leak=$(DAGU_WORKER_INVITE)"}
-	commands := workerCommands("[2001:db8::1]:50055", labels, testWorkerInvite, "ghcr.io/dagucloud/dagu:2.28.0", true)
-
+	commands := workerCommands("[2001:db8::1]:50055", []string{"team=data-eng"}, testWorkerInvite, "ghcr.io/dagucloud/dagu:2.28.0", true)
 	require.Equal(t, "docker run -d --restart unless-stopped -v dagu-worker:/var/lib/dagu -e DAGU_WORKER_INVITE="+testWorkerInvite+
-		` ghcr.io/dagucloud/dagu:2.28.0 dagu worker '--worker.coordinators=[2001:db8::1]:50055' '--worker.labels=team=data eng,leak=$(DAGU_WORKER_INVITE)'`,
+		` ghcr.io/dagucloud/dagu:2.28.0 dagu worker '--worker.coordinators=[2001:db8::1]:50055' --worker.labels=team=data-eng`,
 		commands["docker"])
+
+	commands = workerCommands("$(DAGU_WORKER_INVITE):50055", nil, testWorkerInvite, "ghcr.io/dagucloud/dagu:2.28.0", true)
 	manifest := commands["kubernetes"]
-	require.Contains(t, manifest, `args: ["dagu", "worker", "--worker.coordinators=[2001:db8::1]:50055", "--worker.labels=team=data eng,leak=$$(DAGU_WORKER_INVITE)"]`)
+	require.Contains(t, manifest, `args: ["dagu", "worker", "--worker.coordinators=$$(DAGU_WORKER_INVITE):50055"]`)
 	require.Contains(t, manifest, "image: ghcr.io/dagucloud/dagu:2.28.0")
 	require.Equal(t, 1, strings.Count(manifest, testWorkerInvite), "only the Secret holds the invite")
 }

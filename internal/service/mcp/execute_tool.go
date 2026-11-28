@@ -151,7 +151,7 @@ func executeToolInputSchema() json.RawMessage {
 			"labels": {
 				"type": "array",
 				"items": {"type": "string"},
-				"description": "Additional labels, each as key=value or key-only. For add_worker: worker labels, each key=value without a comma, put into the commands, not the invite."
+				"description": "Additional labels, each as key=value or key-only. For add_worker: worker labels, each key=value whose key holds only letters, digits, -, _, and . and whose value holds only those and /, put into the commands, not the invite."
 			},
 			"targetNodes": {
 				"type": "array",

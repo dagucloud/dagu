@@ -299,7 +299,7 @@ Fields:
 - singleton: singleton run flag for start and enqueue.
 - noReuse: when true for start or enqueue, execute eligible build steps instead of reusing prior materializations.
 - profile: runtime profile name for start and enqueue. Selects the profile for this run only. When omitted, a stored DAG keeps its default profile resolution and an inline spec runs without a profile. The profile must exist and be usable by the caller.
-- labels: labels for start and enqueue, each key=value or key-only. For add_worker, worker labels put into the commands, each key=value without a comma.
+- labels: labels for start and enqueue, each key=value or key-only. For add_worker, worker labels put into the commands, each key=value whose key holds only letters, digits, -, _, and . and whose value holds only those and /; any other label is refused, since the worker would refuse it at start.
 - targetNodes: for start and enqueue, the nodes the run is narrowed to. Its steps with nodes, and those of its child runs, run only on listed nodes; a step none of whose nodes is listed is skipped without blocking later steps, and a run whose list leaves every such step without a node fails. A node: required DAG needs exactly one node and runs bound to it, on that worker for a worker node. Each name must be a node, inventory or worker.
 - stepName: optional step name for retry. Required for approve, reject, and push_back: the waiting step to decide.
 - includeDownstream: when true, retry the selected step and every reachable descendant. Requires stepName.

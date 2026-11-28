@@ -1029,7 +1029,10 @@ and prints the message:
   or 64 lowercase hexadecimal characters). `POST /api/v1/workers/invites`
   checks only the `host:port` form, since automation may reach the
   coordinator through a tunnel.
-- Worker labels are each `key=value`, without a comma.
+- Worker labels are each `key=value`, and a worker accepts them: the key
+  holds only letters, digits, `-`, `_`, and `.`, and the value only those
+  and `/`. Step 3 and the MCP action refuse any other label, since the
+  worker would exit at start.
 - Step 3 shows only after steps 1 and 2. Its tab sets the invite kind:
 
   | Tab | Invite | Command |
@@ -1040,7 +1043,7 @@ and prints the message:
 
 - Labels and the address go into the command, not the invite.
 - The commands quote each argument a POSIX shell treats specially, so an
-  IPv6 address and labels with spaces keep their values. The Deployment's
+  IPv6 address keeps its brackets. The Deployment's
   arguments write each `$` as `$$`, so no argument expands a variable such
   as `DAGU_WORKER_INVITE`, and only the Secret holds the invite.
 - The Docker and Kubernetes commands run `ghcr.io/dagucloud/dagu:<tag>`,

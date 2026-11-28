@@ -15,6 +15,7 @@ import (
 
 	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -80,8 +81,8 @@ func parseAddWorkerField(input *addWorkerInput, field string, value json.RawMess
 }
 
 // validateAddWorkerInput refuses the fields add_worker does not take, an
-// address a worker on another host cannot dial, and a label the commands
-// cannot carry.
+// address a worker on another host cannot dial, and a label the worker
+// would refuse at start.
 func validateAddWorkerInput(input *executeInput, provided map[string]bool) *executeToolError {
 	for field := range provided {
 		if field != executeFieldAction && !slices.Contains(addWorkerFields, field) {
@@ -94,8 +95,11 @@ func validateAddWorkerInput(input *executeInput, provided map[string]bool) *exec
 		}
 	}
 	for _, label := range input.Labels {
-		if key, _, ok := strings.Cut(label, "="); !ok || key == "" || strings.Contains(label, ",") {
-			return executeInputError("Each worker label must be key=value without a comma.", executeFieldLabels)
+		if !strings.Contains(label, "=") {
+			return executeInputError(fmt.Sprintf("Worker label %q must be key=value.", label), executeFieldLabels)
+		}
+		if err := ir.ValidateLabel(ir.ParseLabel(label)); err != nil {
+			return executeInputError(fmt.Sprintf("Worker label %q is not valid: %s.", label, err), executeFieldLabels)
 		}
 	}
 	return nil
