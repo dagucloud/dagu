@@ -220,12 +220,13 @@ func TestClientTransportRequireTLS(t *testing.T) {
 			require.NoError(t, err)
 			_, err = stream.CloseAndRecv()
 			assert.Equal(t, codes.Unauthenticated, status.Code(err))
+			assert.Equal(t, "The coordinator requires TLS. Remove peer.insecure: true.", status.Convert(err).Message())
 		})...)
 		for range 2 {
 			lines = append(lines, captureClientLogs(t, func(ctx context.Context) {
 				err := getWorkers(ctx, t, cli, member)
 				assert.Equal(t, codes.Unauthenticated, status.Code(err))
-				assert.Equal(t, requireTLSMessage, status.Convert(err).Message())
+				assert.Equal(t, "The coordinator requires TLS. Remove peer.insecure: true.", status.Convert(err).Message())
 			})...)
 		}
 		require.Len(t, lines, 1)
@@ -254,7 +255,9 @@ func TestClientTransportRequireTLS(t *testing.T) {
 			}
 			cli := newTestClient(t, &config, member)
 			lines := captureClientLogs(t, func(ctx context.Context) {
-				assert.Equal(t, codes.Unauthenticated, status.Code(getWorkers(ctx, t, cli, member)))
+				err := getWorkers(ctx, t, cli, member)
+				assert.Equal(t, codes.Unauthenticated, status.Code(err))
+				assert.Equal(t, tc.want, status.Convert(err).Message(), "the call error agrees with the refusal line")
 			})
 			require.NotEmpty(t, lines)
 			refusal := lines[len(lines)-1]

@@ -363,12 +363,27 @@ func (t *clientTransport) report(ctx context.Context, link *connLink, method str
 	if fellBack && window.Source == sourceNetworkPath {
 		attrs = append(attrs, slog.String("tls-error", window.Error))
 	}
+	logger.Error(ctx, requireTLSClientMessage(t.h2cSource(link)), attrs...)
+}
+
+// h2cSource returns what picked h2c for the current connection of link.
+func (t *clientTransport) h2cSource(link *connLink) string {
 	// Only h2c from peer.insecure: true dials without a per-connection plan.
-	source := sourceInsecure
-	if t.config.picksTransportPerConnection() {
-		source = link.h2cSource()
+	if !t.config.picksTransportPerConnection() {
+		return sourceInsecure
 	}
-	logger.Error(ctx, requireTLSClientMessage(source), attrs...)
+	return link.h2cSource()
+}
+
+// refusalError returns the error a call on link ends with: err, or for a
+// coordinator.require_tls refusal, the refusal with the change for the
+// client's h2c reason, so callers that log it agree with the refusal line.
+// It runs after report, which matches the coordinator's message.
+func (t *clientTransport) refusalError(link *connLink, err error) error {
+	if !isRequireTLSRefusal(err) {
+		return err
+	}
+	return status.Error(codes.Unauthenticated, requireTLSClientMessage(t.h2cSource(link)))
 }
 
 func isRequireTLSRefusal(err error) bool {
@@ -563,7 +578,7 @@ func (l *connLink) unaryInterceptor(ctx context.Context, method string, req, rep
 		err = invoker(ctx, method, req, reply, cc, opts...)
 	}
 	l.transport.report(ctx, l, method, err)
-	return err
+	return l.transport.refusalError(l, err)
 }
 
 func (l *connLink) streamInterceptor(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
@@ -577,7 +592,7 @@ func (l *connLink) streamInterceptor(ctx context.Context, desc *grpc.StreamDesc,
 	if err != nil {
 		l.end()
 		l.transport.report(ctx, l, method, err)
-		return nil, err
+		return nil, l.transport.refusalError(l, err)
 	}
 	s := &reportingStream{ClientStream: stream, link: l, ctx: ctx, method: method, serverStreams: desc.ServerStreams}
 	s.stop = context.AfterFunc(ctx, func() { s.finish(nil, false) })
@@ -607,7 +622,7 @@ func (s *reportingStream) RecvMsg(m any) error {
 		}
 		s.finish(final, true)
 	}
-	return err
+	return s.link.transport.refusalError(s.link, err)
 }
 
 func (s *reportingStream) finish(err error, report bool) {
