@@ -17,10 +17,10 @@ import { cn } from '@/lib/utils';
 import {
   WorkerRequestError,
   describeWorkerError,
-  invitesChanged,
   invitesKey,
   readWhenVisible,
   type WorkerErrorAdvice,
+  useInviteDeletes,
   useWorkerActions,
   useWorkerInvites,
 } from '../hooks/useWorkerAdmin';
@@ -120,69 +120,10 @@ export function inviteBaseline(read: {
 function WorkerInvites(props: WorkerInvitesProps) {
   const isAdmin = useIsAdmin();
   const remoteNode = useRemoteNode();
-  const outcomes = useDeleteOutcomes();
   if (!isAdmin) return null;
   // Another node has other workers and invites: the list starts over, with
-  // that node's first workers list as the baseline and one read. The
-  // outcomes of deletes stay above it, so a switch away and back keeps them.
-  return <InviteList key={remoteNode} {...props} outcomes={outcomes} />;
-}
-
-// A delete that failed after its dialog was closed.
-interface LateFailure {
-  invite: WorkerInvite;
-  error: unknown;
-}
-
-interface DeleteOutcomes {
-  /** The late failures, one per invite. */
-  failures: LateFailure[];
-  failed: (failure: LateFailure) => void;
-  /** Clears the failure of an invite, as once it is gone. */
-  dismiss: (inviteId: string) => void;
-  /** The invites with a delete under way; each has one at most. */
-  pending: ReadonlySet<string>;
-  begin: (inviteId: string) => void;
-  end: (inviteId: string) => void;
-}
-
-function useDeleteOutcomes(): DeleteOutcomes {
-  const [failures, setFailures] = React.useState<LateFailure[]>([]);
-  const [pending, setPending] = React.useState<ReadonlySet<string>>(
-    () => new Set()
-  );
-  const failed = React.useCallback(
-    (failure: LateFailure) =>
-      setFailures((current) => [
-        ...current.filter((other) => other.invite.id !== failure.invite.id),
-        failure,
-      ]),
-    []
-  );
-  const dismiss = React.useCallback(
-    (inviteId: string) =>
-      setFailures((current) =>
-        current.some((failure) => failure.invite.id === inviteId)
-          ? current.filter((failure) => failure.invite.id !== inviteId)
-          : current
-      ),
-    []
-  );
-  const begin = React.useCallback(
-    (inviteId: string) =>
-      setPending((current) => new Set(current).add(inviteId)),
-    []
-  );
-  const end = React.useCallback(
-    (inviteId: string) =>
-      setPending((current) => {
-        const next = new Set(current);
-        next.delete(inviteId);
-        return next;
-      }),
-    []
-  );
-  return { failures, failed, dismiss, pending, begin, end };
+  // that node's first workers list as the baseline and one read.
+  return <InviteList key={remoteNode} {...props} />;
 }
 
 // A confirmation, with its own number so that a delete that ends after its
@@ -192,14 +133,13 @@ interface Deleting {
   request: number;
 }
 
-function InviteList({
-  workers,
-  live,
-  refreshes,
-  outcomes,
-}: WorkerInvitesProps & { outcomes: DeleteOutcomes }) {
+function InviteList({ workers, live, refreshes }: WorkerInvitesProps) {
   const { ts } = useI18n();
-  const { invites, error, isLoading, mutate } = useWorkerInvites(true);
+  const { invites, error, isLoading, mutate, invalidate } =
+    useWorkerInvites(true);
+  // Deletes and their late failures outlive the list, a node switch, and a
+  // route change.
+  const deletes = useInviteDeletes();
   const [deleting, setDeleting] = React.useState<Deleting | null>(null);
   const requests = React.useRef(0);
   const remoteNode = useRemoteNode();
@@ -215,10 +155,7 @@ function InviteList({
   );
   // A read under way when workers join may predate the join, so it cannot
   // answer for after it.
-  const joinedWorkers = React.useCallback(
-    () => invitesChanged(remoteNode),
-    [remoteNode]
-  );
+  const joinedWorkers = invalidate;
   useInviteReads({ workers, live, refreshes, read, joinedWorkers });
   const closeDialog = React.useCallback(
     (request: number) =>
@@ -303,7 +240,7 @@ function InviteList({
               }
               // A second delete waits for the first to settle, also after
               // its dialog was closed.
-              deletePending={outcomes.pending.has(invite.id)}
+              deletePending={deletes.pending(invite.id)}
             />
           ))}
         </ul>
@@ -327,7 +264,7 @@ function InviteList({
           appears later is announced. */}
       {local &&
         !deleting &&
-        outcomes.failures.map((failure) => (
+        deletes.lateFailures.map((failure) => (
           <div key={failure.invite.id} className="space-y-2 border-t px-3 py-2">
             <WorkerError
               action
@@ -343,7 +280,7 @@ function InviteList({
             <Button
               size="xs"
               variant="outline"
-              onClick={() => outcomes.dismiss(failure.invite.id)}
+              onClick={() => deletes.dismiss(failure.invite.id)}
             >
               <I18nText text="Dismiss" />
             </Button>
@@ -354,11 +291,8 @@ function InviteList({
           key={deleting.request}
           invite={deleting.invite}
           onClose={() => closeDialog(deleting.request)}
-          onDeleted={() => outcomes.dismiss(deleting.invite.id)}
-          onStarted={() => outcomes.begin(deleting.invite.id)}
-          onSettled={() => outcomes.end(deleting.invite.id)}
           onLateFailure={(error) =>
-            outcomes.failed({ invite: deleting.invite, error })
+            deletes.failed({ invite: deleting.invite, error })
           }
         />
       )}
@@ -605,25 +539,17 @@ function deleteGone(ts: (source: string) => string): WorkerErrorAdvice {
 }
 
 /**
- * Confirms the delete of one invite. An invite that is gone, deleted now or
- * already, reports to `onDeleted`. A delete that fails after the dialog was
- * closed reports to `onLateFailure`.
+ * Confirms the delete of one invite. A delete that fails after the dialog
+ * was closed reports to `onLateFailure`, unless the invite was gone.
  */
 function DeleteInviteDialog({
   invite,
   onClose,
-  onDeleted,
   onLateFailure,
-  onStarted,
-  onSettled,
 }: {
   invite: WorkerInvite;
   onClose: () => void;
-  onDeleted: () => void;
   onLateFailure: (error: unknown) => void;
-  /** The delete request starts and settles, whether or not the dialog is open. */
-  onStarted: () => void;
-  onSettled: () => void;
 }) {
   const { ts } = useI18n();
   const { deleteInvite, rereadInvites } = useWorkerActions();
@@ -642,23 +568,17 @@ function DeleteInviteDialog({
     if (submitting || gone) return;
     setSubmitting(true);
     setError(null);
-    onStarted();
     try {
       await deleteInvite(invite.id);
-      onDeleted();
       onClose();
     } catch (err) {
-      const alreadyGone =
-        err instanceof WorkerRequestError && err.status === 404;
-      if (alreadyGone) onDeleted();
       if (open.current) {
         setError(err);
-      } else if (!alreadyGone) {
+      } else if (!(err instanceof WorkerRequestError && err.status === 404)) {
         onLateFailure(err);
       }
     } finally {
       setSubmitting(false);
-      onSettled();
       // The server deletes on its own coordinators, so the local list is
       // read again, also after a switch to another node and back.
       rereadInvites('local');

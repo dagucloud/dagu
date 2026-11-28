@@ -93,6 +93,8 @@ function renderInvites(
       view.rerender(<WorkerInvites {...state} />);
     },
     rerender: () => view.rerender(<WorkerInvites {...state} />),
+    // Leaves the page for another route, with the app's providers kept.
+    leave: () => view.rerender(<div />),
   };
 }
 
@@ -578,6 +580,50 @@ describe('WorkerInvites', () => {
     expect(
       screen.getByRole('button', { name: /^Delete invite inv-1/ })
     ).toBeEnabled();
+  });
+
+  // The delete under way outlives the page: after a route change and back,
+  // the invite still has one delete at most.
+  it('keeps one delete per invite across a route change', async () => {
+    server.invites = invitesAnswer([invite('inv-1')]);
+    const pending = heldDeletes();
+    const { leave, rerender } = renderInvites();
+    await startDelete('inv-1');
+
+    leave();
+    rerender();
+    const row = await screen.findByRole('button', {
+      name: /^Delete invite inv-1/,
+    });
+    expect(row).toBeDisabled();
+    await userEvent.click(row);
+    expect(requests('DELETE', '/workers/invites/inv-1')).toHaveLength(1);
+
+    server.invites = invitesAnswer([]);
+    await act(async () => pending[0]!({ status: 204 }));
+    expect(await screen.findByText('No invites')).toBeInTheDocument();
+    expect(requests('DELETE', '/workers/invites/inv-1')).toHaveLength(1);
+  });
+
+  // A deleted invite leaves the list at once, before the list is read
+  // again, so it offers no second Delete meanwhile.
+  it('drops a deleted invite before the list is read again', async () => {
+    server.invites = invitesAnswer([invite('inv-1'), invite('inv-2')]);
+    renderInvites();
+    await screen.findByRole('button', { name: /^Delete invite inv-1/ });
+    server.invites = () => new Promise(() => undefined) as never;
+
+    await startDelete('inv-1');
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: /^Delete invite inv-1/ })
+      ).not.toBeInTheDocument()
+    );
+    expect(
+      screen.getByRole('button', { name: /^Delete invite inv-2/ })
+    ).toBeEnabled();
+    expect(requests('DELETE', '/workers/invites/inv-1')).toHaveLength(1);
   });
 
   // A bad ID is refused before any coordinator call. The words of that
@@ -1260,6 +1306,34 @@ describe('WorkerInvites', () => {
     expect(screen.queryByText(/inv-old/)).not.toBeInTheDocument();
   });
 
+  // A stale read neither replaces the last failure nor brings back rows: the
+  // list keeps what the last settled read showed.
+  it('keeps the last failure when a stale read answers', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    server.invites = refused(503, '', 'internal_error', 'no_coordinator');
+    const { update, refresh } = renderInvites([worker('worker-a')]);
+    await screen.findByText('No coordinator is running or reachable.');
+    let stale: (answer: { status: number; body: unknown }) => void = () =>
+      undefined;
+    server.invites = () =>
+      new Promise<{ status: number; body: unknown }>(
+        (resolve) => (stale = resolve)
+      ) as never;
+    refresh();
+    await waitFor(() => expect(reads()).toBe(2));
+
+    update([worker('worker-a'), worker('worker-b', { inviteId: 'inv-1' })]);
+    await act(async () =>
+      stale({ status: 200, body: { invites: [invite('inv-1')] } })
+    );
+    await act(() => vi.advanceTimersByTimeAsync(100));
+
+    expect(
+      screen.getByText('No coordinator is running or reachable.')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('inv-1')).not.toBeInTheDocument();
+  });
+
   // A read under way when the list left a node cannot answer for the
   // workers it shows on return: the first read on return starts afresh.
   it('reads afresh on return to a node', async () => {
@@ -1355,6 +1429,22 @@ describe('WorkerInvites', () => {
       expect(document.body).not.toHaveTextContent(/this server/i);
     }
   );
+
+  // A refusal without a reason on a remote node points the check at the
+  // selected node, which made the coordinator call.
+  it('names the selected node for a remote refusal without a reason', async () => {
+    server.node = 'node-b';
+    server.invites = refused(409, 'refused', 'conflict');
+
+    renderInvites();
+
+    expect(
+      await screen.findByText(
+        'Check the coordinator log for the reason, or run dagu worker --check on the host of the selected node, then try again.'
+      )
+    ).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/this host/);
+  });
 
   // A read that a delete superseded cannot show its failure over the newer
   // list: only the last read publishes a list or an error.
