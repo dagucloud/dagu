@@ -69,6 +69,20 @@ export function coordinatorEnvironment(
   return readiness.coordinators.find((c) => c.report)?.report?.environment;
 }
 
+/**
+ * The address a pod advertises, with its coordinator's port, for workers
+ * in the cluster: the first that passes addressProblem, else undefined.
+ */
+export function podAddress(readiness: JoinReadiness): string | undefined {
+  return readiness.coordinators
+    .flatMap(({ report }) =>
+      report?.environment === HostEnvironment.kubernetes && report.advertise
+        ? [joinHostPort(report.advertise, report.port)]
+        : []
+    )
+    .find((a) => !addressProblem(a));
+}
+
 /** Whether any coordinator that reported runs in Kubernetes. */
 export function inKubernetes(readiness: JoinReadiness): boolean {
   return readiness.coordinators.some(

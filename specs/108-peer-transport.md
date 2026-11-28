@@ -1298,13 +1298,15 @@ and prints the message:
   ID, or the browser's host; an explicit `advertise` may be a DNS name.
 - In Kubernetes, step 2 first asks where the workers run, with neither
   answer chosen, since an advertised address is often a Service name that
-  only pods in the cluster resolve. Inside this cluster keeps the starting
-  address and says that workers in another namespace need the Service's
-  namespace-qualified name, such as `dagu-coordinator.<namespace>.svc:50055`.
+  only pods in the cluster resolve. Inside this cluster starts with the
+  address a pod advertises, or empty when none does, and says that workers
+  in another namespace need the Service's namespace-qualified name, such
+  as `dagu-coordinator.<namespace>.svc:50055`.
   Outside the cluster empties the field and asks for the load balancer's
   address, or a node's address and the assigned node port. Either answer's
   hint replaces the container hint of a container that reports beside the
-  pod. Step 3 waits for the answer.
+  pod. Step 3 waits for the answer. The field's description names the
+  hint and any refusal.
 - The field holds `host:port`, trimmed of surrounding white space as the
   MCP action trims it, and keeps a pasted line break, which the rule below
   refuses inside the address. Its starting value and each suggestion pass the rule
@@ -1320,7 +1322,8 @@ and prints the message:
   `POST /api/v1/workers/invites` checks only that the address is
   `host:port` with a port from 1 to 65535 and that its host holds no
   invite, since automation may reach the coordinator through a tunnel.
-- Step 3 shows only after steps 1 and 2. Its tab sets the invite kind:
+- Step 3 shows only after steps 1 and 2, and not while a reading of step
+  1 runs, as after a restart. Its tab sets the invite kind:
 
   | Tab | Invite | Command |
   | --- | --- | --- |

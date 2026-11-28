@@ -26,6 +26,7 @@ import {
   coordinatorEnvironment,
   inKubernetes,
   initialAddress,
+  podAddress,
   suggestedAddresses,
   type AddressProblem,
 } from './address';
@@ -65,6 +66,14 @@ interface AddWorkerProps {
   refreshFailed: boolean;
 }
 
+// The address an untouched field starts with: none outside the cluster,
+// the pod's advertised address inside it, else the usual default.
+function defaultAddress(data: JoinReadiness, placement?: Placement): string {
+  if (placement === Placement.outside) return '';
+  if (placement === Placement.inside) return podAddress(data) ?? '';
+  return initialAddress(data);
+}
+
 /**
  * The Add worker dialog. It is mounted only while open, so each opening
  * reads readiness afresh.
@@ -80,7 +89,8 @@ export function AddWorkerDialog({
   const [checking, setChecking] = React.useState(true);
   const [address, setAddress] = React.useState<string>();
   const [placement, setPlacement] = React.useState<Placement>();
-  const outside = React.useRef(false);
+  // The placement as load reads it, to reset an untouched field.
+  const placed = React.useRef<Placement | undefined>(undefined);
   const touched = React.useRef(false);
   // Only the latest read may change the dialog: an earlier one that ends
   // later must not replace a newer answer.
@@ -118,13 +128,13 @@ export function AddWorkerDialog({
     setReadiness(next);
     // The placement holds only while a pod reports.
     if (next.state === 'loaded' && !inKubernetes(next.data)) {
-      outside.current = false;
+      placed.current = undefined;
       setPlacement(undefined);
     }
     // A new reading resets the defaults the admin has not changed, as a
     // port that changed in the restart.
     if (next.state === 'loaded' && !touched.current) {
-      setAddress(outside.current ? '' : initialAddress(next.data));
+      setAddress(defaultAddress(next.data, placed.current));
     }
     setChecking(false);
   }, [client]);
@@ -170,9 +180,12 @@ export function AddWorkerDialog({
   });
 
   const problem = address !== undefined ? addressProblem(address) : undefined;
-  const placed = !data || !inKubernetes(data) || placement;
+  const answered = !data || !inKubernetes(data) || placement;
+  // A recheck, as after a restart, holds step 3 until it succeeds.
   const validAddress =
-    ready && placed && address && !problem ? goTrimSpace(address) : undefined;
+    !checking && ready && answered && address && !problem
+      ? goTrimSpace(address)
+      : undefined;
 
   let step1State = 'Checking...';
   if (!checking) step1State = ready ? 'Ready' : 'Needs change';
@@ -240,10 +253,10 @@ export function AddWorkerDialog({
               placementField={placementField}
               placement={placement}
               onPlace={(next) => {
-                outside.current = next === Placement.outside;
+                placed.current = next;
                 touched.current = false;
                 setPlacement(next);
-                setAddress(outside.current ? '' : initialAddress(data));
+                setAddress(defaultAddress(data, next));
               }}
               problem={touched.current || address ? problem : undefined}
               onChange={(next) => {
@@ -292,13 +305,15 @@ function AddressFields({
     hint =
       "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.";
   } else if (placement === Placement.inside) {
-    hint =
-      "Workers in the coordinator's namespace can use the Service's short name below. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.";
+    hint = podAddress(data)
+      ? "Workers in the coordinator's namespace can use the Service's short name below. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055."
+      : "Enter the coordinator Service's address and port. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.";
   } else if (environment === HostEnvironment.container) {
     hint =
       'Enter the address of the machine that runs the container. Dagu cannot see it from inside the container.';
   }
   const errorId = `${id}-error`;
+  const hintId = `${id}-hint`;
   const kubernetes = inKubernetes(data);
   return (
     <div className="space-y-2">
@@ -322,7 +337,7 @@ function AddressFields({
         </fieldset>
       )}
       {hint && (
-        <p className="text-sm text-muted-foreground">
+        <p id={hintId} className="text-sm text-muted-foreground">
           <I18nText text={hint} />
         </p>
       )}
@@ -347,7 +362,11 @@ function AddressFields({
               required
               value={address}
               aria-invalid={problem ? true : undefined}
-              aria-describedby={problem ? errorId : undefined}
+              aria-describedby={
+                [hint && hintId, problem && errorId]
+                  .filter(Boolean)
+                  .join(' ') || undefined
+              }
               onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
               onChange={(e) => onChange(e.target.value)}
             />

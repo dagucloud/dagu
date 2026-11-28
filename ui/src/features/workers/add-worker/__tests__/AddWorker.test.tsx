@@ -395,6 +395,68 @@ describe('AddWorker', () => {
     expect(screen.getByLabelText(ADDRESS)).toHaveValue(kept);
   });
 
+  // Inside starts with the pod's advertised address, never a last invite
+  // address made for outside, and keeps it on a new reading. Without one,
+  // the field starts empty and the hint asks for the address.
+  it.each([
+    ['advertises', pod, 'dagu-coordinator:50055', /short name below/],
+    [
+      'does not advertise',
+      { ...pod, advertise: undefined },
+      '',
+      /^Enter the coordinator Service's address and port/,
+    ],
+  ])('fills Inside from the pod when it %s', async (_, r, value, hint) => {
+    const data = {
+      ...readings(r),
+      lastInviteAddress: 'outside.example.test:30055',
+    };
+    const { rerender } = await open(data);
+    fireEvent.click(screen.getByRole('radio', { name: 'Inside this cluster' }));
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue(value);
+    expect(screen.getByText(hint)).toBeInTheDocument();
+    api.GET.mockResolvedValue(answer(200, data));
+    rerender(view(true));
+    rerender(view(false));
+    await settle();
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue(value);
+  });
+
+  // The field's description carries the placement hint and any refusal,
+  // so a keyboard user who tabs to it hears both.
+  it('describes the field with the hint and the refusal', async () => {
+    const user = userEvent.setup();
+    await open(readings(pod));
+    screen.getByRole('radio', { name: 'Inside this cluster' }).focus();
+    await user.keyboard(' ');
+    await user.tab();
+    const field = screen.getByLabelText(ADDRESS);
+    expect(document.activeElement).toBe(field);
+    expect(field).toHaveAccessibleDescription(/namespace-qualified name/);
+    typeAddress('localhost:50055');
+    expect(field).toHaveAccessibleDescription(
+      /namespace-qualified name.*localhost/
+    );
+  });
+
+  // A reading that runs, as after a restart, holds step 3 until it
+  // succeeds, also when the dialog was ready.
+  it('holds step 3 while a reading runs', async () => {
+    const { rerender } = await open(readiness({}, '192.168.1.30:50055'));
+    const locked = () =>
+      step('Worker').queryByText('Shown after steps 1 and 2');
+    expect(locked()).toBeNull();
+    const later = deferred<unknown>();
+    api.GET.mockReturnValue(later.promise);
+    rerender(view(true));
+    rerender(view(false));
+    await settle();
+    expect(locked()).toBeInTheDocument();
+    later.resolve(answer(200, readiness({}, '192.168.1.30:50055')));
+    await settle();
+    expect(locked()).toBeNull();
+  });
+
   // Check again can remove its own button before the field shows; the focus
   // goes to the placement choice, which stays unanswered.
   it('moves the focus of Check again to the placement choice', async () => {
