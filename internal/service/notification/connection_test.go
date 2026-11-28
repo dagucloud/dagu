@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -198,13 +199,26 @@ func TestConnectionEventsOldestFirst(t *testing.T) {
 
 // A channel that receives connection.needs_attention sends no failure
 // message for a run that a broken connection failed; it already got the
-// connection's message. A channel without connection events, and any run
-// with another cause, still get the failure message. The decision reads the
+// connection's message. This holds for a channel that a DAG's own settings
+// subscribe to. A channel without connection events, and any run with
+// another cause, still get the failure message. The decision reads the
 // run's record alone, so it holds for a run read after a reconnect.
 func TestRunFailureSkippedForBrokenConnection(t *testing.T) {
 	t.Parallel()
 
-	store := newMemoryStore()
+	ctx := context.Background()
+	failed := []eventstore.EventType{eventstore.TypeDAGRunFailed}
+	subscribed, err := notificationmodel.Normalize(&notificationmodel.Settings{
+		DAGName: "subscribed-dag",
+		Enabled: true,
+		Events:  failed,
+		Subscriptions: []notificationmodel.Subscription{
+			{ID: "sub-attention", ChannelID: "attention", Enabled: true},
+			{ID: "sub-runs", ChannelID: "runs-only", Enabled: true},
+		},
+	}, "tester")
+	require.NoError(t, err)
+	store := newMemoryStore(subscribed)
 	for _, id := range []string{"attention", "runs-only"} {
 		channel, err := notificationmodel.NormalizeChannel(&notificationmodel.Channel{
 			ID:      id,
@@ -214,19 +228,17 @@ func TestRunFailureSkippedForBrokenConnection(t *testing.T) {
 			Slack:   &notificationmodel.SlackTarget{WebhookURL: "https://93.184.216.34/" + id},
 		}, "tester")
 		require.NoError(t, err)
-		require.NoError(t, store.SaveChannel(context.Background(), channel))
+		require.NoError(t, store.SaveChannel(ctx, channel))
 	}
 	svc := New(store, nil)
-	_, err := svc.SaveRouteSet(context.Background(), &notificationmodel.RouteSet{
+	needsAttention := []eventstore.EventType{eventstore.TypeConnectionNeedsAttention}
+	_, err = svc.SaveRouteSet(ctx, &notificationmodel.RouteSet{
 		Scope:     notificationmodel.RouteScopeWorkspace,
 		Workspace: "ops",
 		Enabled:   true,
 		Routes: []notificationmodel.Route{
-			{
-				ID: "attention", ChannelID: "attention", Enabled: true,
-				Events: []eventstore.EventType{eventstore.TypeDAGRunFailed, eventstore.TypeConnectionNeedsAttention},
-			},
-			{ID: "runs-only", ChannelID: "runs-only", Enabled: true, Events: []eventstore.EventType{eventstore.TypeDAGRunFailed}},
+			{ID: "attention", ChannelID: "attention", Enabled: true, Events: append(slices.Clone(failed), needsAttention...)},
+			{ID: "runs-only", ChannelID: "runs-only", Enabled: true, Events: failed},
 		},
 	}, "tester")
 	require.NoError(t, err)
@@ -238,22 +250,46 @@ func TestRunFailureSkippedForBrokenConnection(t *testing.T) {
 			Connection: &ir.NodeConnection{Name: "work-google", Failure: failure},
 		}
 	}
-	runsOnly := routeDestinationID(notificationmodel.RouteScopeWorkspace, "ops", "runs-only")
-	attention := routeDestinationID(notificationmodel.RouteScopeWorkspace, "ops", "attention")
+	route := func(id string) string { return routeDestinationID(notificationmodel.RouteScopeWorkspace, "ops", id) }
+	subscription := func(id string) string { return channelDestinationID("subscribed-dag", id) }
 	tests := []struct {
 		name  string
+		dag   string
 		nodes []*ir.Node
 		want  []string
 	}{
-		{name: "BrokenConnection", nodes: []*ir.Node{failedOn(ir.ConnectionNeedsAttention)}, want: []string{runsOnly}},
-		{name: "PendingConnection", nodes: []*ir.Node{failedOn(ir.ConnectionReconnectRequired)}, want: []string{attention, runsOnly}},
+		{
+			name:  "BrokenConnection",
+			dag:   "mail-dag",
+			nodes: []*ir.Node{failedOn(ir.ConnectionNeedsAttention)},
+			want:  []string{route("runs-only")},
+		},
+		{
+			name:  "PendingConnection",
+			dag:   "mail-dag",
+			nodes: []*ir.Node{failedOn(ir.ConnectionReconnectRequired)},
+			want:  []string{route("attention"), route("runs-only")},
+		},
 		{
 			name: "OtherFailedStep",
+			dag:  "mail-dag",
 			nodes: []*ir.Node{
 				failedOn(ir.ConnectionNeedsAttention),
 				{Step: ir.Step{Name: "local"}, Status: ir.NodeFailed, Error: "exit status 1"},
 			},
-			want: []string{attention, runsOnly},
+			want: []string{route("attention"), route("runs-only")},
+		},
+		{
+			name:  "SubscribedBrokenConnection",
+			dag:   "subscribed-dag",
+			nodes: []*ir.Node{failedOn(ir.ConnectionNeedsAttention)},
+			want:  []string{subscription("sub-runs")},
+		},
+		{
+			name:  "SubscribedPendingConnection",
+			dag:   "subscribed-dag",
+			nodes: []*ir.Node{failedOn(ir.ConnectionReconnectRequired)},
+			want:  []string{subscription("sub-attention"), subscription("sub-runs")},
 		},
 	}
 	for _, tt := range tests {
@@ -263,12 +299,12 @@ func TestRunFailureSkippedForBrokenConnection(t *testing.T) {
 				Key:  "run-1",
 				Type: eventstore.TypeDAGRunFailed,
 				Status: &ir.DAGRunStatus{
-					Name: "mail-dag", DAGRunID: "run-1", AttemptID: "attempt-1",
+					Name: tt.dag, DAGRunID: "run-1", AttemptID: "attempt-1",
 					Labels: []string{"workspace=ops"}, Status: ir.Failed, Nodes: tt.nodes,
 				},
 				ObservedAt: time.Now(),
 			}
-			assert.Equal(t, tt.want, svc.NotificationDestinationsForEvent(event))
+			assert.ElementsMatch(t, tt.want, svc.NotificationDestinationsForEvent(event))
 		})
 	}
 }
