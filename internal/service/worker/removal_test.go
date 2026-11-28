@@ -18,6 +18,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -206,18 +207,7 @@ func TestWorkerRemovedDuringPreflight(t *testing.T) {
 // A removal while a stop drains the runs ends the drain: the runs stop at
 // once, and Stop and Start end as removed (Spec 108 §Removed Worker).
 func TestWorkerRemovedDuringDrain(t *testing.T) {
-	// pollStopped is closed once the stop ends polling, which it does
-	// before it drains.
-	pollStopped := make(chan struct{})
-	var stopPoll sync.Once
-	client := &removalClient{
-		task: &coordinatorv1.Task{DagRunId: "run-1", AttemptKey: "attempt-1"},
-		poll: func(ctx context.Context) error {
-			<-ctx.Done()
-			stopPoll.Do(func() { close(pollStopped) })
-			return ctx.Err()
-		},
-	}
+	client := &removalClient{task: &coordinatorv1.Task{DagRunId: "run-1", AttemptKey: "attempt-1"}}
 	r := new(refusal)
 	started := make(chan struct{})
 	runErr := make(chan error, 1)
@@ -233,9 +223,18 @@ func TestWorkerRemovedDuringDrain(t *testing.T) {
 	go func() { startErr <- w.Start(t.Context()) }()
 	<-started
 
+	// The stop's log line tells that it ended polling and drains. Polls
+	// cannot tell it: a poller that the stop overtook never polls.
+	draining := &blockingLog{block: []byte("Worker waiting for running tasks to finish"), blocked: make(chan struct{}), release: make(chan struct{})}
+	draining.unblock()
+	stopCtx := logger.WithLogger(t.Context(), logger.NewLogger(logger.WithWriter(draining), logger.WithQuiet()))
 	stopErr := make(chan error, 1)
-	go func() { stopErr <- w.Stop(t.Context()) }()
-	<-pollStopped
+	go func() { stopErr <- w.Stop(stopCtx) }()
+	select {
+	case <-draining.blocked:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the stop did not drain")
+	}
 	r.refuse()
 	select {
 	case err := <-stopErr:
