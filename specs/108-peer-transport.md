@@ -63,6 +63,7 @@ This spec defines:
 - `dagu worker --check` and `dagu worker invite`
 - the REST endpoints for invites, removal, and join readiness
 - the contracts of the **Add worker** dialog and the Workers page
+- the MCP action behind **Add worker**
 - failure messages, and the values that never appear in output
 - behavior across Dagu versions
 
@@ -81,8 +82,6 @@ This spec does not define:
 - binding a certificate to its worker ID, narrowing what a worker
   certificate may call, and replacing the CA (RFC 029 open questions 2 to 4)
 - the Helm chart's values, and Dagu Cloud's console
-- the name of the MCP tool and action behind **Add worker**, which the part
-  that adds it sets in the MCP reference and in this spec
 
 ## Goal
 
@@ -1082,11 +1081,26 @@ The Workers page is the list of workers on System status.
 
 #### MCP Action
 
-- An admin-only server MCP action returns join readiness, and creates an
-  invite when the coordinator is ready, with the same body as
-  `POST /api/v1/workers/invites`.
+- `dagu_execute` with `action: add_worker`, admin only, returns join
+  readiness, and creates an invite when every coordinator is ready, with
+  the fields of the `POST /api/v1/workers/invites` body: `address`,
+  `reusable`, and `expiresIn`. `labels` go into the commands.
+- Without `address`, it creates no invite, as the dialog shows step 3 only
+  after step 2.
+- `coordinators` holds, for each coordinator, `ready`, its report or
+  `error`, the `changes` of step 1 while it is not ready, and the `notes`
+  that step 1 keeps even when ready. `address` holds `initial`, the value
+  step 2 starts with, and `suggestions`, the addresses step 2 suggests.
+- While a coordinator is not ready, or does not report, it creates no
+  invite.
+- The result that creates the invite holds `inviteId`, `invite`, `kind`,
+  `expiresAt`, and `commands`: `linux`, `docker`, and, for a reusable
+  invite only, `kubernetes`, as step 3's tabs give them.
 - Only the result that creates the invite contains it. Each call is in the
-  audit log.
+  audit log, and the entry of the call that creates an invite has its ID.
+- A non-admin gets `unauthorized`. No coordinator running or reachable
+  gives `resource_unavailable`, and only coordinators of an earlier release
+  give `conflict`.
 
 ### Secrets in Output
 
