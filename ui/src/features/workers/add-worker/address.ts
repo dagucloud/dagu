@@ -26,6 +26,16 @@ const CONTAINER_ID = /^[0-9a-f]{12}([0-9a-f]{52})?$/;
 // An invite anywhere in a text: dagu1.<pin>.<secret>.
 const INVITE = /dagu1\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}/;
 
+// The characters Go's strings.TrimSpace removes.
+const GO_SPACE_CLASS =
+  '[\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]';
+const GO_SPACE = new RegExp(`^${GO_SPACE_CLASS}+|${GO_SPACE_CLASS}+$`, 'g');
+
+/** Trims a text as Go's strings.TrimSpace does, as the MCP action does. */
+export function goTrimSpace(text: string): string {
+  return text.replace(GO_SPACE, '');
+}
+
 /** Whether a text holds an invite, which belongs only in the commands. */
 export function holdsInvite(text: string): boolean {
   return INVITE.test(text);
@@ -169,7 +179,9 @@ function hostProblem(host: string): string | undefined {
  * What is wrong with an address, or undefined when a worker on another
  * machine can dial it. A problem never repeats an invite pasted into it.
  */
-export function addressProblem(address: string): AddressProblem | undefined {
+export function addressProblem(text: string): AddressProblem | undefined {
+  // The MCP action trims the address before it checks it.
+  const address = goTrimSpace(text);
   if (address === '') {
     return { text: 'Enter the address workers use to reach the coordinator.' };
   }

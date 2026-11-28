@@ -10,17 +10,14 @@ import {
   WorkerAccessReason,
   type components,
 } from '@/api/v1/schema';
-import { RemoteNodeProvider } from '@/contexts/RemoteNodeContext';
-import { AddWorker } from '../AddWorker';
+import { AddWorkerDialog } from '../AddWorker';
 
 type Readiness = components['schemas']['WorkerJoinReadinessResponse'];
 type Report = components['schemas']['JoinReadinessReport'];
 
 const api = vi.hoisted(() => ({ GET: vi.fn() }));
-const auth = vi.hoisted(() => ({ admin: true }));
 
 vi.mock('@/hooks/api', () => ({ useClient: () => api }));
-vi.mock('@/contexts/AuthContext', () => ({ useIsAdmin: () => auth.admin }));
 
 function report(overrides: Partial<Report> = {}): Report {
   return {
@@ -88,7 +85,7 @@ function deferred<T>() {
 }
 
 function view(refreshFailed = false) {
-  return <AddWorker refreshFailed={refreshFailed} />;
+  return <AddWorkerDialog refreshFailed={refreshFailed} onClose={() => {}} />;
 }
 
 // Settles the pending API calls and the renders they cause.
@@ -97,7 +94,6 @@ const settle = () => act(async () => {});
 async function open(data: Readiness) {
   api.GET.mockResolvedValue(answer(200, data));
   const result = render(view());
-  fireEvent.click(screen.getByRole('button', { name: 'Add worker' }));
   await settle();
   return result;
 }
@@ -120,31 +116,14 @@ const writeText = vi.fn();
 
 beforeEach(() => {
   api.GET.mockReset();
-  auth.admin = true;
   writeText.mockReset().mockResolvedValue(undefined);
   Object.assign(navigator, { clipboard: { writeText } });
 });
 
 describe('AddWorker', () => {
-  it('offers no button to a user who is not an admin', () => {
-    auth.admin = false;
-    render(view());
-    expect(screen.queryByRole('button', { name: 'Add worker' })).toBeNull();
-  });
-
-  // Invites come only from the server the page is served by.
-  it('offers Add worker only on the local server', () => {
-    render(<RemoteNodeProvider remoteNode="prod">{view()}</RemoteNodeProvider>);
-    expect(screen.getByRole('button', { name: 'Add worker' })).toBeDisabled();
-    expect(
-      screen.getByText('Switch to the local server to add a worker.')
-    ).toBeInTheDocument();
-  });
-
   it('checks the coordinator while join readiness loads', () => {
     api.GET.mockReturnValue(new Promise(() => {}));
     render(view());
-    fireEvent.click(screen.getByRole('button', { name: 'Add worker' }));
 
     expect(
       step('Accept workers from other hosts').getByText('Checking...')
@@ -214,60 +193,65 @@ describe('AddWorker', () => {
     expect(screen.getByLabelText(ADDRESS)).toHaveValue('192.168.1.40:50055');
   });
 
-  // admin.yaml is applied after config.yaml, so the change goes where the
-  // value came from.
-  it('points to the file that set the listen host', async () => {
-    await open(
-      loopback({
-        hostSource: {
-          kind: ConfigSourceKind.file,
-          name: '/home/me/.config/dagu/admin.yaml',
-        },
-      })
-    );
-    expect(
-      screen.getByText(
-        'In /home/me/.config/dagu/admin.yaml, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.'
-      )
-    ).toBeInTheDocument();
-    // A block to append could repeat the file's coordinator key.
-    expect(screen.queryByText(/coordinator:/, { selector: 'pre' })).toBeNull();
-  });
-
-  // A variable wins over a config file, so a container's -e still works.
-  it('sets the variable for a container whose file pins loopback', async () => {
-    await open(
-      loopback({
-        environment: HostEnvironment.container,
-        hostSource: {
-          kind: ConfigSourceKind.file,
-          name: '/etc/dagu/dagu.yaml',
-        },
-      })
-    );
-    expect(
-      screen.getByText('-p 50055:50055 -e DAGU_COORDINATOR_HOST=0.0.0.0', {
-        selector: 'pre',
-      })
-    ).toBeInTheDocument();
-  });
-
-  // A flag wins over the variable, so a container started with one is told
-  // to change it, and still to publish the port.
-  it('names the flag that pins a container to loopback', async () => {
-    await open(
-      loopback({
-        environment: HostEnvironment.container,
-        hostSource: { kind: ConfigSourceKind.flag, name: '--coordinator.host' },
-      })
-    );
-    expect(
-      screen.getByText(/The flag --coordinator.host sets coordinator.host/)
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText('-p 50055:50055', { selector: 'pre' })
-    ).toBeInTheDocument();
-  });
+  // The change goes to the source that set the host: a flag wins over a
+  // variable, and a variable over a config file, such as admin.yaml over
+  // config.yaml. In a container, -e still wins over a file.
+  const { env, file, flag } = ConfigSourceKind;
+  const { container, kubernetes } = HostEnvironment;
+  it.each([
+    [
+      'a variable',
+      undefined,
+      env,
+      'DAGU_COORDINATOR_HOST',
+      'DAGU_COORDINATOR_HOST=0.0.0.0',
+    ],
+    [
+      'a flag',
+      undefined,
+      flag,
+      '--coordinator.host',
+      '--coordinator.host=0.0.0.0',
+    ],
+    [
+      'admin.yaml',
+      undefined,
+      file,
+      '/home/me/.config/dagu/admin.yaml',
+      'In /home/me/.config/dagu/admin.yaml, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.',
+    ],
+    [
+      'a flag in a container',
+      container,
+      flag,
+      '--coordinator.host',
+      '-p 50055:50055',
+    ],
+    [
+      'a file in a container',
+      container,
+      file,
+      '/etc/dagu/dagu.yaml',
+      '-p 50055:50055 -e DAGU_COORDINATOR_HOST=0.0.0.0',
+    ],
+    [
+      'a flag in a pod',
+      kubernetes,
+      flag,
+      '--coordinator.host',
+      '--coordinator.host=0.0.0.0',
+    ],
+  ])(
+    'follows %s that sets the listen host',
+    async (_, environment, kind, name, change) => {
+      await open(loopback({ environment, hostSource: { kind, name } }));
+      expect(screen.getByText(change)).toBeInTheDocument();
+      // A block to append could repeat the file's coordinator key.
+      expect(
+        screen.queryByText(/coordinator:/, { selector: 'pre' })
+      ).toBeNull();
+    }
+  );
 
   it('says where to set the host for a coordinator on loopback only', async () => {
     await open(loopback());
@@ -290,18 +274,6 @@ describe('AddWorker', () => {
     expect(
       step('Worker').getByText('Shown after steps 1 and 2')
     ).toBeInTheDocument();
-  });
-
-  it.each([
-    [
-      ConfigSourceKind.env,
-      'DAGU_COORDINATOR_HOST',
-      'DAGU_COORDINATOR_HOST=0.0.0.0',
-    ],
-    [ConfigSourceKind.flag, '--coordinator.host', '--coordinator.host=0.0.0.0'],
-  ])('shows the %s that sets the listen host', async (kind, name, setting) => {
-    await open(loopback({ hostSource: { kind, name } }));
-    expect(screen.getByText(setting, { selector: 'pre' })).toBeInTheDocument();
   });
 
   it('asks a container to publish its port and for the machine address', async () => {
@@ -336,7 +308,10 @@ describe('AddWorker', () => {
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Copy the change' }));
     await settle();
-    expect(writeText).toHaveBeenCalledWith('deploymentMode: distributed');
+    // helm template accepts this over the chart's default values.
+    expect(writeText).toHaveBeenCalledWith(
+      'deploymentMode: distributed\npersistence:\n  accessMode: ReadWriteMany'
+    );
     expect(
       screen.getByText(/type LoadBalancer or NodePort/)
     ).toBeInTheDocument();
@@ -402,14 +377,13 @@ describe('AddWorker', () => {
       /Set peer.token on this server/,
     ],
     [503, WorkerAccessReason.peer_token_mismatch, /same peer.token on both/],
-    [503, WorkerAccessReason.require_tls, /requires TLS/],
+    [503, WorkerAccessReason.require_tls, /the DAGU_PEER_INSECURE variable/],
     [503, WorkerAccessReason.coordinator_refused, /Its log names the reason/],
     [409, WorkerAccessReason.coordinator_conflict, /present state/],
     [503, WorkerAccessReason.retry_later, /Try again in a moment/],
   ])('names the cause of a %i (%s)', async (status, reason, text) => {
     api.GET.mockResolvedValue(answer(status, undefined, reason));
     render(view());
-    fireEvent.click(screen.getByRole('button', { name: 'Add worker' }));
     await settle();
 
     expect(screen.getByRole('alert')).toHaveTextContent(text);
@@ -430,7 +404,6 @@ describe('AddWorker', () => {
     const first = deferred<unknown>();
     api.GET.mockReturnValueOnce(first.promise);
     render(view());
-    fireEvent.click(screen.getByRole('button', { name: 'Add worker' }));
     api.GET.mockResolvedValueOnce(answer(200, readiness()));
     fireEvent.focus(window);
     await settle();
@@ -453,6 +426,22 @@ describe('AddWorker', () => {
     fireEvent.focus(window);
     await settle();
     expect(document.activeElement).toBe(screen.getByLabelText(ADDRESS));
+  });
+
+  // A failed reading removes the address field; its focus goes to Check
+  // again.
+  it('moves the address field focus to Check again when a reading fails', async () => {
+    const { rerender } = await open(readiness());
+    screen.getByLabelText(ADDRESS).focus();
+    api.GET.mockResolvedValue(
+      answer(503, undefined, WorkerAccessReason.no_coordinator)
+    );
+    rerender(view(true));
+    rerender(view(false));
+    await settle();
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: 'Check again' })
+    );
   });
 
   it('leaves the focus where the admin put it on a new reading', async () => {

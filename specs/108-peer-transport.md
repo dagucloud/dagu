@@ -1255,9 +1255,10 @@ and prints the message:
 - Step 1 shows each coordinator whose join readiness is not ready. `<port>`
   below is the reported `port`:
   - While `loopbackOnly`, the change for how Dagu was started:
-    - in Kubernetes: the chart's `deploymentMode: distributed`, whose
-      coordinator Deployment sets `DAGU_COORDINATOR_HOST` to `0.0.0.0`,
-      and no `DAGU_COORDINATOR_HOST` in `extraEnv`
+    - in Kubernetes: for `hostSource` `env` or `flag`, the change below;
+      otherwise the chart's `deploymentMode: distributed`, whose
+      coordinator Deployment sets `DAGU_COORDINATOR_HOST` to `0.0.0.0`, and
+      the `ReadWriteMany` storage that mode needs
     - in a container: recreate it with `-p <port>:<port>`, and with
       `-e <variable>=0.0.0.0`, where `<variable>` is the `hostSource`
       variable or `DAGU_COORDINATOR_HOST`. A flag wins over a variable, and
@@ -1294,8 +1295,9 @@ and prints the message:
   container, where it asks for the address of the machine that runs the
   container. It never fills in a host name, a container ID, or the
   browser's host.
-- The field holds `host:port`. Its starting value and each suggestion pass
-  the rule below, and an advertised address takes the `port` of the
+- The field holds `host:port`, trimmed of surrounding white space as the
+  MCP action trims it. Its starting value and each suggestion pass the rule
+  below, and an advertised address takes the `port` of the
   coordinator that reported it. A new reading resets the field while the
   admin has not changed it.
 - Step 2 refuses an address that a worker on another host cannot dial: one

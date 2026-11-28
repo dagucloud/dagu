@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Plus, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import * as React from 'react';
 import {
   HostEnvironment,
@@ -18,12 +18,11 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
-import { useIsAdmin } from '@/contexts/AuthContext';
-import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
 import { I18nText } from '@/i18n/I18nText';
 import {
   addressProblem,
+  goTrimSpace,
   coordinatorEnvironment,
   initialAddress,
   suggestedAddresses,
@@ -52,37 +51,11 @@ interface AddWorkerProps {
   refreshFailed: boolean;
 }
 
-/** The Add worker button of the Workers section, for admins. */
-export function AddWorker({ refreshFailed }: AddWorkerProps) {
-  const isAdmin = useIsAdmin();
-  const remote = useRemoteNode() !== LOCAL_NODE;
-  const [open, setOpen] = React.useState(false);
-  if (!isAdmin) return null;
-  return (
-    <>
-      {/* Invites come from the server this page is served by, never through
-          a remote node, so its audit entry names the admin. */}
-      {remote && (
-        <span className="text-xs text-muted-foreground">
-          <I18nText text="Switch to the local server to add a worker." />
-        </span>
-      )}
-      <Button size="xs" disabled={remote} onClick={() => setOpen(true)}>
-        <Plus />
-        <I18nText text="Add worker" />
-      </Button>
-      {/* Mounted only while open, so each opening reads readiness afresh. */}
-      {open && (
-        <AddWorkerDialog
-          refreshFailed={refreshFailed}
-          onClose={() => setOpen(false)}
-        />
-      )}
-    </>
-  );
-}
-
-function AddWorkerDialog({
+/**
+ * The Add worker dialog. It is mounted only while open, so each opening
+ * reads readiness afresh.
+ */
+export function AddWorkerDialog({
   refreshFailed,
   onClose,
 }: AddWorkerProps & { onClose: () => void }) {
@@ -97,7 +70,9 @@ function AddWorkerDialog({
   // later must not replace a newer answer.
   const latest = React.useRef(0);
   const hostField = React.useRef<HTMLInputElement>(null);
+  const checkButton = React.useRef<HTMLButtonElement>(null);
   const checkHadFocus = React.useRef(false);
+  const fieldHadFocus = React.useRef(false);
 
   const load = React.useCallback(async () => {
     const id = ++latest.current;
@@ -168,8 +143,19 @@ function AddWorkerDialog({
     }
   }, [ready]);
 
+  // A failed reading removes step 2; a focus the address field held moves
+  // to Check again, which a failure always shows.
+  const failed = readiness.state === 'failed';
+  React.useEffect(() => {
+    if (failed && fieldHadFocus.current) {
+      fieldHadFocus.current = false;
+      checkButton.current?.focus();
+    }
+  }, [failed]);
+
   const problem = address !== undefined ? addressProblem(address) : undefined;
-  const validAddress = ready && address && !problem ? address : undefined;
+  const validAddress =
+    ready && address && !problem ? goTrimSpace(address) : undefined;
 
   let step1State = 'Checking...';
   if (!checking) step1State = ready ? 'Ready' : 'Needs change';
@@ -206,6 +192,7 @@ function AddWorkerDialog({
           {/* It stays while a check runs, so the focus stays on it. */}
           {!ready && readiness.state !== 'loading' && (
             <Button
+              ref={checkButton}
               size="xs"
               aria-disabled={checking || undefined}
               onFocus={() => (checkHadFocus.current = true)}
@@ -232,6 +219,7 @@ function AddWorkerDialog({
               data={data}
               address={address}
               hostField={hostField}
+              onFocusChange={(focused) => (fieldHadFocus.current = focused)}
               problem={touched.current || address ? problem : undefined}
               onChange={(next) => {
                 touched.current = true;
@@ -255,12 +243,14 @@ function AddressFields({
   data,
   address,
   hostField,
+  onFocusChange,
   problem,
   onChange,
 }: {
   data: JoinReadiness;
   address: string;
   hostField: React.Ref<HTMLInputElement>;
+  onFocusChange: (focused: boolean) => void;
   problem?: AddressProblem;
   onChange: (address: string) => void;
 }) {
@@ -298,6 +288,8 @@ function AddressFields({
           value={address}
           aria-invalid={problem ? true : undefined}
           aria-describedby={problem ? errorId : undefined}
+          onFocus={() => onFocusChange(true)}
+          onBlur={() => onFocusChange(false)}
           onChange={(e) => onChange(e.target.value)}
         />
       </div>

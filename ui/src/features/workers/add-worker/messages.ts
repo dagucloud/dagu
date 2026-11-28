@@ -6,6 +6,11 @@ import { defineMessages } from '@/features/workflow-workspace/messages/define';
 /** The static messages of the Add worker dialog. */
 export const addWorkerMessages = defineMessages({
   en: {
+    'Check again': 'Check again',
+    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. It needs storage that supports ReadWriteMany. Then upgrade the release:':
+      'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. It needs storage that supports ReadWriteMany. Then upgrade the release:',
+    'The coordinator requires TLS. Remove peer.insecure from this server wherever it is set (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), then restart it.':
+      'The coordinator requires TLS. Remove peer.insecure from this server wherever it is set (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), then restart it.',
     'Copy the change': 'Copy the change',
     'The coordinator cannot do this yet. Try again in a moment.':
       'The coordinator cannot do this yet. Try again in a moment.',
@@ -18,8 +23,6 @@ export const addWorkerMessages = defineMessages({
       'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:',
     'In {file}, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.':
       'In {file}, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.',
-    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0, and remove any DAGU_COORDINATOR_HOST from extraEnv. Then upgrade the release:':
-      'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0, and remove any DAGU_COORDINATOR_HOST from extraEnv. Then upgrade the release:',
     'Enter host:port, such as 192.168.1.20:50055.':
       'Enter host:port, such as 192.168.1.20:50055.',
     'The address holds an invite. The invite goes only into the commands.':
@@ -37,16 +40,12 @@ export const addWorkerMessages = defineMessages({
       'The server refused the address. Check it and try again.',
     'The coordinator refused this server. Its log names the reason.':
       'The coordinator refused this server. Its log names the reason.',
-    "The coordinator requires TLS. Remove the peer.insecure setting from this server's config, then restart it.":
-      "The coordinator requires TLS. Remove the peer.insecure setting from this server's config, then restart it.",
     "This server's peer.token is not the coordinator's. Set the same peer.token on both, then restart them.":
       "This server's peer.token is not the coordinator's. Set the same peer.token on both, then restart them.",
     "This server has no peer token for the coordinator. Set peer.token on this server to the coordinator's, then restart it.":
       "This server has no peer token for the coordinator. Set peer.token on this server to the coordinator's, then restart it.",
     'No coordinator is running or reachable. Start one, such as with dagu start-all, then check again.':
       'No coordinator is running or reachable. Start one, such as with dagu start-all, then check again.',
-    'Switch to the local server to add a worker.':
-      'Switch to the local server to add a worker.',
     '{host} looks like a container ID. Enter the address of the machine that runs the container.':
       '{host} looks like a container ID. Enter the address of the machine that runs the container.',
     'Add worker': 'Add worker',
@@ -92,6 +91,11 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Shown after steps 1 and 2',
   },
   'zh-CN': {
+    'Check again': '重新检查',
+    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. It needs storage that supports ReadWriteMany. Then upgrade the release:':
+      '以分布式模式运行 Chart，其协调器监听 0.0.0.0。该模式需要支持 ReadWriteMany 的存储。然后升级 Release：',
+    'The coordinator requires TLS. Remove peer.insecure from this server wherever it is set (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), then restart it.':
+      '协调器要求 TLS。请从此服务器上所有设置 peer.insecure 的地方将其删除（--peer.insecure 参数、DAGU_PEER_INSECURE 变量或配置文件），然后重启它。',
     'Copy the change': '复制修改内容',
     'The coordinator cannot do this yet. Try again in a moment.':
       '协调器暂时无法执行此操作。请稍后重试。',
@@ -104,8 +108,6 @@ export const addWorkerMessages = defineMessages({
       '参数 {name} 设置了 coordinator.host。在启动 Dagu 的地方将其设为 0.0.0.0：',
     'In {file}, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.':
       '在 {file} 中，于 coordinator 块内将 host 设为 0.0.0.0；如果文件中没有该块，请添加。',
-    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0, and remove any DAGU_COORDINATOR_HOST from extraEnv. Then upgrade the release:':
-      '以分布式模式运行 Chart（其协调器监听 0.0.0.0），并从 extraEnv 中删除任何 DAGU_COORDINATOR_HOST。然后升级 Release：',
     'Enter host:port, such as 192.168.1.20:50055.':
       '请输入 host:port，例如 192.168.1.20:50055。',
     'The address holds an invite. The invite goes only into the commands.':
@@ -123,16 +125,12 @@ export const addWorkerMessages = defineMessages({
       '服务器拒绝了该地址。请检查后重试。',
     'The coordinator refused this server. Its log names the reason.':
       '协调器拒绝了此服务器。其日志说明了原因。',
-    "The coordinator requires TLS. Remove the peer.insecure setting from this server's config, then restart it.":
-      '协调器要求 TLS。请从此服务器的配置中删除 peer.insecure 设置，然后重启它。',
     "This server's peer.token is not the coordinator's. Set the same peer.token on both, then restart them.":
       '此服务器的 peer.token 与协调器的不同。请在两者上设置相同的 peer.token，然后重启它们。',
     "This server has no peer token for the coordinator. Set peer.token on this server to the coordinator's, then restart it.":
       '此服务器没有协调器的 peer token。请将此服务器的 peer.token 设为与协调器相同，然后重启它。',
     'No coordinator is running or reachable. Start one, such as with dagu start-all, then check again.':
       '没有正在运行或可访问的协调器。请启动一个（例如使用 dagu start-all），然后重新检查。',
-    'Switch to the local server to add a worker.':
-      '切换到本地服务器以添加 Worker。',
     '{host} looks like a container ID. Enter the address of the machine that runs the container.':
       '{host} 看起来是容器 ID。请输入运行该容器的机器的地址。',
     'Add worker': '添加 Worker',
@@ -177,6 +175,11 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': '完成步骤 1 和 2 后显示',
   },
   ja: {
+    'Check again': '再確認',
+    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. It needs storage that supports ReadWriteMany. Then upgrade the release:':
+      'チャートを分散モードで実行してください。そのコーディネーターは 0.0.0.0 で待ち受けます。ReadWriteMany に対応したストレージが必要です。その後リリースをアップグレードしてください:',
+    'The coordinator requires TLS. Remove peer.insecure from this server wherever it is set (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), then restart it.':
+      'コーディネーターは TLS を必要とします。このサーバーで peer.insecure を設定している箇所 (--peer.insecure フラグ、DAGU_PEER_INSECURE 変数、設定ファイル) からすべて削除し、再起動してください。',
     'Copy the change': '変更をコピー',
     'The coordinator cannot do this yet. Try again in a moment.':
       'コーディネーターはまだこれを実行できません。少し待ってからもう一度試してください。',
@@ -189,8 +192,6 @@ export const addWorkerMessages = defineMessages({
       'フラグ {name} が coordinator.host を設定しています。Dagu を起動する場所で 0.0.0.0 を指定してください:',
     'In {file}, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.':
       '{file} の coordinator ブロック内で host を 0.0.0.0 にしてください。ブロックがなければ追加してください。',
-    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0, and remove any DAGU_COORDINATOR_HOST from extraEnv. Then upgrade the release:':
-      'チャートを分散モードで実行し (そのコーディネーターは 0.0.0.0 で待ち受けます)、extraEnv から DAGU_COORDINATOR_HOST を削除してください。その後リリースをアップグレードしてください:',
     'Enter host:port, such as 192.168.1.20:50055.':
       '192.168.1.20:50055 のように host:port を入力してください。',
     'The address holds an invite. The invite goes only into the commands.':
@@ -208,16 +209,12 @@ export const addWorkerMessages = defineMessages({
       'サーバーがアドレスを拒否しました。確認してもう一度試してください。',
     'The coordinator refused this server. Its log names the reason.':
       'コーディネーターがこのサーバーを拒否しました。理由はそのログにあります。',
-    "The coordinator requires TLS. Remove the peer.insecure setting from this server's config, then restart it.":
-      'コーディネーターは TLS を必要とします。このサーバーの設定から peer.insecure の設定を削除し、再起動してください。',
     "This server's peer.token is not the coordinator's. Set the same peer.token on both, then restart them.":
       'このサーバーの peer.token はコーディネーターのものと異なります。両方に同じ peer.token を設定し、再起動してください。',
     "This server has no peer token for the coordinator. Set peer.token on this server to the coordinator's, then restart it.":
       'このサーバーにはコーディネーター用の peer token がありません。このサーバーの peer.token をコーディネーターと同じにして、再起動してください。',
     'No coordinator is running or reachable. Start one, such as with dagu start-all, then check again.':
       '実行中または到達可能なコーディネーターがありません。dagu start-all などで起動してから再確認してください。',
-    'Switch to the local server to add a worker.':
-      'ワーカーを追加するにはローカルサーバーに切り替えてください。',
     '{host} looks like a container ID. Enter the address of the machine that runs the container.':
       '{host} はコンテナ ID のようです。コンテナを実行しているマシンのアドレスを入力してください。',
     'Add worker': 'ワーカーを追加',
@@ -264,6 +261,11 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'ステップ 1 と 2 の後に表示',
   },
   de: {
+    'Check again': 'Erneut prüfen',
+    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. It needs storage that supports ReadWriteMany. Then upgrade the release:':
+      'Betreiben Sie das Chart im verteilten Modus, dessen Koordinator auf 0.0.0.0 lauscht. Er braucht Speicher, der ReadWriteMany unterstützt. Aktualisieren Sie dann das Release:',
+    'The coordinator requires TLS. Remove peer.insecure from this server wherever it is set (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), then restart it.':
+      'Der Koordinator verlangt TLS. Entfernen Sie peer.insecure auf diesem Server überall, wo es gesetzt ist (das Flag --peer.insecure, die Variable DAGU_PEER_INSECURE oder die Konfigurationsdatei), und starten Sie ihn neu.',
     'Copy the change': 'Änderung kopieren',
     'The coordinator cannot do this yet. Try again in a moment.':
       'Der Koordinator kann dies noch nicht tun. Versuchen Sie es gleich noch einmal.',
@@ -276,8 +278,6 @@ export const addWorkerMessages = defineMessages({
       'Das Flag {name} setzt coordinator.host. Geben Sie ihm dort, wo Dagu startet, 0.0.0.0:',
     'In {file}, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.':
       'Setzen Sie in {file} host innerhalb des coordinator-Blocks auf 0.0.0.0, und fügen Sie den Block hinzu, falls die Datei keinen hat.',
-    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0, and remove any DAGU_COORDINATOR_HOST from extraEnv. Then upgrade the release:':
-      'Betreiben Sie das Chart im verteilten Modus, dessen Koordinator auf 0.0.0.0 lauscht, und entfernen Sie jedes DAGU_COORDINATOR_HOST aus extraEnv. Aktualisieren Sie dann das Release:',
     'Enter host:port, such as 192.168.1.20:50055.':
       'Geben Sie host:port ein, etwa 192.168.1.20:50055.',
     'The address holds an invite. The invite goes only into the commands.':
@@ -295,16 +295,12 @@ export const addWorkerMessages = defineMessages({
       'Der Server hat die Adresse abgelehnt. Prüfen Sie sie und versuchen Sie es erneut.',
     'The coordinator refused this server. Its log names the reason.':
       'Der Koordinator hat diesen Server abgewiesen. Sein Log nennt den Grund.',
-    "The coordinator requires TLS. Remove the peer.insecure setting from this server's config, then restart it.":
-      'Der Koordinator verlangt TLS. Entfernen Sie die Einstellung peer.insecure aus der Konfiguration dieses Servers und starten Sie ihn neu.',
     "This server's peer.token is not the coordinator's. Set the same peer.token on both, then restart them.":
       'Das peer.token dieses Servers ist nicht das des Koordinators. Setzen Sie auf beiden dasselbe peer.token und starten Sie sie neu.',
     "This server has no peer token for the coordinator. Set peer.token on this server to the coordinator's, then restart it.":
       'Dieser Server hat kein Peer-Token für den Koordinator. Setzen Sie peer.token auf diesem Server auf das des Koordinators und starten Sie ihn neu.',
     'No coordinator is running or reachable. Start one, such as with dagu start-all, then check again.':
       'Kein Koordinator läuft oder ist erreichbar. Starten Sie einen, etwa mit dagu start-all, und prüfen Sie dann erneut.',
-    'Switch to the local server to add a worker.':
-      'Wechseln Sie zum lokalen Server, um einen Worker hinzuzufügen.',
     '{host} looks like a container ID. Enter the address of the machine that runs the container.':
       '{host} sieht nach einer Container-ID aus. Geben Sie die Adresse des Rechners ein, auf dem der Container läuft.',
     'Add worker': 'Worker hinzufügen',
@@ -352,6 +348,11 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Erscheint nach Schritt 1 und 2',
   },
   fr: {
+    'Check again': 'Revérifier',
+    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. It needs storage that supports ReadWriteMany. Then upgrade the release:':
+      'Exécutez le chart en mode distribué, dont le coordinateur écoute sur 0.0.0.0. Il nécessite un stockage compatible ReadWriteMany. Puis mettez à jour la release :',
+    'The coordinator requires TLS. Remove peer.insecure from this server wherever it is set (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), then restart it.':
+      'Le coordinateur exige TLS. Retirez peer.insecure de ce serveur partout où il est défini (l’option --peer.insecure, la variable DAGU_PEER_INSECURE ou le fichier de configuration), puis redémarrez-le.',
     'Copy the change': 'Copier la modification',
     'The coordinator cannot do this yet. Try again in a moment.':
       'Le coordinateur ne peut pas encore le faire. Réessayez dans un instant.',
@@ -364,8 +365,6 @@ export const addWorkerMessages = defineMessages({
       'L’option {name} définit coordinator.host. Donnez-lui 0.0.0.0 là où Dagu démarre :',
     'In {file}, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.':
       'Dans {file}, définissez host à 0.0.0.0 dans le bloc coordinator, en ajoutant le bloc si le fichier n’en a pas.',
-    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0, and remove any DAGU_COORDINATOR_HOST from extraEnv. Then upgrade the release:':
-      'Exécutez le chart en mode distribué, dont le coordinateur écoute sur 0.0.0.0, et retirez tout DAGU_COORDINATOR_HOST d’extraEnv. Puis mettez à jour la release :',
     'Enter host:port, such as 192.168.1.20:50055.':
       'Saisissez host:port, par exemple 192.168.1.20:50055.',
     'The address holds an invite. The invite goes only into the commands.':
@@ -383,16 +382,12 @@ export const addWorkerMessages = defineMessages({
       'Le serveur a refusé l’adresse. Vérifiez-la et réessayez.',
     'The coordinator refused this server. Its log names the reason.':
       'Le coordinateur a refusé ce serveur. Son journal en donne la raison.',
-    "The coordinator requires TLS. Remove the peer.insecure setting from this server's config, then restart it.":
-      'Le coordinateur exige TLS. Retirez le réglage peer.insecure de la configuration de ce serveur, puis redémarrez-le.',
     "This server's peer.token is not the coordinator's. Set the same peer.token on both, then restart them.":
       'Le peer.token de ce serveur n’est pas celui du coordinateur. Définissez le même peer.token sur les deux, puis redémarrez-les.',
     "This server has no peer token for the coordinator. Set peer.token on this server to the coordinator's, then restart it.":
       'Ce serveur n’a pas de jeton pair pour le coordinateur. Donnez à peer.token sur ce serveur la valeur de celui du coordinateur, puis redémarrez-le.',
     'No coordinator is running or reachable. Start one, such as with dagu start-all, then check again.':
       'Aucun coordinateur ne fonctionne ou n’est joignable. Démarrez-en un, par exemple avec dagu start-all, puis vérifiez à nouveau.',
-    'Switch to the local server to add a worker.':
-      'Passez au serveur local pour ajouter un worker.',
     '{host} looks like a container ID. Enter the address of the machine that runs the container.':
       '{host} ressemble à un ID de conteneur. Saisissez l’adresse de la machine qui exécute le conteneur.',
     'Add worker': 'Ajouter un worker',

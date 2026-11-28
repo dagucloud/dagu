@@ -17,7 +17,8 @@ type Report = components['schemas']['JoinReadinessReport'];
 const ALL_INTERFACES = '0.0.0.0';
 const DEFAULT_HOST_VARIABLE = 'DAGU_COORDINATOR_HOST';
 
-const CHART_VALUES = 'deploymentMode: distributed';
+const CHART_VALUES =
+  'deploymentMode: distributed\npersistence:\n  accessMode: ReadWriteMany';
 
 /** Whether every coordinator reports that a worker on another host can join. */
 export function allReady(coordinators: CoordinatorReadiness[]): boolean {
@@ -106,20 +107,29 @@ function ListenChange({ report }: { report: Report }) {
       />
     </p>
   );
+  const sourceChange = <SourceChange report={report} />;
   if (report.environment === HostEnvironment.kubernetes) {
-    // The chart's coordinator Deployment sets DAGU_COORDINATOR_HOST to
-    // 0.0.0.0 in distributed mode.
+    // A flag or a variable that the pod sets wins; else the chart's
+    // distributed mode, whose coordinator Deployment sets the host.
+    const pinned =
+      source?.kind === ConfigSourceKind.flag ||
+      source?.kind === ConfigSourceKind.env;
     return (
       <>
         {listens}
-        <p>
-          <I18nText text="Run the chart in distributed mode, whose coordinator listens on 0.0.0.0, and remove any DAGU_COORDINATOR_HOST from extraEnv. Then upgrade the release:" />
-        </p>
-        <CommandBlock text={CHART_VALUES} label="Copy the change" />
+        {pinned ? (
+          sourceChange
+        ) : (
+          <>
+            <p>
+              <I18nText text="Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. It needs storage that supports ReadWriteMany. Then upgrade the release:" />
+            </p>
+            <CommandBlock text={CHART_VALUES} label="Copy the change" />
+          </>
+        )}
       </>
     );
   }
-  const sourceChange = <SourceChange report={report} />;
   if (report.environment === HostEnvironment.container) {
     const flag = source?.kind === ConfigSourceKind.flag;
     const variable =
