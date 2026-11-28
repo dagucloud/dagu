@@ -827,11 +827,10 @@ ExecRepeat: // repeat execution
 				_ = os.Remove(stagingPath)
 				stagingPath = ""
 			}
-			if cont != nil {
-				cont.retried()
-				if cont.reportDue() {
-					r.report(ctx, progressCh, node)
-				}
+			// Persist the new retry count; both calls accept a nil cont.
+			cont.retried()
+			if cont.reportDue() {
+				r.report(ctx, progressCh, node)
 			}
 			continue ExecRepeat
 		}
