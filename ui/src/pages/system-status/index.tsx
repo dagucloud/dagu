@@ -5,7 +5,9 @@ import { Button } from '@/components/ui/button';
 import { AppBarContext } from '../../contexts/AppBarContext';
 import { useConfig } from '../../contexts/ConfigContext';
 import WorkersSummary from '../../features/dashboard/components/WorkersSummary';
-import WorkerInvites from '../../features/workers/components/WorkerInvites';
+import WorkerInvites, {
+  inviteBaseline,
+} from '../../features/workers/components/WorkerInvites';
 import H2CCallers from '../../features/system-status/components/H2CCallers';
 import PathsCard from '../../features/system-status/components/PathsCard';
 import ResourceChart from '../../features/system-status/components/ResourceChart';
@@ -106,6 +108,7 @@ function SystemStatus() {
   const {
     data: workersData,
     error: workersError,
+    isLoading: workersLoading,
     mutate: mutateWorkers,
   } = useQuery(
     '/workers',
@@ -283,7 +286,10 @@ function SystemStatus() {
         />
       </div>
       <WorkerInvites
-        workers={workersData?.workers ?? (workersError ? [] : undefined)}
+        workers={inviteBaseline({
+          workers: workersData?.workers,
+          settled: !workersLoading,
+        })}
         live={autoRefresh}
         refreshes={refreshes}
       />

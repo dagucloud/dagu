@@ -250,8 +250,7 @@ const ACCESS_REASONS: Record<WorkerAccessReason, Advise> = {
   [WorkerAccessReason.coordinator_conflict]: (ts) => ({
     cause: ts('The coordinator could not do this in its current state.'),
     change: ts(
-      'Check the coordinator log for the reason, or run {command} on this host, then try again.',
-      { command: 'dagu worker --check' }
+      'Check the coordinator log for the state that conflicts, then try again once it is resolved.'
     ),
   }),
   [WorkerAccessReason.retry_later]: (ts) => ({

@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils';
 import {
   WorkerRequestError,
   describeWorkerError,
+  invitesChanged,
   invitesKey,
   readWhenVisible,
   type WorkerErrorAdvice,
@@ -101,6 +102,18 @@ interface WorkerInvitesProps {
 }
 
 /**
+ * The workers list the invites list takes as its baseline: the page's
+ * workers once read, an empty list once the read settled without one, as
+ * after a failure or an empty answer, and undefined while it is under way.
+ */
+export function inviteBaseline(read: {
+  workers?: Worker[];
+  settled: boolean;
+}): Worker[] | undefined {
+  return read.workers ?? (read.settled ? [] : undefined);
+}
+
+/**
  * WorkerInvites lists the invites that let workers on other hosts join, for
  * admins.
  */
@@ -136,7 +149,11 @@ function InviteList({ workers, live, refreshes }: WorkerInvitesProps) {
       }),
     [mutate, remoteNode]
   );
-  useInviteReads({ workers, live, refreshes, read });
+  const joinedWorkers = React.useCallback(
+    () => invitesChanged(remoteNode),
+    [remoteNode]
+  );
+  useInviteReads({ workers, live, refreshes, read, joinedWorkers });
   const closeDialog = React.useCallback(
     (request: number) =>
       setDeleting((current) => (current?.request === request ? null : current)),
@@ -263,11 +280,14 @@ function useInviteReads({
   live,
   refreshes,
   read,
+  joinedWorkers,
 }: {
   workers: Worker[] | undefined;
   live: boolean;
   refreshes: number;
   read: () => void;
+  /** Marks the invites as changed by a join, before the read for it. */
+  joinedWorkers: () => void;
 }) {
   const [due, setDue] = React.useState<{ delay: number } | null>({
     delay: 0,
@@ -295,8 +315,10 @@ function useInviteReads({
     const joined = listed.filter((entry) => !known.has(entry));
     if (joined.length === 0) return;
     joined.forEach((entry) => known.add(entry));
+    // A read under way may predate the join, so it cannot answer for it.
+    joinedWorkers();
     setDue({ delay: JOIN_REREAD_DELAY_MS });
-  }, [joins]);
+  }, [joins, joinedWorkers]);
 
   const wasLive = React.useRef(live);
   React.useEffect(() => {
@@ -354,7 +376,11 @@ function InviteRow({
 }) {
   const { ts } = useI18n();
   const { state } = inviteState(invite, now);
-  const expired = expiryPassed(invite, now);
+  // Turns at the expiry itself, on the shared second clock, so the expiry
+  // never reads as ahead once it passed.
+  const expired = useClock(invite.expiresAt ? 1000 : null, (nowMs) =>
+    expiryPassed(invite, nowMs)
+  );
   const id = shortInviteId(invite.id);
   const deleteLabel = ts('Delete invite {id} ({kind})', {
     id,

@@ -8,7 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkerInviteKind, type components } from '@/api/v1/schema';
 import { QueryFeedback } from '@/components/QueryFeedback';
 import { useIsAdmin } from '@/contexts/AuthContext';
-import WorkerInvites, { JOIN_REREAD_DELAY_MS } from '../WorkerInvites';
+import WorkerInvites, {
+  JOIN_REREAD_DELAY_MS,
+  inviteBaseline,
+} from '../WorkerInvites';
 import {
   Providers,
   hoursFromNow,
@@ -220,6 +223,26 @@ describe('WorkerInvites', () => {
     expect(reads()).toBe(1);
   });
 
+  // The expiry turns past at the expiry itself, not at the next minute of
+  // the list's clock: it never reads as ahead once it passed.
+  it('never shows a passed expiry as ahead', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    server.invites = invitesAnswer([
+      invite('used', {
+        useCount: 1,
+        lastUsedAt: hoursFromNow(-1),
+        expiresAt: new Date(Date.now() + 20e3).toISOString(),
+      }),
+    ]);
+    renderInvites([], false);
+    const [row] = await rows();
+
+    await act(() => vi.advanceTimersByTimeAsync(30e3));
+
+    expect(row).not.toHaveTextContent(/Expiry in/);
+    expect(row).toHaveTextContent(/Expiry 10s ago/);
+  });
+
   it('deletes the invite it names after one confirmation', async () => {
     server.invites = invitesAnswer([
       invite('a4611fb6-951a', { kind: WorkerInviteKind.reusable }),
@@ -352,7 +375,7 @@ describe('WorkerInvites', () => {
     [
       'coordinator_conflict',
       'The coordinator could not do this in its current state.',
-      'Check the coordinator log for the reason, or run dagu worker --check on this host, then try again.',
+      'Check the coordinator log for the state that conflicts, then try again once it is resolved.',
     ],
     [
       'retry_later',
@@ -744,6 +767,41 @@ describe('WorkerInvites', () => {
     ).not.toBeInTheDocument();
   });
 
+  // A read under way when a worker joins may predate the join: the read
+  // for the join starts afresh, and the older answer is dropped.
+  it('drops a read that started before a worker joined', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    server.invites = invitesAnswer([invite('inv-1')]);
+    const { update, refresh } = renderInvites([worker('worker-a')]);
+    const [row] = await rows();
+    expect(row).toHaveTextContent('Active');
+    let stale: (answer: { status: number; body: unknown }) => void = () =>
+      undefined;
+    const answers = [
+      () =>
+        new Promise<{ status: number; body: unknown }>(
+          (resolve) => (stale = resolve)
+        ),
+      () =>
+        invitesAnswer([
+          invite('inv-1', { useCount: 1, lastUsedAt: hoursFromNow(0) }),
+        ]),
+    ];
+    server.invites = () => answers.shift()!() as never;
+    refresh();
+    await waitFor(() => expect(reads()).toBe(2));
+
+    update([worker('worker-a'), worker('worker-b', { inviteId: 'inv-1' })]);
+    await act(() => vi.advanceTimersByTimeAsync(JOIN_REREAD_DELAY_MS + 100));
+    await waitFor(() => expect(reads()).toBe(3));
+    await act(async () =>
+      stale({ status: 200, body: { invites: [invite('inv-1')] } })
+    );
+
+    await waitFor(() => expect(rows()).resolves.toHaveLength(1));
+    expect((await rows())[0]).toHaveTextContent('Used');
+  });
+
   // Reads asked for while the tab is hidden, by two deletes and a manual
   // refresh, run as one read once it shows.
   it('reads once for all that asked while the tab was hidden', async () => {
@@ -827,5 +885,22 @@ describe('WorkerInvites', () => {
       'The list is read again. Close this dialog.'
     );
     expect(screen.getByRole('button', { name: 'Delete' })).toBeDisabled();
+  });
+});
+
+// System status passes the invites list its workers once their read settled,
+// whatever the answer, so the invites load also when /workers failed.
+describe('inviteBaseline', () => {
+  it('waits while the workers read is under way', () => {
+    expect(inviteBaseline({ settled: false })).toBeUndefined();
+  });
+
+  it('takes an empty list once a read settled without workers', () => {
+    expect(inviteBaseline({ settled: true })).toEqual([]);
+  });
+
+  it('takes the workers once read', () => {
+    const workers = [worker('worker-a')];
+    expect(inviteBaseline({ workers, settled: true })).toBe(workers);
   });
 });

@@ -1340,7 +1340,8 @@ The Workers page is the list of workers on System status.
   local invites again when it ends, also after a switch to another node
   and back. Reads asked for while the tab is hidden run as one once it
   shows, and reads asked for during a read share it, except that a read
-  started before a delete does not answer for after it.
+  started before a delete or a join does not answer for after it. A list
+  whose workers could not be read takes an empty list as its baseline.
 - On a remote node, the page lists the invites but offers no **Delete**,
   and says it works on the local server only, since the server does not
   forward it.

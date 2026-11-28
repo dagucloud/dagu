@@ -89,6 +89,8 @@ export const workerAdminMessages = defineMessages({
       'This worker no longer holds the certificate the list showed, as after it joined again.',
     'The worker was not removed. The list now shows the worker as it is: check it, then remove it again if needed.':
       'The worker was not removed. The list now shows the worker as it is: check it, then remove it again if needed.',
+    'Check the coordinator log for the state that conflicts, then try again once it is resolved.':
+      'Check the coordinator log for the state that conflicts, then try again once it is resolved.',
   },
   'zh-CN': {
     'Only admins can manage workers and invites.':
@@ -171,6 +173,8 @@ export const workerAdminMessages = defineMessages({
       '此 Worker 已不再持有列表中显示的证书，例如它重新加入之后。',
     'The worker was not removed. The list now shows the worker as it is: check it, then remove it again if needed.':
       '该 Worker 未被移除。列表现在显示该 Worker 的当前状态：请检查后，如有需要再次移除。',
+    'Check the coordinator log for the state that conflicts, then try again once it is resolved.':
+      '请查看 Coordinator 日志中冲突的状态，待其解决后重试。',
   },
   ja: {
     'Only admins can manage workers and invites.':
@@ -257,6 +261,8 @@ export const workerAdminMessages = defineMessages({
       'このワーカーは、一覧に表示した証明書をもう持っていません。再参加した後などに起こります。',
     'The worker was not removed. The list now shows the worker as it is: check it, then remove it again if needed.':
       'ワーカーは削除されていません。一覧にワーカーの現在の状態が表示されます。確認して、必要なら削除し直してください。',
+    'Check the coordinator log for the state that conflicts, then try again once it is resolved.':
+      'コーディネーターのログで競合している状態を確認し、解消してからもう一度お試しください。',
   },
   de: {
     'Only admins can manage workers and invites.':
@@ -343,6 +349,8 @@ export const workerAdminMessages = defineMessages({
       'Dieser Worker hat das Zertifikat aus der Liste nicht mehr, etwa nachdem er erneut beigetreten ist.',
     'The worker was not removed. The list now shows the worker as it is: check it, then remove it again if needed.':
       'Der Worker wurde nicht entfernt. Die Liste zeigt den Worker jetzt, wie er ist: Prüfen Sie ihn und entfernen Sie ihn bei Bedarf erneut.',
+    'Check the coordinator log for the state that conflicts, then try again once it is resolved.':
+      'Sehen Sie im Log des Coordinators nach dem Zustand, der im Konflikt steht, und versuchen Sie es erneut, sobald er behoben ist.',
   },
   fr: {
     'Only admins can manage workers and invites.':
@@ -428,5 +436,7 @@ export const workerAdminMessages = defineMessages({
       'Ce worker n’a plus le certificat que la liste montrait, par exemple après avoir rejoint à nouveau.',
     'The worker was not removed. The list now shows the worker as it is: check it, then remove it again if needed.':
       'Le worker n’a pas été retiré. La liste montre maintenant le worker tel qu’il est : vérifiez-le, puis retirez-le à nouveau si besoin.',
+    'Check the coordinator log for the state that conflicts, then try again once it is resolved.':
+      'Consultez le journal du coordinateur pour l’état en conflit, puis réessayez une fois qu’il est résolu.',
   },
 });
