@@ -65,6 +65,7 @@ func init() {
 	rootCmd.AddCommand(cmd.Scheduler())
 	rootCmd.AddCommand(cmd.CmdCoordinator())
 	rootCmd.AddCommand(cmd.CmdWorker())
+	rootCmd.AddCommand(cmd.Peer())
 	rootCmd.AddCommand(cmd.Retry())
 	rootCmd.AddCommand(cmd.StartAll())
 	rootCmd.AddCommand(cmd.Cleanup())

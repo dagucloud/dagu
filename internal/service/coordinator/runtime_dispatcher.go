@@ -26,6 +26,7 @@ func NewRuntimeDispatcher(
 
 	cfg := ConfigFromPeer(peerConfig)
 	cfg.WorkspaceBundleDir = workspaceBundleDir
+	cfg.LocalRegistry = registry
 	if peerConfig.MaxRetries <= 0 {
 		cfg.MaxRetries = 50
 	}

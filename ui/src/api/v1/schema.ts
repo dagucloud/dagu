@@ -3838,6 +3838,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/skills-download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Download several skills as one ZIP
+         * @description Streams one ZIP that holds each named skill as a top-level folder with its files exactly as stored, sorted, without duplicates. A skill that is not valid can be downloaded; its hidden files, files with hard links and files above 4 MiB stay out. Every name is checked before the first byte: an unknown name gives 404 and no ZIP. At most 100 skills and 256 MiB of files. A file that changes during the stream aborts it, so the ZIP is incomplete.
+         */
+        post: operations["downloadSkills"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/skills/{name}": {
         parameters: {
             query?: never;
@@ -3866,6 +3886,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/skills/{name}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download one skill as a ZIP
+         * @description Streams a ZIP with the skill as the top-level folder <name>/ and its files exactly as stored. A skill that is not valid can be downloaded; its hidden files, files with hard links and files above 4 MiB stay out. A file that changes during the stream aborts it, so the ZIP is incomplete.
+         */
+        get: operations["downloadSkill"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/skills/{name}/files": {
         parameters: {
             query?: never;
@@ -3880,7 +3920,7 @@ export interface paths {
         get: operations["getSkillFile"];
         /**
          * Create or replace one file of a skill
-         * @description Writes one file under references/, assets/ or scripts/ atomically. The body holds the bytes of the file. A file of references/ or scripts/ MUST be valid UTF-8. Send If-Match with the hash that the client read. SKILL.md has its own route. Requires developer role or above.
+         * @description Writes one file under references/, assets/ or scripts/ atomically. The body holds the bytes of the file. A file of references/ or scripts/ MUST be valid UTF-8. Send If-Match with the hash that the client read. SKILL.md has its own route. An empty body writes an empty file, whatever its Content-Type. Requires developer role or above.
          */
         put: operations["putSkillFile"];
         post?: never;
@@ -5118,6 +5158,122 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/oauth-apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List OAuth apps
+         * @description Lists the OAuth apps that connections share, without secrets. Needs developer or above, or manager in a workspace.
+         */
+        get: operations["listOAuthApps"];
+        put?: never;
+        /**
+         * Create an OAuth app
+         * @description Registers an OAuth client from its fields, or from the client file the provider issued, such as a Google client JSON. Needs admin.
+         */
+        post: operations["createOAuthApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/oauth-apps/{appId}": {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                appId: components["parameters"]["OAuthAppId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get an OAuth app
+         * @description Needs developer or above, or manager in a workspace.
+         */
+        get: operations["getOAuthApp"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete an OAuth app
+         * @description Deletes an app that no connection uses. An app in use is refused with 409, naming its connections. Needs admin.
+         */
+        delete: operations["deleteOAuthApp"];
+        options?: never;
+        head?: never;
+        /**
+         * Change an OAuth app
+         * @description Changes the fields given. A blank client secret keeps the stored one. A new client ID or secret sets the status back to ok. The client type of an app in use cannot change. Needs admin.
+         */
+        patch: operations["updateOAuthApp"];
+        trace?: never;
+    };
+    "/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List connections
+         * @description Lists the connections of one workspace with their status, without secrets. Needs viewer or above in the workspace.
+         */
+        get: operations["listConnections"];
+        put?: never;
+        /**
+         * Create a connection
+         * @description Creates a connection in pending status, without tokens, for the authorization code grant. The workspace must exist. Needs manager or above in the workspace, and admin to allow token export.
+         */
+        post: operations["createConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/connections/{name}": {
+        parameters: {
+            query?: {
+                /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+                workspace?: components["parameters"]["ConnectionWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["ConnectionName"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Get a connection
+         * @description Needs viewer or above in the workspace.
+         */
+        get: operations["getConnection"];
+        put?: never;
+        post?: never;
+        /**
+         * Remove a connection
+         * @description Deletes the connection with its tokens and tool catalogs, then revokes its refresh token where the provider supports it, unless another connection on this server holds the same grant. Revocation is best-effort: 204 confirms the removal here, not the revocation, and a failed revocation is logged and audited. Connections on other servers that use the same client may lose access. Needs manager or above in the workspace.
+         */
+        delete: operations["deleteConnection"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a connection's metadata
+         * @description Changes the fields given and leaves the tokens as they are, so a service added later shows its missing scopes until a reconnect. The name, workspace, app, and resource never change. Needs manager or above in the workspace, and admin to change token export.
+         */
+        patch: operations["updateConnection"];
         trace?: never;
     };
     "/workspaces": {
@@ -9995,6 +10151,126 @@ export interface components {
             secrets: components["schemas"]["SecretResponse"][];
             total: number;
         };
+        /** @enum {string} */
+        ConnectionProviderName: ConnectionProviderName;
+        /**
+         * @description web for the server callback, desktop for loopback and paste, public for a client without a secret, and service_account for a service account key.
+         * @enum {string}
+         */
+        OAuthClientType: OAuthClientType;
+        OAuthApp: {
+            id: string;
+            name: string;
+            provider: components["schemas"]["ConnectionProviderName"];
+            /** @enum {string} */
+            kind: OAuthAppKind;
+            clientId: string;
+            clientType: components["schemas"]["OAuthClientType"];
+            /** @description True when an admin attests that the client is set up for use by an AI-powered agent. */
+            agent: boolean;
+            tenant?: string;
+            /** @enum {string} */
+            status: OAuthAppStatus;
+            statusReason?: string;
+            clientSecretConfigured: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        OAuthAppListResponse: {
+            apps: components["schemas"]["OAuthApp"][];
+        };
+        CreateOAuthAppRequest: {
+            name: string;
+            /**
+             * @description oauth2 and mcp apps are refused until requests take their endpoints.
+             * @enum {string}
+             */
+            provider: CreateOAuthAppRequestProvider;
+            /** @description The client file the provider issued, as is. It replaces clientId, clientSecret, and clientType. */
+            clientFile?: string;
+            clientId?: string;
+            clientSecret?: string;
+            clientType?: components["schemas"]["OAuthClientType"];
+            agent?: boolean;
+            tenant?: string;
+        };
+        UpdateOAuthAppRequest: {
+            name?: string;
+            clientId?: string;
+            /** @description A blank value keeps the stored secret. */
+            clientSecret?: string;
+            clientType?: components["schemas"]["OAuthClientType"];
+            agent?: boolean;
+            tenant?: string;
+        };
+        /** @enum {string} */
+        ConnectionAccess: ConnectionAccess;
+        ConnectionServiceRequest: {
+            name: string;
+            access: components["schemas"]["ConnectionAccess"];
+        };
+        ConnectionService: {
+            name: string;
+            access: components["schemas"]["ConnectionAccess"];
+            /** @description Scopes the service needs that the provider did not grant. A reconnect asks for them. */
+            missingScopes: string[];
+        };
+        Connection: {
+            name: string;
+            /** @description global for the connections of DAGs without a workspace label, otherwise the workspace name. */
+            workspace: string;
+            provider: components["schemas"]["ConnectionProviderName"];
+            /** @description The ID of the OAuth app. */
+            app: string;
+            /** @enum {string} */
+            grant: ConnectionGrant;
+            services: components["schemas"]["ConnectionService"][];
+            /** @description Scopes asked for beyond those of the services. */
+            scopes: string[];
+            /** @description Hosts that may receive the token beyond those of the services. */
+            boundHosts: string[];
+            resource?: string;
+            allowTokenExport: boolean;
+            /**
+             * @description broken when the connection's token state is missing or cannot be decoded or decrypted. Remove the connection and add it again.
+             * @enum {string}
+             */
+            status: ConnectionStatus;
+            statusReason?: string;
+            account?: string;
+            grantedScopes: string[];
+            refreshTokenConfigured: boolean;
+            /** Format: date-time */
+            refreshTokenExpiresAt?: string;
+            /** Format: date-time */
+            refreshedAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        ConnectionListResponse: {
+            connections: components["schemas"]["Connection"][];
+        };
+        CreateConnectionRequest: {
+            /** @description Up to 63 lowercase letters, digits, and hyphens, starting with a letter or digit. */
+            name: string;
+            /** @description The ID of the OAuth app. The connection takes its provider. */
+            app: string;
+            services: components["schemas"]["ConnectionServiceRequest"][];
+            scopes?: string[];
+            /** @description Hostnames or host:port entries, without a scheme, path, or wildcard. */
+            boundHosts?: string[];
+            allowTokenExport?: boolean;
+        };
+        UpdateConnectionRequest: {
+            services?: components["schemas"]["ConnectionServiceRequest"][];
+            scopes?: string[];
+            boundHosts?: string[];
+            allowTokenExport?: boolean;
+        };
         /**
          * @description A status column available in a Kanban view.
          * @enum {string}
@@ -10435,7 +10711,17 @@ export interface components {
             name: string;
         };
     };
-    responses: never;
+    responses: {
+        /** @description An error: 400 for an invalid request, 403 without the role or for a remoteNode other than local, since each server keeps its own apps and connections, 404 for an unknown or hidden record, and 409 for a conflict. */
+        ConnectionError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+    };
     parameters: {
         /** @description page number of items to fetch (default is 1) */
         Page: number;
@@ -10504,6 +10790,10 @@ export interface components {
         InventoryVersion: number;
         /** @description name of the remote node */
         RemoteNode: string;
+        /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+        ConnectionWorkspace: string;
+        ConnectionName: string;
+        OAuthAppId: string;
         /** @description Filter entries after this time (ISO 8601 format) */
         LogStartTime: string;
         /** @description Filter entries before this time (ISO 8601 format) */
@@ -22322,6 +22612,85 @@ export interface operations {
             };
         };
     };
+    downloadSkills: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Names of the skills */
+                    names: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description The ZIP */
+            200: {
+                headers: {
+                    /** @description Attachment file name: skills-<date>.zip, or <name>.zip for one skill */
+                    "Content-Disposition"?: string;
+                    /** @description no-store */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            /** @description Invalid request, too many skills, files above 256 MiB, or names that one ZIP cannot hold: a colon, or two names that differ only by case */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A skill does not exist */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description A skill is being changed and could not be read as one version; try again */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getSkill: {
         parameters: {
             query?: {
@@ -22595,6 +22964,81 @@ export interface operations {
             };
         };
     };
+    downloadSkill: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the skill, the name of its folder. A new skill MUST follow the name rule of the Agent Skills format (checked by the server). */
+                name: components["parameters"]["SkillName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ZIP */
+            200: {
+                headers: {
+                    /** @description Attachment file name: <name>.zip, or skill.zip with filename* for a name that is not ASCII */
+                    "Content-Disposition"?: string;
+                    /** @description no-store */
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            /** @description Invalid skill name, a colon in the name, or files above 256 MiB */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Skill not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The skill is being changed and could not be read as one version; try again */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unexpected error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getSkillFile: {
         parameters: {
             query: {
@@ -22701,7 +23145,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 "application/octet-stream": string;
             };
@@ -28152,6 +28596,280 @@ export interface operations {
             };
         };
     };
+    listOAuthApps: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OAuth apps */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthAppListResponse"];
+                };
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
+    createOAuthApp: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateOAuthAppRequest"];
+            };
+        };
+        responses: {
+            /** @description OAuth app created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthApp"];
+                };
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
+    getOAuthApp: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                appId: components["parameters"]["OAuthAppId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OAuth app */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthApp"];
+                };
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
+    deleteOAuthApp: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                appId: components["parameters"]["OAuthAppId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OAuth app deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
+    updateOAuthApp: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                appId: components["parameters"]["OAuthAppId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOAuthAppRequest"];
+            };
+        };
+        responses: {
+            /** @description OAuth app changed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthApp"];
+                };
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
+    listConnections: {
+        parameters: {
+            query?: {
+                /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+                workspace?: components["parameters"]["ConnectionWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Connections */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionListResponse"];
+                };
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
+    createConnection: {
+        parameters: {
+            query?: {
+                /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+                workspace?: components["parameters"]["ConnectionWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateConnectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Connection created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Connection"];
+                };
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
+    getConnection: {
+        parameters: {
+            query?: {
+                /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+                workspace?: components["parameters"]["ConnectionWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["ConnectionName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Connection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Connection"];
+                };
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
+    deleteConnection: {
+        parameters: {
+            query?: {
+                /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+                workspace?: components["parameters"]["ConnectionWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["ConnectionName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Connection removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
+    updateConnection: {
+        parameters: {
+            query?: {
+                /** @description The workspace that owns the connection: global, or omitted, for the connections of DAGs without a workspace label, or a lowercase workspace name. */
+                workspace?: components["parameters"]["ConnectionWorkspace"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                name: components["parameters"]["ConnectionName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateConnectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Connection changed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Connection"];
+                };
+            };
+            default: components["responses"]["ConnectionError"];
+        };
+    };
     listWorkspaces: {
         parameters: {
             query?: {
@@ -29051,6 +29769,47 @@ export enum SecretStatus {
 }
 export enum CreateSecretRequestProviderType {
     dagu_managed = "dagu-managed"
+}
+export enum ConnectionProviderName {
+    google = "google",
+    microsoft = "microsoft",
+    oauth2 = "oauth2",
+    mcp = "mcp"
+}
+export enum OAuthClientType {
+    web = "web",
+    desktop = "desktop",
+    public = "public",
+    service_account = "service_account"
+}
+export enum OAuthAppKind {
+    byo = "byo",
+    cimd = "cimd",
+    dcr = "dcr"
+}
+export enum OAuthAppStatus {
+    ok = "ok",
+    invalid = "invalid"
+}
+export enum CreateOAuthAppRequestProvider {
+    google = "google",
+    microsoft = "microsoft"
+}
+export enum ConnectionAccess {
+    read = "read",
+    write = "write"
+}
+export enum ConnectionGrant {
+    authorization_code = "authorization_code",
+    device_code = "device_code",
+    client_credentials = "client_credentials",
+    service_account = "service_account"
+}
+export enum ConnectionStatus {
+    pending = "pending",
+    connected = "connected",
+    needs_reconnect = "needs_reconnect",
+    broken = "broken"
 }
 export enum ViewColumn {
     queued = "queued",

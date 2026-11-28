@@ -1,0 +1,2 @@
+peer:
+  client_ca_file: /etc/dagu/ca.crt

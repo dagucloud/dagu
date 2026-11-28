@@ -213,7 +213,7 @@ function DAGRunBatchActions({
     <>
       <div
         className={cn(
-          'mb-3 flex min-h-11 flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-1.5 transition-colors',
+          'mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-1 transition-colors',
           selectedCount > 0
             ? 'border-primary/40 bg-primary/5'
             : 'border-transparent'
@@ -234,7 +234,7 @@ function DAGRunBatchActions({
           {selectedCount === 0 ? (
             <Button
               variant="ghost"
-              size="sm"
+              size="xs"
               onClick={onSelectAllLoaded}
               disabled={loadedCount === 0 || isRunning}
             >
@@ -244,7 +244,7 @@ function DAGRunBatchActions({
             <>
               <Button
                 variant="ghost"
-                size="sm"
+                size="xs"
                 onClick={onClearSelection}
                 disabled={isRunning}
               >
@@ -252,7 +252,7 @@ function DAGRunBatchActions({
               </Button>
               <Button
                 variant="outline"
-                size="sm"
+                size="xs"
                 onClick={() => openBatchDialog('retry')}
                 disabled={isRunning}
               >
@@ -260,7 +260,7 @@ function DAGRunBatchActions({
               </Button>
               <Button
                 variant="outline"
-                size="sm"
+                size="xs"
                 onClick={() => openBatchDialog('reschedule')}
                 disabled={isRunning}
               >
@@ -268,7 +268,7 @@ function DAGRunBatchActions({
               </Button>
               <Button
                 variant="destructive"
-                size="sm"
+                size="xs"
                 onClick={() => openBatchDialog('delete')}
                 disabled={isRunning}
               >

@@ -134,6 +134,11 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 		{name: "viewer lists skills", method: http.MethodGet, path: "/api/v1/skills", user: viewer, wantCall: true},
 		{name: "viewer reads a skill", method: http.MethodGet, path: "/api/v1/skills/demo", user: viewer, wantCall: true},
 		{name: "viewer reads a skill file", method: http.MethodGet, path: "/api/v1/skills/demo/files", user: viewer, wantCall: true},
+		{name: "viewer downloads a skill", method: http.MethodGet, path: "/api/v1/skills/demo/download", user: viewer, wantCall: true},
+		{name: "viewer downloads skills", method: http.MethodPost, path: "/api/v1/skills-download", user: viewer, wantCall: true},
+		{name: "scoped user cannot download skills", method: http.MethodPost, path: "/api/v1/skills-download", user: scoped},
+		{name: "viewer reads a skill named download", method: http.MethodGet, path: "/api/v1/skills/download", user: viewer, wantCall: true},
+		{name: "developer writes a skill named download", method: http.MethodPut, path: "/api/v1/skills/download", user: developer, permissions: writeOnly, wantCall: true},
 		{name: "developer writes a skill", method: http.MethodPut, path: "/api/v1/skills/demo", user: developer, permissions: writeOnly, wantCall: true},
 		{name: "operator cannot write a skill", method: http.MethodPut, path: "/api/v1/skills/demo", user: operator, permissions: writeOnly},
 		{name: "developer deletes a skill", method: http.MethodDelete, path: "/api/v1/skills/demo", user: developer, permissions: writeOnly, wantCall: true},
@@ -151,6 +156,9 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 		{name: "inventory changes are never forwarded", method: http.MethodPut, path: "/api/v1/inventories/inv-1/nodes/web01", user: admin, permissions: writeAndRun},
 		{name: "node tests are never forwarded", method: http.MethodPost, path: "/api/v1/node-connection-tests", user: admin, permissions: writeAndRun},
 		{name: "host key trusts are never forwarded", method: http.MethodPost, path: "/api/v1/node-host-keys", user: admin, permissions: writeAndRun},
+		{name: "connections are never forwarded", method: http.MethodGet, path: "/api/v1/connections", user: admin},
+		{name: "connection removals are never forwarded", method: http.MethodDelete, path: "/api/v1/connections/work", user: admin},
+		{name: "OAuth apps are never forwarded", method: http.MethodPost, path: "/api/v1/oauth-apps", user: admin},
 		{name: "manager reads audit logs", method: http.MethodGet, path: "/api/v1/audit", user: manager, wantCall: true},
 		{name: "developer cannot create an API key", method: http.MethodPost, path: "/api/v1/api-keys", user: developer, permissions: writeAndRun},
 		{name: "admin creates an API key", method: http.MethodPost, path: "/api/v1/api-keys", user: admin, wantCall: true},
@@ -655,6 +663,101 @@ func TestRemoteLogDownloadStreams(t *testing.T) {
 			require.Equal(t, append(first[len(got):], []byte("tail")...), tail)
 		})
 	}
+}
+
+// A skill ZIP streams through a remote node with its headers, also past the
+// write deadline of the server, so the proxy never holds the whole ZIP.
+func TestRemoteSkillDownloadStreams(t *testing.T) {
+	for _, test := range []struct{ method, path string }{
+		{method: http.MethodGet, path: "/skills/demo/download"},
+		{method: http.MethodPost, path: "/skills-download"},
+	} {
+		t.Run(test.method, func(t *testing.T) {
+			first := bytes.Repeat([]byte("zip bytes"), 4096)
+			release := make(chan struct{})
+			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, test.method+" /api/v1"+test.path, r.Method+" "+r.URL.Path)
+				w.Header().Set("Content-Type", "application/zip")
+				w.Header().Set("Content-Disposition", `attachment; filename="demo.zip"`)
+				w.Header().Set("Cache-Control", "no-store")
+				_, _ = w.Write(first)
+				_ = http.NewResponseController(w).Flush()
+				select {
+				case <-release:
+					_, _ = w.Write([]byte("tail"))
+				case <-r.Context().Done():
+				}
+			}))
+			defer remote.Close()
+			defer close(release)
+			resolver := remotenode.NewResolver([]config.RemoteNode{{Name: "edge", APIBaseURL: remote.URL + "/api/v1"}}, nil)
+			handler := WithRemoteNode(resolver, "/api/v1")(http.NotFoundHandler())
+			proxy := httptest.NewUnstartedServer(logDownloadDeadline("/api/v1")(handler))
+			proxy.Config.WriteTimeout = 50 * time.Millisecond
+			proxy.Start()
+			defer proxy.Close()
+			client := proxy.Client()
+			client.Timeout = 5 * time.Second
+			request, err := http.NewRequest(test.method, proxy.URL+"/api/v1"+test.path+"?remoteNode=edge", strings.NewReader(`{"names":["demo"]}`))
+			require.NoError(t, err)
+			resp, err := client.Do(request)
+			require.NoError(t, err)
+			defer func() { _ = resp.Body.Close() }()
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			require.Equal(t, `attachment; filename="demo.zip"`, resp.Header.Get("Content-Disposition"))
+			require.Equal(t, "no-store", resp.Header.Get("Cache-Control"))
+			got := make([]byte, 4096)
+			_, err = io.ReadFull(resp.Body, got)
+			require.NoError(t, err)
+			// Finish after the normal server write deadline, once streaming is observed.
+			time.Sleep(100 * time.Millisecond)
+			release <- struct{}{}
+			tail, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			require.Equal(t, append(first, []byte("tail")...), append(got, tail...))
+		})
+	}
+}
+
+// A remote node may start a skill ZIP before it has read the request body.
+// The proxy keeps forwarding the body while the ZIP streams back, so a client
+// that sends the rest of its body after the headers arrive still gets the ZIP.
+func TestRemoteSkillDownloadBodyAfterHeaders(t *testing.T) {
+	const head, rest = `{"names":`, `["demo"]}`
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.NoError(t, http.NewResponseController(w).EnableFullDuplex())
+		w.Header().Set("Content-Type", "application/zip")
+		_, _ = w.Write([]byte("zip"))
+		_ = http.NewResponseController(w).Flush()
+		body, err := io.ReadAll(r.Body)
+		assert.NoError(t, err)
+		assert.Equal(t, head+rest, string(body))
+		_, _ = w.Write([]byte("tail"))
+	}))
+	defer remote.Close()
+	resolver := remotenode.NewResolver([]config.RemoteNode{{Name: "edge", APIBaseURL: remote.URL + "/api/v1"}}, nil)
+	proxy := httptest.NewServer(WithRemoteNode(resolver, "/api/v1")(http.NotFoundHandler()))
+	defer proxy.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	bodyReader, bodyWriter := io.Pipe()
+	// The client waits for its body to end even after the deadline, so the
+	// deadline also ends the body.
+	context.AfterFunc(ctx, func() { _ = bodyWriter.CloseWithError(ctx.Err()) })
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, proxy.URL+"/api/v1/skills-download?remoteNode=edge", bodyReader)
+	require.NoError(t, err)
+	go func() { _, _ = bodyWriter.Write([]byte(head)) }()
+	resp, err := proxy.Client().Do(request)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	_, _ = bodyWriter.Write([]byte(rest))
+	require.NoError(t, bodyWriter.Close())
+
+	got, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Equal(t, "ziptail", string(got))
 }
 
 func TestRemoteLogDownloadAbort(t *testing.T) {

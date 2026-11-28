@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
@@ -323,6 +324,97 @@ func (a *API) DeleteSkillFile(ctx context.Context, request api.DeleteSkillFileRe
 	return api.DeleteSkillFile200JSONResponse(toSkillWriteResult(sk)), nil
 }
 
+// DownloadSkill streams one skill as a ZIP.
+func (a *API) DownloadSkill(ctx context.Context, request api.DownloadSkillRequestObject) (api.DownloadSkillResponseObject, error) {
+	if !skill.IsSafeFolderName(request.Name) {
+		return nil, errInvalidSkillName
+	}
+	response, err := a.skillZip(ctx, []string{request.Name})
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+// DownloadSkills streams several skills as one ZIP.
+func (a *API) DownloadSkills(ctx context.Context, request api.DownloadSkillsRequestObject) (api.DownloadSkillsResponseObject, error) {
+	if request.Body == nil || len(request.Body.Names) == 0 {
+		return nil, ErrInvalidRequestBody
+	}
+	for _, n := range request.Body.Names {
+		if !skill.IsSafeFolderName(n) {
+			return nil, errInvalidSkillName
+		}
+	}
+	response, err := a.skillZip(ctx, request.Body.Names)
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+// skillZip reads and checks every skill before the first byte, so that an
+// unknown name or a broken limit gives an error and no partial ZIP.
+func (a *API) skillZip(ctx context.Context, names []string) (*skillZipResponse, error) {
+	skills, err := a.skillStore().DownloadSkills(ctx, names)
+	switch {
+	case errors.Is(err, skill.ErrNotFound):
+		return nil, &Error{Code: api.ErrorCodeNotFound, Message: err.Error(), HTTPStatus: http.StatusNotFound}
+	case errors.Is(err, skill.ErrDownloadRefused):
+		return nil, &Error{Code: api.ErrorCodeBadRequest, Message: err.Error(), HTTPStatus: http.StatusBadRequest}
+	case err != nil:
+		logger.Error(ctx, "Failed to read skills for a download", tag.Error(err))
+		return nil, errFailedToReadSkill
+	}
+	downloaded := make([]string, len(skills))
+	hashes := make([]string, len(skills))
+	for i, sk := range skills {
+		if err := unsettledReadError(ctx, sk); err != nil {
+			return nil, err
+		}
+		downloaded[i], hashes[i] = sk.Name, sk.Hash
+	}
+	details := map[string]any{"resource_type": "skill", "names": downloaded, "hashes": hashes}
+	if len(downloaded) == 1 {
+		details["resource_id"] = downloaded[0]
+	}
+	a.logAudit(ctx, audit.CategorySystem, "skill_download", details)
+	return &skillZipResponse{ctx: ctx, skills: skills, disposition: zipDisposition(downloaded, time.Now())}, nil
+}
+
+// zipDisposition gives the header Content-Disposition of a ZIP of skills. A
+// name that a quoted string cannot hold as it is gets the ASCII name skill.zip
+// and the form filename* of RFC 6266.
+func zipDisposition(names []string, now time.Time) string {
+	if len(names) > 1 {
+		return `attachment; filename="skills-` + now.UTC().Format(time.DateOnly) + `.zip"`
+	}
+	name := names[0] + ".zip"
+	if !strings.ContainsFunc(name, func(r rune) bool { return r < 0x20 || r > 0x7e || r == '"' || r == '\\' }) {
+		return `attachment; filename="` + name + `"`
+	}
+	var b strings.Builder
+	for _, c := range []byte(name) {
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '.' || c == '_' {
+			b.WriteByte(c)
+		} else {
+			fmt.Fprintf(&b, "%%%02X", c)
+		}
+	}
+	return `attachment; filename="skill.zip"; filename*=UTF-8''` + b.String()
+}
+
+// isSkillDownload matches the ZIP downloads of skills.
+func isSkillDownload(r *http.Request, apiBasePath string) bool {
+	base := strings.TrimRight(apiBasePath, "/")
+	if r.Method == http.MethodPost {
+		return r.URL.Path == base+"/skills-download"
+	}
+	suffix, ok := strings.CutPrefix(r.URL.Path, base+"/skills/")
+	name, rest, _ := strings.Cut(suffix, "/")
+	return ok && r.Method == http.MethodGet && name != "" && rest == "download"
+}
+
 // skillPrecondition reads the headers If-Match and If-None-Match. Only the
 // creation of a skill takes If-None-Match.
 func skillPrecondition(ifMatch, ifNoneMatch *string, create bool) (skill.Precondition, error) {
@@ -402,6 +494,33 @@ func (r *skillFileResponse) VisitGetSkillFileResponse(w http.ResponseWriter) err
 	if _, err := io.Copy(w, r.body); err != nil {
 		logger.Warn(r.ctx, "Skill file stream ended early", tag.Error(err))
 		// Headers are committed; abort so no error body joins the partial file.
+		panic(http.ErrAbortHandler)
+	}
+	return nil
+}
+
+// skillZipResponse streams the ZIP of skills that a download read and checked.
+type skillZipResponse struct {
+	ctx         context.Context
+	skills      []*skill.Skill
+	disposition string
+}
+
+func (r *skillZipResponse) VisitDownloadSkillResponse(w http.ResponseWriter) error { return r.visit(w) }
+
+func (r *skillZipResponse) VisitDownloadSkillsResponse(w http.ResponseWriter) error {
+	return r.visit(w)
+}
+
+func (r *skillZipResponse) visit(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", r.disposition)
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	if err := skill.WriteZip(r.ctx, w, r.skills); err != nil {
+		logger.Warn(r.ctx, "Skill ZIP stream ended early", tag.Error(err))
+		// Headers are committed; abort so no error body joins the partial ZIP,
+		// and the client sees a download that did not complete.
 		panic(http.ErrAbortHandler)
 	}
 	return nil

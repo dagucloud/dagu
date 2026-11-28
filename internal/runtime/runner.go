@@ -582,16 +582,44 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 			r.processCompletedNode(ctx, plan, node, readyCh)
 
 		case <-ctxDoneCh:
-			r.mu.Lock()
-			if r.lastError == nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				r.lastError = ctx.Err()
-			}
-			r.mu.Unlock()
+			r.recordDeadline(ctx)
 			ctxDoneCh = nil
 		}
 	}
 
 	wg.Wait()
+	// When the deadline and the end of the last node are ready together, the
+	// select above may take the node and end the loop without the deadline.
+	// Only a run the deadline could have stopped records it: one that
+	// succeeded, waits for a person, or waits for a step retry keeps its
+	// outcome.
+	if r.stoppedEarly(plan) {
+		r.recordDeadline(ctx)
+	}
+}
+
+// stoppedEarly reports whether the run was stopped before its end: it was
+// canceled, or a node ended aborted or never started.
+func (r *Runner) stoppedEarly(plan *Plan) bool {
+	if r.isCanceled() {
+		return true
+	}
+	for _, node := range plan.Nodes() {
+		if status := node.State().Status; status == ir.NodeAborted || status == ir.NodeNotStarted {
+			return true
+		}
+	}
+	return false
+}
+
+// recordDeadline records the passed deadline of ctx as the run's error,
+// unless another error is recorded.
+func (r *Runner) recordDeadline(ctx context.Context) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.lastError == nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		r.lastError = ctx.Err()
+	}
 }
 
 func (r *Runner) shouldRunFailureHandler(status ir.Status) bool {

@@ -7,12 +7,12 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -20,6 +20,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
@@ -27,6 +28,7 @@ import (
 	appconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
 const (
@@ -46,6 +48,16 @@ const (
 	grpcHealthMethodPrefix = "/grpc.health.v1.Health/"
 )
 
+// peerTokenOnlyMethods take the peer token whatever coordinator.require_token
+// says, and refuse worker certificates, since they serve administration
+// rather than workers.
+var peerTokenOnlyMethods = map[string]bool{
+	coordinatorv1.CoordinatorService_GetJoinReadiness_FullMethodName: true,
+	coordinatorv1.CoordinatorService_CreateInvite_FullMethodName:     true,
+	coordinatorv1.CoordinatorService_ListInvites_FullMethodName:      true,
+	coordinatorv1.CoordinatorService_DeleteInvite_FullMethodName:     true,
+}
+
 // LoadOrCreatePeerToken returns the peer token stored in path, generating and
 // storing one first when the file does not exist. Coordinators that share the
 // file agree on one token.
@@ -55,15 +67,14 @@ func LoadOrCreatePeerToken(path string) (string, error) {
 		return token, err
 	}
 
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return "", fmt.Errorf("generate peer token: %w", err)
+	token, err = newPeerToken()
+	if err != nil {
+		return "", err
 	}
-	token = hex.EncodeToString(raw)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	if err := fileutil.MkdirAll(filepath.Dir(path), peerDirMode); err != nil {
 		return "", fmt.Errorf("create peer token directory: %w", err)
 	}
-	err = fileutil.WriteFileAtomicExclusive(path, []byte(token+"\n"), 0o600)
+	err = fileutil.WriteFileAtomicExclusive(path, []byte(token+"\n"), peerFileMode)
 	if errors.Is(err, fs.ErrExist) {
 		return readPeerToken(path)
 	}
@@ -71,6 +82,15 @@ func LoadOrCreatePeerToken(path string) (string, error) {
 		return "", fmt.Errorf("write peer token: %w", err)
 	}
 	return token, nil
+}
+
+// newPeerToken returns a random token of 64 lowercase hex characters.
+func newPeerToken() (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generate peer token: %w", err)
+	}
+	return hex.EncodeToString(raw), nil
 }
 
 func readPeerToken(path string) (string, error) {
@@ -148,11 +168,16 @@ func (c *peerTokenCredentials) current() string {
 // when the token was configured or required, since only a generated token can
 // differ between coordinators that do not share a data directory. A call
 // without a token fails only when the token is required; otherwise it passes
-// and the coordinator logs a warning.
+// and the coordinator logs a warning. Administration calls, such as
+// GetJoinReadiness, always require the token. Enroll needs none, since its
+// invite admits it.
 type PeerTokenAuth struct {
 	token      string
 	configured bool
 	require    bool
+	// workerCA issues the worker certificates that count as the peer
+	// token, or nil when none do.
+	workerCA *x509.Certificate
 
 	warnMu   sync.Mutex
 	lastWarn time.Time
@@ -162,6 +187,14 @@ type PeerTokenAuth struct {
 // token came from peer.token, and require whether calls must carry it.
 func NewPeerTokenAuth(token string, configured, require bool) *PeerTokenAuth {
 	return &PeerTokenAuth{token: token, configured: configured, require: require}
+}
+
+// AcceptWorkerCertificates makes a call over TLS with a client certificate
+// that ca issued count as a call with the peer token, also when the token is
+// required. Administration calls refuse such a call with PermissionDenied.
+// It must be called before the server serves.
+func (a *PeerTokenAuth) AcceptWorkerCertificates(ca *PeerCA) {
+	a.workerCA = ca.cert
 }
 
 // UnaryInterceptor checks the peer token on unary calls.
@@ -185,7 +218,13 @@ func (a *PeerTokenAuth) StreamInterceptor() grpc.StreamServerInterceptor {
 }
 
 func (a *PeerTokenAuth) authorize(ctx context.Context, method string) error {
-	if strings.HasPrefix(method, grpcHealthMethodPrefix) {
+	if strings.HasPrefix(method, grpcHealthMethodPrefix) || method == coordinatorv1.CoordinatorService_Enroll_FullMethodName {
+		return nil
+	}
+	if _, ok := a.workerCertificateID(ctx); ok {
+		if peerTokenOnlyMethods[method] {
+			return status.Error(codes.PermissionDenied, "this call needs the peer token; a worker certificate cannot make it")
+		}
 		return nil
 	}
 	var got string
@@ -197,15 +236,39 @@ func (a *PeerTokenAuth) authorize(ctx context.Context, method string) error {
 	if got != "" && a.token != "" && subtle.ConstantTimeCompare([]byte(got), []byte(a.token)) == 1 {
 		return nil
 	}
+	require := a.require || peerTokenOnlyMethods[method]
 	switch {
-	case got != "" && (a.configured || a.require):
+	case got != "" && (a.configured || require):
 		return status.Error(codes.Unauthenticated, "the peer token does not match the coordinator's peer token")
-	case got == "" && a.require:
+	case got == "" && require:
 		return status.Error(codes.Unauthenticated,
 			"the coordinator requires a peer token: set peer.token, or let this process read the coordinator's data directory")
 	}
 	a.warn(ctx, method, got != "")
 	return nil
+}
+
+// workerCertificateID returns the certificate ID of the worker certificate
+// the call carries: a client certificate that chains to the CA that
+// AcceptWorkerCertificates gave.
+func (a *PeerTokenAuth) workerCertificateID(ctx context.Context) (string, bool) {
+	if a.workerCA == nil {
+		return "", false
+	}
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return "", false
+	}
+	info, ok := p.AuthInfo.(credentials.TLSInfo)
+	if !ok {
+		return "", false
+	}
+	for _, chain := range info.State.VerifiedChains {
+		if len(chain) > 1 && chain[len(chain)-1].Equal(a.workerCA) {
+			return chain[0].Subject.CommonName, true
+		}
+	}
+	return "", false
 }
 
 func (a *PeerTokenAuth) warn(ctx context.Context, method string, mismatched bool) {

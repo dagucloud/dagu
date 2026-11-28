@@ -358,6 +358,39 @@ func TestConfig_Validate(t *testing.T) {
 		require.NoError(t, cfg.Validate())
 	})
 
+	t.Run("PeerCAConflicts", func(t *testing.T) {
+		t.Parallel()
+		const (
+			bothCAs    = "use the built-in CA (peer.ca_cert_file, peer.ca_key_file) or your own certificates (peer.cert_file, peer.key_file, peer.client_ca_file), not both"
+			skipVerify = "peer.skip_tls_verify turns off the check that peer.ca_cert_file makes: remove one"
+		)
+		tests := []struct {
+			name    string
+			peer    Peer
+			wantErr string
+		}{
+			{name: "CACertWithCert", peer: Peer{CACertFile: "ca.crt", CertFile: "peer.crt"}, wantErr: bothCAs},
+			{name: "CAKeyWithKey", peer: Peer{CAKeyFile: "ca.key", KeyFile: "peer.key"}, wantErr: bothCAs},
+			{name: "CACertWithClientCA", peer: Peer{CACertFile: "ca.crt", ClientCaFile: "client-ca.crt"}, wantErr: bothCAs},
+			{name: "CACertWithSkipVerify", peer: Peer{CACertFile: "ca.crt", SkipTLSVerify: true}, wantErr: skipVerify},
+			{name: "CAPair", peer: Peer{CACertFile: "ca.crt", CAKeyFile: "ca.key"}},
+			{name: "OwnCertificates", peer: Peer{CertFile: "peer.crt", KeyFile: "peer.key", ClientCaFile: "client-ca.crt", SkipTLSVerify: true}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+				cfg := validBaseConfig()
+				cfg.Core.Peer = tt.peer
+				err := cfg.Validate()
+				if tt.wantErr == "" {
+					require.NoError(t, err)
+					return
+				}
+				require.EqualError(t, err, tt.wantErr)
+			})
+		}
+	})
+
 	t.Run("BuiltinAuth_TokenTTLAboveMaximum", func(t *testing.T) {
 		t.Parallel()
 		cfg := validBaseConfig()

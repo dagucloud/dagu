@@ -77,6 +77,16 @@ type ConfigLoader struct {
 	// legacySettings holds, by setting key, what Settings reports for a
 	// setting that Load filled from a deprecated key or variable.
 	legacySettings map[string]Setting
+	// flags holds, by config key, the command-line flag that set the key.
+	flags map[string]string
+	// sources holds what Config.Sources reports.
+	sources map[string]ValueSource
+	// configFileUsed and adminConfig are the config files valueSource
+	// names. adminConfig is nil without a legacy admin.yaml.
+	configFileUsed string
+	adminConfig    *viper.Viper
+	// defaultConfigFile is what Config.Paths.DefaultConfigFile reports.
+	defaultConfigFile string
 }
 
 // ConfigLoaderOption defines a functional option for configuring a ConfigLoader.
@@ -94,6 +104,15 @@ func WithConfigFile(configFile string) ConfigLoaderOption {
 func WithAppHomeDir(dir string) ConfigLoaderOption {
 	return func(l *ConfigLoader) {
 		l.appHomeDir = dir
+	}
+}
+
+// WithFlags names, by config key, the command-line flags that set keys, so
+// Config.Sources reports them, such as "--coordinator.host" for
+// "coordinator.host".
+func WithFlags(flags map[string]string) ConfigLoaderOption {
+	return func(l *ConfigLoader) {
+		l.flags = flags
 	}
 }
 
@@ -402,17 +421,23 @@ func (l *ConfigLoader) Load() (*Config, error) {
 	}
 
 	// Merge legacy admin.yaml for backward compatibility
+	var adminFileUsed string
 	l.v.SetConfigName("admin")
 	if err := l.v.MergeInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			return nil, fmt.Errorf("failed to read admin config: %w", err)
 		}
-	} else if l.requires(SectionServer) {
-		configFilesUsed = append(configFilesUsed, l.v.ConfigFileUsed())
-		if err := l.mergeTrustedProxyMappingsFile(l.v.ConfigFileUsed()); err != nil {
-			return nil, err
+	} else {
+		adminFileUsed = l.v.ConfigFileUsed()
+		if l.requires(SectionServer) {
+			configFilesUsed = append(configFilesUsed, adminFileUsed)
+			if err := l.mergeTrustedProxyMappingsFile(adminFileUsed); err != nil {
+				return nil, err
+			}
 		}
 	}
+	l.setSourceFiles(configFileUsed, fileutil.ResolvePathOrBlank(adminFileUsed))
+	l.sources = l.valueSources()
 	if err := l.loadOIDCWorkspaceMappingsEnv(); err != nil {
 		return nil, err
 	}
@@ -449,6 +474,7 @@ func (l *ConfigLoader) Load() (*Config, error) {
 	}
 
 	cfg.Paths.ConfigFileUsed = configFileUsed
+	cfg.Paths.DefaultConfigFile = l.defaultConfigFile
 	for _, filename := range configFilesUsed {
 		resolved, err := l.resolvePath("config file", filename)
 		if err != nil {
@@ -459,6 +485,7 @@ func (l *ConfigLoader) Load() (*Config, error) {
 	l.finalizeBaseEnv(cfg)
 	cfg.Notices = l.notices
 	cfg.Warnings = l.warnings
+	cfg.Sources = l.sources
 	cfg.WorkspaceAccessKeys = l.workspaceAccessKeys()
 
 	return cfg, nil
@@ -665,10 +692,14 @@ func (l *ConfigLoader) loadPeerConfig(def PeerDef) Peer {
 		KeyFile:       def.KeyFile,
 		ClientCaFile:  def.ClientCaFile,
 		SkipTLSVerify: def.SkipTLSVerify,
-		Insecure:      def.Insecure,
+		// Unset peer.insecure selects h2c, as true does.
+		Insecure:      def.Insecure || !l.v.IsSet("peer.insecure"),
+		InsecureUnset: !l.v.IsSet("peer.insecure"),
 		MaxRetries:    def.MaxRetries,
 		RetryInterval: l.parseDuration("peer.retry_interval", def.RetryInterval),
 		Token:         strings.TrimSpace(def.Token),
+		CACertFile:    def.CACertFile,
+		CAKeyFile:     def.CAKeyFile,
 	}
 }
 
@@ -1629,6 +1660,7 @@ func (l *ConfigLoader) loadCoordinatorConfig(cfg *Config, def Definition) {
 		cfg.Coordinator.Port = def.Coordinator.Port
 		cfg.Coordinator.HealthPort = def.Coordinator.HealthPort
 		cfg.Coordinator.RequireToken = def.Coordinator.RequireToken
+		cfg.Coordinator.RequireTLS = def.Coordinator.RequireTLS
 		if def.Coordinator.WorkerWaitTimeout != "" {
 			timeout, err := time.ParseDuration(def.Coordinator.WorkerWaitTimeout)
 			if err != nil {
@@ -2173,9 +2205,10 @@ func (l *ConfigLoader) explicitPaths(paths PathsConfig, def Definition) Explicit
 	}
 }
 
-// setBySource reports whether the config file or the environment sets key.
+// setBySource reports whether a flag, the environment, or a config file sets
+// key.
 func (l *ConfigLoader) setBySource(key string) bool {
-	return l.settingSource(key, envNames(key)) != SourceDefault
+	return l.valueSource(key).Kind != SourceKindDefault
 }
 
 func (l *ConfigLoader) finalizePaths(cfg *Config) error {
@@ -2208,6 +2241,9 @@ func (l *ConfigLoader) finalizePaths(cfg *Config) error {
 		cfg.Paths.ToolsDir = filepath.Join(cfg.Paths.DataDir, "tools")
 	}
 	cfg.Core.Peer.TokenFile = filepath.Join(cfg.Paths.DataDir, "coordinator", "peer-token")
+	cfg.Core.Peer.GeneratedCAFile = filepath.Join(cfg.Paths.DataDir, "coordinator", "peer-ca.pem")
+	cfg.Core.Peer.PublishedCAFile = filepath.Join(cfg.Paths.DataDir, "coordinator", "peer-ca.crt")
+	cfg.Core.Peer.FallbackFile = filepath.Join(cfg.Paths.DataDir, "coordinator", "peer-h2c.json")
 
 	// Suspend flags default under the shared data directory so every process
 	// observing the same data_dir sees identical suspension state. A legacy
@@ -2456,6 +2492,7 @@ func (l *ConfigLoader) setupViper(xdgConfig XDGConfig, homeDir, configFile, appH
 	}
 
 	l.legacySuspendFlagsDir = paths.LegacySuspendFlagsDir
+	l.defaultConfigFile = filepath.Join(paths.ConfigDir, "config.yaml")
 	l.configureViper(paths.ConfigDir, configFile)
 	l.bindEnvironmentVariables()
 	l.setViperDefaultValues(paths)
@@ -2526,9 +2563,6 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	l.v.SetDefault("scheduler.lock_retry_interval", "5s")
 	l.v.SetDefault("scheduler.retry_failure_window", "24h")
 	l.v.SetDefault("scheduler.failover_recovery_window", defaultFailoverRecoveryWindow.String())
-
-	// Peer
-	l.v.SetDefault("peer.insecure", true)
 
 	// Audit
 	l.v.SetDefault("audit.retention_days", 7)
@@ -2764,6 +2798,7 @@ var envBindings = []envBinding{
 	{key: "coordinator.health_port", env: "COORDINATOR_HEALTH_PORT"},
 	{key: "coordinator.worker_wait_timeout", env: "COORDINATOR_WORKER_WAIT_TIMEOUT"},
 	{key: "coordinator.require_token", env: "COORDINATOR_REQUIRE_TOKEN"},
+	{key: "coordinator.require_tls", env: "COORDINATOR_REQUIRE_TLS"},
 
 	// Worker
 	{key: "worker.id", env: "WORKER_ID"},
@@ -2777,6 +2812,8 @@ var envBindings = []envBinding{
 	{key: "peer.cert_file", env: "PEER_CERT_FILE"},
 	{key: "peer.key_file", env: "PEER_KEY_FILE"},
 	{key: "peer.client_ca_file", env: "PEER_CLIENT_CA_FILE"},
+	{key: "peer.ca_cert_file", env: "PEER_CA_CERT_FILE"},
+	{key: "peer.ca_key_file", env: "PEER_CA_KEY_FILE"},
 	{key: "peer.skip_tls_verify", env: "PEER_SKIP_TLS_VERIFY"},
 	{key: "peer.insecure", env: "PEER_INSECURE"},
 	{key: "peer.token", env: "PEER_TOKEN", secret: true},

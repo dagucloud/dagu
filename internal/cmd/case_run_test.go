@@ -569,7 +569,7 @@ func TestCasePaths(t *testing.T) {
 	// paths it names are moved.
 	kept := []string{
 		"DAGsDir", "ProjectsDir", "AltDAGsDir", "BaseConfig", "CalendarsDir", "WikiDir", "WikiDirLegacy",
-		"Executable", "ToolsDir", "ConfigFileUsed", "ConfigFilesUsed", "Explicit",
+		"Executable", "ToolsDir", "ConfigFileUsed", "ConfigFilesUsed", "DefaultConfigFile", "Explicit",
 	}
 
 	configured := filepath.Join(t.TempDir(), "configured")

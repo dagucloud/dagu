@@ -122,6 +122,8 @@ var legacyToSnakeCaseKey = map[string]string{
 	"peer.certfile":      "peer.cert_file",
 	"peer.keyfile":       "peer.key_file",
 	"peer.clientcafile":  "peer.client_ca_file",
+	"peer.cacertfile":    "peer.ca_cert_file",
+	"peer.cakeyfile":     "peer.ca_key_file",
 	"peer.skiptlsverify": "peer.skip_tls_verify",
 	"peer.maxretries":    "peer.max_retries",
 	"peer.retryinterval": "peer.retry_interval",

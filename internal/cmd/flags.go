@@ -360,6 +360,20 @@ var (
 		bindViper: true,
 		viperKey:  "peer.skip_tls_verify",
 	}
+
+	peerCACertFileFlag = commandLineFlag{
+		name:      "peer.ca-cert-file",
+		usage:     "Path to the CA certificate that signs peer certificates",
+		bindViper: true,
+		viperKey:  "peer.ca_cert_file",
+	}
+
+	peerCAKeyFileFlag = commandLineFlag{
+		name:      "peer.ca-key-file",
+		usage:     "Path to the private key of --peer.ca-cert-file",
+		bindViper: true,
+		viperKey:  "peer.ca_key_file",
+	}
 )
 
 // Cleanup and utility flags
@@ -612,10 +626,26 @@ func bindFlags(v *viper.Viper, cmd *cobra.Command, additionalFlags ...commandLin
 			continue
 		}
 
-		key := flag.viperKey
-		if key == "" {
-			key = stringutil.KebabToCamel(flag.name)
-		}
-		_ = v.BindPFlag(key, cmd.Flags().Lookup(flag.name))
+		_ = v.BindPFlag(flag.configKey(), cmd.Flags().Lookup(flag.name))
 	}
+}
+
+// setFlags returns, by config key, the bound flags set on the command line,
+// such as "--coordinator.host" for "coordinator.host".
+func setFlags(cmd *cobra.Command, flags []commandLineFlag) map[string]string {
+	set := make(map[string]string)
+	for _, flag := range flags {
+		if flag.bindViper && cmd.Flags().Changed(flag.name) {
+			set[flag.configKey()] = "--" + flag.name
+		}
+	}
+	return set
+}
+
+// configKey returns the config key a bound flag sets.
+func (f commandLineFlag) configKey() string {
+	if f.viperKey != "" {
+		return f.viperKey
+	}
+	return stringutil.KebabToCamel(f.name)
 }

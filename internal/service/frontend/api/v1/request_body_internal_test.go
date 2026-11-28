@@ -18,8 +18,9 @@ import (
 // A skills route refuses a JSON body with a field that the schema does not
 // have, a value of the wrong type and a body over the limit, whatever its
 // Content-Type: the generated handlers decode JSON whatever the header says.
-// The error never quotes a value of the body. Other routes, and a path or a
-// method that the document does not have, pass unchanged.
+// A JSON body with more than one value is refused too. The error never quotes
+// a value of the body. Other routes, and a path or a method that the document
+// does not have, pass unchanged.
 func TestClosedBodyMiddleware(t *testing.T) {
 	t.Parallel()
 	base, err := loadBaseOpenAPISpec()
@@ -56,6 +57,20 @@ func TestClosedBodyMiddleware(t *testing.T) {
 			assert.NotContains(t, w.Body.String(), value)
 		}
 	}
+	// The download of several skills has a closed body too, and a skill named
+	// download keeps the check of its update.
+	for _, req := range []struct{ method, path, body string }{
+		{http.MethodPost, "/api/v1/skills-download", `{"names":["demo"],"name":"` + value + `"}`},
+		{http.MethodPost, "/api/v1/skills-download", `{"names":"demo"}`},
+		{http.MethodPut, "/api/v1/skills/download", `{"content":"x","contents":"` + value + `"}`},
+		// The handlers decode only the first JSON value, so a second one is refused.
+		{http.MethodPost, "/api/v1/skills-download", "{\"names\":[\"demo\"]}\n{\"names\":[\"" + value + "\"]}"},
+		{http.MethodPut, "/api/v1/skills/demo", `{"content":"x"} ` + value},
+	} {
+		w := send(req.method, req.path, "application/json", req.body)
+		assert.Equal(t, http.StatusBadRequest, w.Code, "%s %s", req.method, req.body)
+		assert.NotContains(t, w.Body.String(), value)
+	}
 	// A file route takes raw bytes as application/octet-stream only.
 	const filePath = "/api/v1/skills/demo/files?path=assets/a.bin"
 	for _, contentType := range []string{"application/json", "text/plain", ""} {
@@ -86,4 +101,12 @@ func TestClosedBodyMiddleware(t *testing.T) {
 	assert.Equal(t, []string{"\xff\x00"}, reached, "a file reaches the handler as sent")
 	w = send(http.MethodPut, filePath, "application/octet-stream", tooLarge)
 	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+
+	// An empty file has no bytes to check, so it passes with any type or none.
+	reached = nil
+	for _, contentType := range []string{"application/octet-stream", ""} {
+		w = send(http.MethodPut, filePath, contentType, "")
+		assert.Equal(t, http.StatusNoContent, w.Code, "Content-Type %q", contentType)
+	}
+	assert.Equal(t, []string{"", ""}, reached)
 }

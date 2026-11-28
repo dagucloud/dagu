@@ -85,6 +85,14 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 				apiBasePath:    apiBasePath,
 				logIdleTimeout: remoteProxyTimeout,
 			}
+			if isDownload(r, apiBasePath) {
+				// The remote node may stream a download before it has read the
+				// request body. Without full duplex, writing the response would
+				// consume the rest of the body that the proxy is still forwarding.
+				if err := http.NewResponseController(w).EnableFullDuplex(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+					logger.Error(r.Context(), "Failed to stream a download request body", tag.Error(err))
+				}
+			}
 			resp, err := remoteNodeHandler.proxy(r)
 			if err != nil {
 				// If there was an error, write the error response
@@ -98,12 +106,15 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 				}
 			}()
 
-			if isLogDownload(r, apiBasePath) && resp.StatusCode == http.StatusOK {
+			if isDownload(r, apiBasePath) && resp.StatusCode == http.StatusOK {
 				if contentType := resp.Header.Get("Content-Type"); contentType != "" {
 					w.Header().Set("Content-Type", contentType)
 				}
 				if disposition := resp.Header.Get("Content-Disposition"); disposition != "" {
 					w.Header().Set("Content-Disposition", disposition)
+				}
+				if cacheControl := resp.Header.Get("Cache-Control"); cacheControl != "" {
+					w.Header().Set("Cache-Control", cacheControl)
 				}
 				if encoding := resp.Header.Get("Content-Encoding"); encoding != "" {
 					w.Header().Set("Content-Encoding", encoding)
@@ -111,7 +122,7 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 				}
 				w.WriteHeader(resp.StatusCode)
 				if _, err := io.Copy(flushWriter{w}, resp.Body); err != nil {
-					logger.Error(r.Context(), "Failed to proxy log download", tag.Error(err))
+					logger.Error(r.Context(), "Failed to proxy a download", tag.Error(err))
 					panic(http.ErrAbortHandler)
 				}
 				return
@@ -331,7 +342,7 @@ func (h *remoteNodeProxy) doRequest(body io.Reader, r *http.Request) (*http.Resp
 		Timeout:   remoteProxyTimeout,
 	}
 
-	if isLogDownload(r, h.apiBasePath) {
+	if isDownload(r, h.apiBasePath) {
 		// Encoded bodies are forwarded unchanged, so the remote may only use
 		// encodings the client accepts.
 		if encodings := r.Header.Values("Accept-Encoding"); len(encodings) > 0 {
@@ -339,7 +350,7 @@ func (h *remoteNodeProxy) doRequest(body io.Reader, r *http.Request) (*http.Resp
 		} else {
 			req.Header.Set("Accept-Encoding", "identity")
 		}
-		// Log downloads have no total duration limit; connection setup and
+		// Downloads have no total duration limit; connection setup and
 		// stalled transfers remain bounded.
 		client.Timeout = 0
 		dialer := &net.Dialer{Timeout: remoteProxyTimeout}

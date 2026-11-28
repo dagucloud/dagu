@@ -196,6 +196,9 @@ func TestLoad_Env(t *testing.T) {
 		"DAGU_WORKER_MAX_ACTIVE_RUNS": "200",
 		"DAGU_WORKER_HEALTH_PORT":     "50102",
 
+		"DAGU_PEER_CA_CERT_FILE": filepath.Join(testPaths, "peer-ca.crt"),
+		"DAGU_PEER_CA_KEY_FILE":  filepath.Join(testPaths, "peer-ca.key"),
+
 		"DAGU_SCHEDULER_PORT":                      "9999",
 		"DAGU_SCHEDULER_ZOMBIE_DETECTION_INTERVAL": "90s",
 		"DAGU_SCHEDULER_WAKE_HOLD":                 "4m",
@@ -238,6 +241,7 @@ func TestLoad_Env(t *testing.T) {
 	require.NotEmpty(t, cfg.Paths.ConfigFileUsed)
 	cfg.Paths.ConfigFileUsed = ""
 	cfg.Paths.ConfigFilesUsed = nil
+	cfg.Paths.DefaultConfigFile = ""
 
 	expected := &Config{
 		Core: Core{
@@ -251,8 +255,14 @@ func TestLoad_Env(t *testing.T) {
 			EnvPassthrough:         []string{},
 			EnvPassthroughPrefixes: []string{},
 			Peer: Peer{
-				Insecure:  true, // Default is true
-				TokenFile: filepath.Join(testPaths, "data", "coordinator", "peer-token"),
+				Insecure:        true, // Default is true
+				InsecureUnset:   true,
+				TokenFile:       filepath.Join(testPaths, "data", "coordinator", "peer-token"),
+				CACertFile:      filepath.Join(testPaths, "peer-ca.crt"),
+				CAKeyFile:       filepath.Join(testPaths, "peer-ca.key"),
+				GeneratedCAFile: filepath.Join(testPaths, "data", "coordinator", "peer-ca.pem"),
+				PublishedCAFile: filepath.Join(testPaths, "data", "coordinator", "peer-ca.crt"),
+				FallbackFile:    filepath.Join(testPaths, "data", "coordinator", "peer-h2c.json"),
 			},
 			BaseEnv: cfg.Core.BaseEnv, // Dynamic, copy from actual
 		},
@@ -439,7 +449,8 @@ func TestLoad_Env(t *testing.T) {
 		Warnings: []string{fmt.Sprintf(
 			"paths.suspend_flags_dir %q is outside paths.data_dir %q; suspension state may diverge across Dagu processes",
 			filepath.Join(testPaths, "suspend"), filepath.Join(testPaths, "data"))},
-		Cache: CacheModeNormal,
+		Cache:   CacheModeNormal,
+		Sources: cfg.Sources, // TestLoadSources covers it
 	}
 
 	assert.Equal(t, expected, cfg)
@@ -1178,12 +1189,15 @@ scheduler:
 			EnvPassthrough:         []string{},
 			EnvPassthroughPrefixes: []string{},
 			Peer: Peer{
-				CertFile:      "/path/to/peer-cert.pem",
-				KeyFile:       "/path/to/peer-key.pem",
-				ClientCaFile:  "/path/to/peer-ca.pem",
-				SkipTLSVerify: false,
-				Insecure:      false,
-				TokenFile:     filepath.Join(resolvedTestPath(t, "/var/dagu/data"), "coordinator", "peer-token"),
+				CertFile:        "/path/to/peer-cert.pem",
+				KeyFile:         "/path/to/peer-key.pem",
+				ClientCaFile:    "/path/to/peer-ca.pem",
+				SkipTLSVerify:   false,
+				Insecure:        false,
+				TokenFile:       filepath.Join(resolvedTestPath(t, "/var/dagu/data"), "coordinator", "peer-token"),
+				GeneratedCAFile: filepath.Join(resolvedTestPath(t, "/var/dagu/data"), "coordinator", "peer-ca.pem"),
+				PublishedCAFile: filepath.Join(resolvedTestPath(t, "/var/dagu/data"), "coordinator", "peer-ca.crt"),
+				FallbackFile:    filepath.Join(resolvedTestPath(t, "/var/dagu/data"), "coordinator", "peer-h2c.json"),
 			},
 			BaseEnv: cfg.Core.BaseEnv, // Dynamic, copy from actual
 		},
@@ -1366,7 +1380,8 @@ scheduler:
 		Warnings: []string{fmt.Sprintf(
 			"paths.suspend_flags_dir %q is outside paths.data_dir %q; suspension state may diverge across Dagu processes",
 			resolvedTestPath(t, "/var/dagu/suspend"), resolvedTestPath(t, "/var/dagu/data"))},
-		Cache: CacheModeNormal,
+		Cache:   CacheModeNormal,
+		Sources: cfg.Sources, // TestLoadSources covers it
 	}
 
 	assert.Equal(t, expected, cfg)
@@ -1995,6 +2010,7 @@ func loadFromYAML(t *testing.T, yamlContent string) *Config {
 	cfg := testLoad(t, WithConfigFile(configFile))
 	cfg.Paths.ConfigFileUsed = ""
 	cfg.Paths.ConfigFilesUsed = nil
+	cfg.Paths.DefaultConfigFile = ""
 	return cfg
 }
 
@@ -2199,6 +2215,14 @@ func TestLoad_ConfigFileUsed(t *testing.T) {
 	cfg := testLoad(t, WithConfigFile(configFile))
 
 	assert.Equal(t, configFile, cfg.Paths.ConfigFileUsed)
+}
+
+func TestLoad_DefaultConfigFile(t *testing.T) {
+	home := t.TempDir()
+	cfg := testLoad(t, WithAppHomeDir(home))
+
+	assert.Empty(t, cfg.Paths.ConfigFileUsed)
+	assert.Equal(t, filepath.Join(home, "config.yaml"), cfg.Paths.DefaultConfigFile)
 }
 
 func TestLoad_ConfigFileUsed_RelativePath(t *testing.T) {

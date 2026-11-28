@@ -7,6 +7,7 @@ import (
 	"time"
 
 	appconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
 
 // Config holds configuration for the coordinator client
@@ -20,6 +21,23 @@ type Config struct {
 	KeyFile       string // Client key
 	CAFile        string // CA certificate
 	SkipTLSVerify bool   // Skip server certificate verification
+
+	// InsecureUnset reports that Insecure came from no setting, so a TLS
+	// source still selects built-in TLS.
+	InsecureUnset bool
+	// BuiltinCAFile is the CA certificate, peer.ca_cert_file, that every
+	// coordinator certificate on built-in TLS chains to.
+	BuiltinCAFile string
+	// PublishedCAFile is the CA certificate that coordinators publish in
+	// this process's data directory.
+	PublishedCAFile string
+	// FallbackFile keeps the h2c windows that the processes sharing the data
+	// directory opened.
+	FallbackFile string
+	// LocalRegistry is the service registry in this process's data
+	// directory. The published CA certificate selects built-in TLS only
+	// while it lists a coordinator that serves built-in TLS.
+	LocalRegistry serviceregistry.ServiceRegistry
 
 	// Peer token sent on every call: Token when set, otherwise the content of
 	// TokenFile when this process can read it.
@@ -56,6 +74,10 @@ func ConfigFromPeer(peer appconfig.Peer) *Config {
 	cfg.KeyFile = peer.KeyFile
 	cfg.SkipTLSVerify = peer.SkipTLSVerify
 	cfg.Insecure = peer.Insecure
+	cfg.InsecureUnset = peer.InsecureUnset
+	cfg.BuiltinCAFile = peer.CACertFile
+	cfg.PublishedCAFile = peer.PublishedCAFile
+	cfg.FallbackFile = peer.FallbackFile
 	cfg.Token = peer.Token
 	cfg.TokenFile = peer.TokenFile
 	if peer.MaxRetries > 0 {
@@ -69,8 +91,10 @@ func ConfigFromPeer(peer appconfig.Peer) *Config {
 
 // Validate checks if the configuration is valid
 func (c *Config) Validate() error {
-	if !c.Insecure && !c.SkipTLSVerify && c.CertFile == "" && c.KeyFile == "" && c.CAFile == "" {
-		return ErrMissingTLSConfig
+	if !c.Insecure {
+		if _, err := c.startTransport(); err != nil {
+			return err
+		}
 	}
 	if c.DialTimeout <= 0 {
 		c.DialTimeout = 10 * time.Second

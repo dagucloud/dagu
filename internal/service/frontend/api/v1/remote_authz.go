@@ -126,6 +126,8 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"ListSkills":                      remoteNodeAccessRead,
 	"GetSkill":                        remoteNodeAccessRead,
 	"GetSkillFile":                    remoteNodeAccessRead,
+	"DownloadSkill":                   remoteNodeAccessRead,
+	"DownloadSkills":                  remoteNodeAccessRead,
 	"GetSchedulerPauseState":          remoteNodeAccessRead,
 	"GetWorkspaceBaseConfig":          remoteNodeAccessRead,
 	"GetSyncConfig":                   remoteNodeAccessRead,
@@ -252,6 +254,19 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"TestNewInventoryNode":         remoteNodeAccessDenied,
 	"TrustInventoryNodeHostKeys":   remoteNodeAccessDenied,
 	"ForgetWorkerNode":             remoteNodeAccessDenied,
+
+	// Connections and OAuth apps, which each server keeps for itself with
+	// its own callback URL.
+	"ListOAuthApps":    remoteNodeAccessDenied,
+	"CreateOAuthApp":   remoteNodeAccessDenied,
+	"GetOAuthApp":      remoteNodeAccessDenied,
+	"UpdateOAuthApp":   remoteNodeAccessDenied,
+	"DeleteOAuthApp":   remoteNodeAccessDenied,
+	"ListConnections":  remoteNodeAccessDenied,
+	"CreateConnection": remoteNodeAccessDenied,
+	"GetConnection":    remoteNodeAccessDenied,
+	"UpdateConnection": remoteNodeAccessDenied,
+	"DeleteConnection": remoteNodeAccessDenied,
 }
 
 // remoteNodeProfileOperations take a runtime profile in the request body.

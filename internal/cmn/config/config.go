@@ -47,6 +47,9 @@ type Config struct {
 	Cloud           CloudConfig
 	Notices         []string
 	Warnings        []string
+	// Sources holds, by config key such as "coordinator.host", where Load
+	// found the value of each peer.* key and of coordinator.host.
+	Sources map[string]ValueSource
 	// WorkspaceAccessKeys lists the workspace access keys the configuration
 	// sets. v3.0 reads them as their project equivalents until v3.1.
 	WorkspaceAccessKeys []string
@@ -674,6 +677,9 @@ type PathsConfig struct {
 	ViewsDir              string
 	ConfigFileUsed        string
 	ConfigFilesUsed       []string
+	// DefaultConfigFile is the config.yaml in the config directory, which
+	// Load reads when no config file is given.
+	DefaultConfigFile string
 	// Explicit reports which paths the configuration sets rather than
 	// leaving to their defaults.
 	Explicit ExplicitPaths
@@ -826,6 +832,8 @@ type Coordinator struct {
 	// RequireToken rejects calls that do not carry the peer token. When
 	// false, such calls are accepted with a warning.
 	RequireToken bool
+	// RequireTLS refuses calls over h2c on a coordinator with a peer CA.
+	RequireTLS bool
 }
 
 // Worker represents the worker configuration.
@@ -893,7 +901,12 @@ type Peer struct {
 	KeyFile       string
 	ClientCaFile  string
 	SkipTLSVerify bool
-	Insecure      bool          // Use h2c instead of TLS
+	// Insecure selects h2c instead of TLS. It is true while peer.insecure is
+	// unset; InsecureUnset tells an unset key from one set to true.
+	Insecure bool
+	// InsecureUnset reports that peer.insecure is unset. Insecure is then
+	// true, but a client with a TLS source still uses built-in TLS.
+	InsecureUnset bool
 	MaxRetries    int           // Default: 10 (exponential backoff, capped at 30s)
 	RetryInterval time.Duration // Default: 1s
 	// Token is the shared token peers send to the coordinator. Empty means
@@ -902,6 +915,22 @@ type Peer struct {
 	// TokenFile is where the coordinator keeps the token it generates, under
 	// the data directory. Processes that share the data directory read it.
 	TokenFile string
+	// CACertFile is the peer CA certificate. On a coordinator it is the CA
+	// that signs peer certificates, with CAKeyFile. On other processes it is
+	// the CA that signs coordinator certificates.
+	CACertFile string
+	// CAKeyFile is the private key of CACertFile. Only a coordinator reads it.
+	CAKeyFile string
+	// GeneratedCAFile is where the coordinator keeps the CA it generates,
+	// under the data directory, when neither a CA nor own certificates are set.
+	GeneratedCAFile string
+	// PublishedCAFile is the certificate of the CA a coordinator uses, which
+	// it keeps under the data directory for the clients that share it.
+	PublishedCAFile string
+	// FallbackFile is where clients keep, under the data directory, the
+	// coordinator addresses on which built-in TLS failed, so later processes
+	// on the host use h2c there without another failed handshake.
+	FallbackFile string
 }
 
 // Validate performs basic validation on the configuration to ensure required fields are set
@@ -969,6 +998,20 @@ func (c *Config) Validate() error {
 	}
 	if err := ValidatePeerToken(c.Core.Peer.Token); err != nil {
 		return fmt.Errorf("peer.token %w", err)
+	}
+	return c.validatePeerCA()
+}
+
+// validatePeerCA rejects peer CA settings that contradict other peer
+// settings. Each check involves a CA key, so no setup without one fails.
+func (c *Config) validatePeerCA() error {
+	peer := c.Core.Peer
+	if (peer.CACertFile != "" || peer.CAKeyFile != "") &&
+		(peer.CertFile != "" || peer.KeyFile != "" || peer.ClientCaFile != "") {
+		return errors.New("use the built-in CA (peer.ca_cert_file, peer.ca_key_file) or your own certificates (peer.cert_file, peer.key_file, peer.client_ca_file), not both")
+	}
+	if peer.CACertFile != "" && peer.SkipTLSVerify {
+		return errors.New("peer.skip_tls_verify turns off the check that peer.ca_cert_file makes: remove one")
 	}
 	return nil
 }

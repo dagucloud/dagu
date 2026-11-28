@@ -179,6 +179,11 @@ func (a *API) UpdateWorkspace(ctx context.Context, request api.UpdateWorkspaceRe
 	}
 
 	updated.UpdatedAt = time.Now().UTC()
+	if updated.Name != existing.Name {
+		if err := a.requireNoConnections(ctx, existing.Name); err != nil {
+			return nil, err
+		}
+	}
 
 	wikiStore := a.wikiStore
 	wikiMoved := false
@@ -283,6 +288,10 @@ func (a *API) DeleteWorkspace(ctx context.Context, request api.DeleteWorkspaceRe
 				Message: "Delete workspace Wiki pages before deleting the workspace",
 			}, nil
 		}
+	}
+
+	if err := a.requireNoConnections(ctx, ws.Name); err != nil {
+		return nil, err
 	}
 
 	if err := a.workspaceStore.Delete(ctx, request.WorkspaceId); err != nil {

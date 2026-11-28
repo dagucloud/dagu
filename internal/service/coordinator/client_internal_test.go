@@ -101,10 +101,7 @@ func TestClientRecordSuccess_LogsRecoveryWithoutHoldingStateLock(t *testing.T) {
 func TestClientCacheUsesDerivedKeyForEmptyCoordinatorIDs(t *testing.T) {
 	t.Parallel()
 
-	cli := &clientImpl{
-		config:  DefaultConfig(),
-		clients: make(map[string]*client),
-	}
+	cli := New(nil, DefaultConfig()).(*clientImpl)
 
 	member1 := serviceregistry.HostInfo{Host: "127.0.0.1", Port: 1234}
 	member2 := serviceregistry.HostInfo{Host: "127.0.0.1", Port: 5678}
@@ -125,10 +122,7 @@ func TestClientCacheUsesDerivedKeyForEmptyCoordinatorIDs(t *testing.T) {
 func TestClientCacheUsesAdvertisedEndpointAcrossCoordinatorProcesses(t *testing.T) {
 	t.Parallel()
 
-	cli := &clientImpl{
-		config:  DefaultConfig(),
-		clients: make(map[string]*client),
-	}
+	cli := New(nil, DefaultConfig()).(*clientImpl)
 	endpoint := serviceregistry.HostInfo{ID: "coord-a", Host: "coordinator", Port: 50055}
 	replacement := endpoint
 	replacement.ID = "coord-b"

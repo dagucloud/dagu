@@ -101,6 +101,7 @@ It must not be treated as product behavior until implementation catches up.
 | [105: Egress Proxy](105-egress-proxy.md) | Partially implemented |
 | [106: DAG Outputs](106-dag-outputs.md) | Implemented |
 | [107: Connections](107-connections.md) | Not implemented |
+| [108: Peer Transport and Worker Invites](108-peer-transport.md) | Partially implemented |
 
 **Writing guidelines:**
 

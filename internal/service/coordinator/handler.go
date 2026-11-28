@@ -193,6 +193,11 @@ type Handler struct {
 	trustedHostKeys           runctx.TrustedHostKeys             // Host keys trusted for inventory nodes
 	agentSessionCleanupQueue  *agentsession.CleanupQueue         // Deferred provider cleanup owned by workers
 	workerNodes               *workerNodeRecorder                // Records workers that set an ID as nodes
+	joinReadiness             JoinReadinessConfig                // Settings reported by GetJoinReadiness
+	hostProbe                 hostProbe                          // Where this process runs, for GetJoinReadiness
+	peerCA                    *PeerCA                            // Signs worker certificates; nil without built-in TLS
+	workerInvites             persis.WorkerInviteStore           // Invites that admit enrollments
+	workerCertificates        persis.WorkerCertificateStore      // Records of issued worker certificates
 
 	// Open attempts cache for status persistence
 	attemptsMu   sync.RWMutex
@@ -296,6 +301,20 @@ type HandlerConfig struct {
 	// Optional - when nil, no worker node is recorded.
 	WorkerNodeStore inventory.WorkerNodeStore
 
+	// JoinReadiness holds the settings that GetJoinReadiness reports.
+	JoinReadiness JoinReadinessConfig
+
+	// PeerCA signs the certificates Enroll issues. Without it, the invite
+	// calls and Enroll fail with FailedPrecondition, and WorkerInviteStore
+	// and WorkerCertificateStore are unused.
+	PeerCA *PeerCA
+
+	// WorkerInviteStore keeps the invites that admit enrollments.
+	WorkerInviteStore persis.WorkerInviteStore
+
+	// WorkerCertificateStore records the certificates Enroll issues.
+	WorkerCertificateStore persis.WorkerCertificateStore
+
 	// StaleHeartbeatThreshold is the duration after which a worker's heartbeat
 	// is considered stale. Defaults to 30 seconds if not set.
 	StaleHeartbeatThreshold time.Duration
@@ -368,6 +387,11 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		trustedHostKeys:           cfg.TrustedHostKeys,
 		agentSessionCleanupQueue:  cfg.AgentSessionCleanupQueue,
 		workerNodes:               newWorkerNodeRecorder(cfg.WorkerNodeStore),
+		joinReadiness:             cfg.JoinReadiness,
+		hostProbe:                 systemHostProbe(),
+		peerCA:                    cfg.PeerCA,
+		workerInvites:             cfg.WorkerInviteStore,
+		workerCertificates:        cfg.WorkerCertificateStore,
 		staleHeartbeatThreshold:   cfg.StaleHeartbeatThreshold,
 		staleLeaseThreshold:       cfg.StaleLeaseThreshold,
 		workerWaitTimeout:         cfg.WorkerWaitTimeout,

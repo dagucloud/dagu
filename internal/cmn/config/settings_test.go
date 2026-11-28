@@ -6,6 +6,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -230,6 +231,22 @@ func TestSettingsAuthMode(t *testing.T) {
 	})
 }
 
+// An unset peer.insecure reports the value Load resolved, as it did when the
+// key had a default of true.
+func TestSettingsPeerInsecure(t *testing.T) {
+	t.Setenv("DAGU_PEER_INSECURE", "")
+
+	t.Run("Unset", func(t *testing.T) {
+		settings := loadSettings(t, "")
+		assert.Equal(t, Setting{Key: "peer.insecure", Value: "true", Source: SourceDefault}, settings["peer.insecure"])
+	})
+
+	t.Run("File", func(t *testing.T) {
+		settings := loadSettings(t, "peer:\n  insecure: false\n  skip_tls_verify: true\n")
+		assert.Equal(t, Setting{Key: "peer.insecure", Value: "false", Source: SourceFile}, settings["peer.insecure"])
+	})
+}
+
 func TestSettingsMasksSecrets(t *testing.T) {
 	t.Setenv("DAGU_AUTH_TOKEN_SECRET", "")
 	t.Setenv("DAGU_AUTH_BASIC_PASSWORD", "")
@@ -257,4 +274,119 @@ cors_allowed_origins:
 `)
 
 	assert.Equal(t, "https://a.example,https://b.example", settings["cors_allowed_origins"].Value)
+}
+
+// Config.Sources reports where each peer.* key and coordinator.host came
+// from, by the precedence Load applies: a flag, then the environment, then a
+// config file, then the default.
+func TestLoadSources(t *testing.T) {
+	t.Setenv("DAGU_COORDINATOR_HOST", "")
+	t.Setenv("DAGU_PEER_INSECURE", "")
+	t.Setenv("DAGU_PEER_CERT_FILE", "")
+
+	t.Run("Default", func(t *testing.T) {
+		cfg := testLoad(t)
+		for _, key := range []string{"coordinator.host", "peer.insecure", "peer.cert_file", "peer.retry_interval"} {
+			assert.Equal(t, ValueSource{Kind: SourceKindDefault}, cfg.Sources[key], key)
+		}
+	})
+
+	// A peer.* key added to the config is reported without a change here.
+	t.Run("EveryPeerKey", func(t *testing.T) {
+		cfg := testLoad(t)
+		for _, b := range envBindings {
+			if strings.HasPrefix(b.key, "peer.") {
+				assert.Contains(t, cfg.Sources, b.key)
+			}
+		}
+	})
+
+	t.Run("File", func(t *testing.T) {
+		home := t.TempDir()
+		configFile := writeHomeConfig(t, home, "config.yaml", "coordinator:\n  host: 0.0.0.0\npeer:\n  cert_file: /etc/dagu/client.crt\n")
+		cfg := testLoad(t, WithAppHomeDir(home))
+		want := ValueSource{Kind: SourceKindFile, Name: configFile}
+		assert.Equal(t, want, cfg.Sources["coordinator.host"])
+		assert.Equal(t, want, cfg.Sources["peer.cert_file"])
+		assert.Equal(t, ValueSource{Kind: SourceKindDefault}, cfg.Sources["peer.insecure"])
+	})
+
+	// The legacy admin.yaml is merged over config.yaml, so a key that both
+	// set comes from admin.yaml.
+	t.Run("AdminFile", func(t *testing.T) {
+		home := t.TempDir()
+		configFile := writeHomeConfig(t, home, "config.yaml", "coordinator:\n  host: 0.0.0.0\npeer:\n  cert_file: /etc/dagu/client.crt\n")
+		adminFile := writeHomeConfig(t, home, "admin.yaml", "coordinator:\n  host: 10.0.0.1\n")
+		cfg := testLoad(t, WithAppHomeDir(home))
+		assert.Equal(t, "10.0.0.1", cfg.Coordinator.Host)
+		assert.Equal(t, ValueSource{Kind: SourceKindFile, Name: adminFile}, cfg.Sources["coordinator.host"])
+		assert.Equal(t, ValueSource{Kind: SourceKindFile, Name: configFile}, cfg.Sources["peer.cert_file"])
+	})
+
+	t.Run("Env", func(t *testing.T) {
+		home := t.TempDir()
+		writeHomeConfig(t, home, "config.yaml", "coordinator:\n  host: 0.0.0.0\n")
+		t.Setenv("DAGU_COORDINATOR_HOST", "10.0.0.2")
+		cfg := testLoad(t, WithAppHomeDir(home))
+		assert.Equal(t, ValueSource{Kind: SourceKindEnv, Name: "DAGU_COORDINATOR_HOST"}, cfg.Sources["coordinator.host"])
+	})
+
+	t.Run("Flag", func(t *testing.T) {
+		t.Setenv("DAGU_COORDINATOR_HOST", "10.0.0.2")
+		v := viper.New()
+		// Set stands in for a bound flag: both take precedence over the
+		// environment.
+		v.Set("coordinator.host", "10.0.0.3")
+		cfg, err := NewConfigLoader(v,
+			WithAppHomeDir(t.TempDir()),
+			WithFlags(map[string]string{"coordinator.host": "--coordinator.host"}),
+		).Load()
+		require.NoError(t, err)
+		assert.Equal(t, "10.0.0.3", cfg.Coordinator.Host)
+		assert.Equal(t, ValueSource{Kind: SourceKindFlag, Name: "--coordinator.host"}, cfg.Sources["coordinator.host"])
+	})
+}
+
+// An unset peer.insecure selects h2c as true does, and Config.Sources tells
+// the two apart.
+func TestLoadPeerInsecure(t *testing.T) {
+	t.Setenv("DAGU_PEER_INSECURE", "")
+
+	for _, tc := range []struct {
+		name     string
+		yaml     string
+		insecure bool
+		kind     SourceKind
+	}{
+		{"Unset", "", true, SourceKindDefault},
+		{"NoValue", "peer:\n  insecure:\n", true, SourceKindDefault},
+		{"True", "peer:\n  insecure: true\n", true, SourceKindFile},
+		{"False", "peer:\n  insecure: false\n  skip_tls_verify: true\n", false, SourceKindFile},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := loadFromYAML(t, tc.yaml)
+			assert.Equal(t, tc.insecure, cfg.Core.Peer.Insecure)
+			assert.Equal(t, tc.kind, cfg.Sources["peer.insecure"].Kind)
+		})
+	}
+
+	// A false set on the Viper instance, as an embedding caller may, selects
+	// TLS without the flags named to the loader.
+	t.Run("SetWithoutFlags", func(t *testing.T) {
+		v := viper.New()
+		v.Set("peer.insecure", false)
+		v.Set("peer.skip_tls_verify", true)
+		cfg, err := NewConfigLoader(v, WithAppHomeDir(t.TempDir())).Load()
+		require.NoError(t, err)
+		assert.False(t, cfg.Core.Peer.Insecure)
+	})
+}
+
+// writeHomeConfig writes a config file named name into home, the app home
+// directory Load searches, and returns its resolved path.
+func writeHomeConfig(t *testing.T, home, name, content string) string {
+	t.Helper()
+	file := filepath.Join(home, name)
+	require.NoError(t, os.WriteFile(file, []byte(content), 0600))
+	return resolvedTestPath(t, file)
 }

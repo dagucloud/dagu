@@ -64,13 +64,7 @@ func TestPinnedStateCoordinatorUsesDeterministicOwnerWithoutHealthFailover(t *te
 	owner, err := selectStateCoordinatorOwner(members, key)
 	require.NoError(t, err)
 
-	cli := &clientImpl{
-		config:            DefaultConfig(),
-		registry:          staticStateRegistry{members: members},
-		clients:           make(map[string]*client),
-		stateCoordinators: make(map[string]pinnedStateCoordinator),
-		state:             &Metrics{IsConnected: true},
-	}
+	cli := New(staticStateRegistry{members: members}, DefaultConfig()).(*clientImpl)
 	t.Cleanup(func() { require.NoError(t, cli.Cleanup(t.Context())) })
 
 	pinned, err := cli.pinnedStateCoordinator(context.Background(), key)
@@ -85,13 +79,7 @@ func TestPinnedStateCoordinatorDiscoveryDoesNotHoldPinLock(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	registry := &blockingStateRegistry{started: started, release: release}
-	cli := &clientImpl{
-		config:            DefaultConfig(),
-		registry:          registry,
-		clients:           make(map[string]*client),
-		stateCoordinators: make(map[string]pinnedStateCoordinator),
-		state:             &Metrics{IsConnected: true},
-	}
+	cli := New(registry, DefaultConfig()).(*clientImpl)
 
 	done := make(chan error, 1)
 	go func() {
