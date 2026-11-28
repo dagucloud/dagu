@@ -175,7 +175,19 @@ func TestReviewZombieLeaderSurvivesEnd(t *testing.T) {
 	marker := filepath.Join(os.TempDir(), "dagu-review-zombie-"+strconv.Itoa(os.Getpid()))
 	_ = os.Remove(marker)
 	t.Cleanup(func() { _ = os.Remove(marker) })
-	startAs(t, WithStep(ctx, step), filepath.Join(workDir, "repo"), bin+" "+marker+" </dev/null >/dev/null 2>&1 &")
+	pidFile := marker + ".pid"
+	_ = os.Remove(pidFile)
+	t.Cleanup(func() { _ = os.Remove(pidFile) })
+	startAs(t, WithStep(ctx, step), filepath.Join(workDir, "repo"), bin+" "+marker+" </dev/null >/dev/null 2>&1 & echo $! >"+pidFile)
+	// End runs only once the leader is a zombie, the case of this test.
+	var leader int
+	require.Eventually(t, func() bool {
+		data, _ := os.ReadFile(pidFile)
+		pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		leader = pid
+		return err == nil
+	}, 5*time.Second, 20*time.Millisecond, "the shell did not write the PID of the agent")
+	waitEnded(t, leader)
 	// A count that changes shows that the thread runs before End, so an equal
 	// count below means a stopped thread. A read between the truncation and
 	// the write of the file is empty.
