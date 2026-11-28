@@ -203,7 +203,7 @@ func (c *connectionCLI) addGoogle(ctx context.Context, req googleAddRequest) err
 		Services: req.services,
 	})
 	if err != nil && registered {
-		return c.unregister(ctx, app, err)
+		return c.unregister(app, err)
 	}
 	if err != nil {
 		return err
@@ -224,7 +224,7 @@ func (c *connectionCLI) completeGoogleRequest(ctx context.Context, req *googleAd
 		return errors.New("pass a connection name and --services, or run the command on a terminal to be asked for them")
 	}
 	var err error
-	if req.name == "" {
+	for req.name == "" {
 		if req.name, err = c.term.ask(ctx, "Connection name", ""); err != nil {
 			return err
 		}
@@ -382,7 +382,10 @@ func (c *connectionCLI) registerClientFile(ctx context.Context, req *googleAddRe
 // unregister deletes app, which this command registered for a connection
 // that could not be created, so that no app holds the client's secret
 // without a use. It returns createErr with what became of the app.
-func (c *connectionCLI) unregister(ctx context.Context, app *api.OAuthApp, createErr error) error {
+func (c *connectionCLI) unregister(app *api.OAuthApp, createErr error) error {
+	// A fresh context, since an interrupt may have ended the create.
+	ctx, cancel := context.WithTimeout(context.Background(), cancelTimeout)
+	defer cancel()
 	if err := c.client.deleteOAuthApp(ctx, app.Id); err != nil {
 		return fmt.Errorf("%w\nThe OAuth app %s (%s) that the client file registered stays, since deleting it failed: %w", createErr, app.Name, app.Id, err)
 	}

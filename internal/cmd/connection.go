@@ -77,6 +77,9 @@ type connectionCLI struct {
 	// localServer is the API base URL of this host's server when the local
 	// context is selected, or empty for a remote context.
 	localServer string
+	// remoteContext names the remote context selected, or is empty for the
+	// local context.
+	remoteContext string
 }
 
 // connectionTerm is the terminal a connection subcommand talks to.
@@ -110,7 +113,7 @@ func newConnectionCLI(ctx *Context) (*connectionCLI, error) {
 		c.workspace = strings.TrimSpace(flag.Value.String())
 	}
 	if ctx.IsRemote() {
-		c.client = ctx.Remote
+		c.client, c.remoteContext = ctx.Remote, ctx.ContextName
 		return c, nil
 	}
 	client, base, err := localServerClient(ctx, ctx.Config)
@@ -263,11 +266,14 @@ func (c *connectionCLI) explain(err error) error {
 }
 
 // command returns the dagu connection command that runs sub on the
-// connection named name in this CLI's workspace.
+// connection named name in this CLI's workspace, on this CLI's server.
 func (c *connectionCLI) command(sub, name string) string {
 	s := "dagu connection " + sub + " " + name
 	if c.workspace != "" {
 		s += " --workspace " + c.workspace
+	}
+	if c.remoteContext != "" {
+		s += " --context " + c.remoteContext
 	}
 	return s
 }

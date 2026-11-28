@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -33,13 +34,20 @@ const (
 	cancelTimeout = 10 * time.Second
 )
 
-var (
-	// errSignInCancelled reports that the person stopped the sign-in.
-	errSignInCancelled = errors.New("sign-in cancelled")
-	// errOutcomeUnknown reports a completed session whose result could not
-	// be read, so the connection may hold new tokens or its previous ones.
-	errOutcomeUnknown = errors.New("the result of the sign-in could not be read")
-)
+// errSignInCancelled reports that the person stopped the sign-in.
+var errSignInCancelled = errors.New("sign-in cancelled")
+
+// sessionFailed is an error after which the server holds the session as
+// failed, so no new tokens went live.
+type sessionFailed struct{ err error }
+
+func (e sessionFailed) Error() string { return e.err.Error() }
+func (e sessionFailed) Unwrap() error { return e.err }
+
+func isSessionFailed(err error) bool {
+	_, ok := errors.AsType[sessionFailed](err)
+	return ok
+}
 
 // connectOptions decide how a connect session runs.
 type connectOptions struct {
@@ -84,7 +92,7 @@ func (c *connectionCLI) connect(ctx context.Context, conn *api.Connection, app *
 		if !opts.noBrowser && c.term.openBrowser != nil {
 			l, err := listenLoopback()
 			if err != nil {
-				return err
+				return c.notConnected(conn, err)
 			}
 			defer l.close()
 			listener, mode = l, api.ConnectionRedirectModeLoopback
@@ -94,7 +102,7 @@ func (c *connectionCLI) connect(ctx context.Context, conn *api.Connection, app *
 	}
 	start, err := c.client.startAuthorization(ctx, c.workspace, conn.Name, body)
 	if err != nil {
-		return err
+		return c.notConnected(conn, err)
 	}
 
 	// From here an interrupt ends the wait instead of the process, so that
@@ -107,45 +115,66 @@ func (c *connectionCLI) connect(ctx context.Context, conn *api.Connection, app *
 	if err == nil {
 		in, err = c.settle(sigCtx, conn, start.Session, status)
 	}
-	if in == nil {
-		c.cancelSession(conn.Name, start.Session)
-		if sigCtx.Err() != nil && ctx.Err() == nil {
-			err = errSignInCancelled
-		}
-	}
 	switch {
 	case err != nil && in != nil:
 		return err
-	case errors.Is(err, errOutcomeUnknown):
-		return fmt.Errorf("%w\nCheck connection %s with '%s'", err, conn.Name, c.command("test", conn.Name))
 	case err != nil:
-		return c.notConnected(conn, err)
+		if sigCtx.Err() != nil && ctx.Err() == nil {
+			err = errSignInCancelled
+		}
+		return c.unsettled(conn, start, err)
 	}
 	stop()
 	return c.report(ctx, in, app)
+}
+
+// unsettled cancels the session of a sign-in that ended with err before
+// its tokens went live, and adds to err what became of conn. Only a
+// session that the cancel ended, or that the server failed, is known to
+// have left conn's previous tokens in place: a session that had ended
+// otherwise may have been confirmed.
+func (c *connectionCLI) unsettled(conn *api.Connection, start *api.ConnectionAuthorizationStart, err error) error {
+	cancelErr := c.cancelSession(conn.Name, start.Session)
+	switch {
+	case cancelErr == nil, isSessionFailed(err):
+		return c.notConnected(conn, err)
+	case isRemoteStatus(cancelErr, http.StatusConflict, http.StatusNotFound):
+		return fmt.Errorf("%w\nThe sign-in may have completed. Check connection %s with '%s'", err, conn.Name, c.command("test", conn.Name))
+	default:
+		return fmt.Errorf("%w\nThe session could not be cancelled (%w). The server discards its unconfirmed tokens when it expires at %s",
+			err, cancelErr, start.ExpiresAt.Local().Format(connectionTimeLayout))
+	}
+}
+
+// isRemoteStatus reports whether err is a server's answer with one of
+// statuses.
+func isRemoteStatus(err error, statuses ...int) bool {
+	rerr, ok := errors.AsType[*remoteError](err)
+	return ok && slices.Contains(statuses, rerr.StatusCode)
 }
 
 // awaitSession shows what to set up before consent and how to sign in, and
 // waits until the session no longer waits for consent.
 func (c *connectionCLI) awaitSession(ctx context.Context, conn *api.Connection, start *api.ConnectionAuthorizationStart, listener *loopbackListener, opts connectOptions) (*api.ConnectionAuthorization, error) {
 	paste := start.Mode == api.ConnectionRedirectModePaste
-	c.showBeforeConsent(ctx, conn, start, paste, !paste && !opts.noBrowser)
 	var redirects chan consentRedirect
-	switch {
-	case paste:
-		pasted, err := c.readPasted(ctx)
-		if err != nil {
-			return nil, err
-		}
-		redirects = make(chan consentRedirect, 1)
-		redirects <- consentRedirect{url: pasted, done: func(error) {}}
-	case listener != nil:
+	if listener != nil {
+		// Before the browser opens, since a signed-in browser may redirect
+		// at once.
 		listener.expect(stateOf(start.AuthorizationUrl))
 		redirects = listener.redirects
-		c.term.printf("Waiting for consent (Ctrl-C to cancel)...\n")
-	default:
-		c.term.printf("Waiting for consent (Ctrl-C to cancel)...\n")
 	}
+	c.showBeforeConsent(ctx, conn, start, paste, !paste && !opts.noBrowser)
+	if !paste {
+		c.term.printf("Waiting for consent (Ctrl-C to cancel)...\n")
+		return c.awaitConsent(ctx, conn.Name, start, redirects)
+	}
+	pasted, err := c.readPasted(ctx, start.ExpiresAt)
+	if err != nil {
+		return nil, err
+	}
+	redirects = make(chan consentRedirect, 1)
+	redirects <- consentRedirect{url: pasted, done: func(error) {}}
 	return c.awaitConsent(ctx, conn.Name, start, redirects)
 }
 
@@ -213,11 +242,17 @@ func stateOf(authorizationURL string) string {
 }
 
 // readPasted reads the redirect URL that the person pastes, asking again
-// after an empty line.
-func (c *connectionCLI) readPasted(ctx context.Context) (string, error) {
+// after an empty line. It stops waiting when the session expires.
+func (c *connectionCLI) readPasted(ctx context.Context, expiresAt time.Time) (string, error) {
+	readCtx, cancel := context.WithDeadline(ctx, expiresAt)
+	defer cancel()
 	for {
-		pasted, err := c.term.readSecret(ctx)
-		if err != nil && ctx.Err() == nil && !errors.Is(err, errSignInCancelled) {
+		pasted, err := c.term.readSecret(readCtx)
+		switch {
+		case err == nil, ctx.Err() != nil, errors.Is(err, errSignInCancelled):
+		case readCtx.Err() != nil:
+			err = sessionFailed{errors.New("the session expired before the address was pasted")}
+		default:
 			err = fmt.Errorf("%w: %w", errSignInCancelled, err)
 		}
 		if err != nil {
@@ -237,7 +272,6 @@ func (c *connectionCLI) readPasted(ctx context.Context) (string, error) {
 func (c *connectionCLI) awaitConsent(ctx context.Context, name string, start *api.ConnectionAuthorizationStart, redirects <-chan consentRedirect) (*api.ConnectionAuthorization, error) {
 	ticker := time.NewTicker(connectPollInterval)
 	defer ticker.Stop()
-	completed := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -245,10 +279,11 @@ func (c *connectionCLI) awaitConsent(ctx context.Context, name string, start *ap
 		case r := <-redirects:
 			err := c.client.completeAuthorization(ctx, c.workspace, name, r.url)
 			r.done(err)
-			if err != nil && !transient(err) {
-				return nil, err
+			if err != nil && !transient(err) && ctx.Err() == nil {
+				// The server refused the redirect, or failed the session
+				// with the provider's error.
+				return nil, sessionFailed{err}
 			}
-			completed = completed || err == nil
 		case <-ticker.C:
 		}
 		status, err := c.client.authorization(ctx, c.workspace, name, start.Session)
@@ -259,8 +294,6 @@ func (c *connectionCLI) awaitConsent(ctx context.Context, name string, start *ap
 		case ctx.Err() != nil:
 			return nil, ctx.Err()
 		case transient(err) && time.Now().Before(start.ExpiresAt):
-		case completed:
-			return nil, fmt.Errorf("%w: %w", errOutcomeUnknown, err)
 		default:
 			return nil, err
 		}
@@ -295,9 +328,6 @@ func (c *connectionCLI) settle(ctx context.Context, conn *api.Connection, sessio
 			c.term.printf("Warning: %s in %s already holds %s on this client.\n", dup, conn.Workspace, account)
 		}
 		live, err := c.client.confirmAuthorization(ctx, c.workspace, conn.Name, session)
-		if transient(err) {
-			return nil, fmt.Errorf("%w: %w", errOutcomeUnknown, err)
-		}
 		if err != nil {
 			return nil, err
 		}
@@ -323,7 +353,7 @@ func (c *connectionCLI) settle(ctx context.Context, conn *api.Connection, sessio
 		}
 		return in, nil
 	case api.ConnectionAuthorizationPhaseFailed:
-		return nil, fmt.Errorf("sign-in failed: %s", derefString(status.Reason))
+		return nil, sessionFailed{fmt.Errorf("sign-in failed: %s", derefString(status.Reason))}
 	case api.ConnectionAuthorizationPhaseWaiting:
 		return nil, errors.New("the session still waits for consent")
 	default:
@@ -379,12 +409,12 @@ func (c *connectionCLI) notConnected(conn *api.Connection, err error) error {
 }
 
 // cancelSession cancels a session that the CLI leaves unconfirmed, so its
-// tokens are discarded at once rather than when it expires. A session that
-// already ended is refused, which changes nothing.
-func (c *connectionCLI) cancelSession(name, session string) {
+// tokens are discarded at once rather than when it expires. The server
+// refuses to cancel a session that already ended, which changes nothing.
+func (c *connectionCLI) cancelSession(name, session string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cancelTimeout)
 	defer cancel()
-	_ = c.client.cancelAuthorization(ctx, c.workspace, name, session)
+	return c.client.cancelAuthorization(ctx, c.workspace, name, session)
 }
 
 func derefProbes(v *[]api.ConnectionProbe) []api.ConnectionProbe {
