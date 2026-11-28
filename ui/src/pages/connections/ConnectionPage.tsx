@@ -22,9 +22,15 @@ import dayjs from '@/lib/dayjs';
 import { isNotFoundQueryError } from '@/lib/queryErrors';
 import { Loader2, PlugZap, RefreshCw, Trash2 } from 'lucide-react';
 import React, { useContext, useEffect, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom';
 import { ConnectDialog, ProbeResults, ScopeList } from './ConnectDialog';
 import { ConnectionTools } from './ConnectionTools';
+import type { ConnectionPageState } from './NewConnectionDialog';
 import {
   type Connection,
   ConnectionStatusBadge,
@@ -110,7 +116,20 @@ function ConnectionView({
   const navigate = useNavigate();
   const { ts } = useI18n();
   const { canTest, canManage } = useConnectionAccess(connection.workspace);
-  const [connecting, setConnecting] = useState(false);
+  const location = useLocation();
+  // The wizard opens a new connection's page to sign in at once.
+  const [connecting, setConnecting] = useState(
+    () => (location.state as ConnectionPageState | null)?.connect === true
+  );
+  useEffect(() => {
+    if ((location.state as ConnectionPageState | null)?.connect) {
+      // A reload of the page does not start signing in again.
+      navigate(`${location.pathname}${location.search}`, {
+        replace: true,
+        state: null,
+      });
+    }
+  }, [location, navigate]);
   const [removing, setRemoving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [probes, setProbes] = useState<ConnectionProbe[] | null>(null);
