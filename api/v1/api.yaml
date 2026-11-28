@@ -799,7 +799,7 @@ paths:
   /workers/invites:
     get:
       summary: "List worker invites"
-      description: "Lists the invites that let workers on other hosts join, without their secrets. Admin only."
+      description: "Lists the invites that let workers on other hosts join, without their secrets, as one coordinator reads them. The coordinators share the invite records. Admin only."
       operationId: "listWorkerInvites"
       tags:
         - "system"
@@ -825,7 +825,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "503":
-          description: "No coordinator is running or reachable, or the server lacks the peer token"
+          description: "No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token"
           content:
             application/json:
               schema:
@@ -839,12 +839,10 @@ paths:
 
     post:
       summary: "Create a worker invite"
-      description: "Creates an invite that lets a worker on another host join. Only this response contains the invite. A coordinator that listens on loopback only still creates it. Admin only."
+      description: "Creates an invite that lets a worker on another host join. Only this response contains the invite. A coordinator that listens on loopback only still creates it. Admin only, and not forwarded to a remote node."
       operationId: "createWorkerInvite"
       tags:
         - "system"
-      parameters:
-        - $ref: "#/components/parameters/RemoteNode"
       requestBody:
         required: false
         content:
@@ -877,7 +875,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "503":
-          description: "No coordinator is running or reachable, or the server lacks the peer token"
+          description: "No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token"
           content:
             application/json:
               schema:
@@ -892,12 +890,11 @@ paths:
   /workers/invites/{inviteId}:
     delete:
       summary: "Delete a worker invite"
-      description: "Deletes an invite, so it lets no further worker join. Workers that joined with it keep their certificates. Admin only."
+      description: "Deletes an invite, so it lets no further worker join. Workers that joined with it keep their certificates. A retry of a delete whose answer was lost succeeds. Admin only, and not forwarded to a remote node."
       operationId: "deleteWorkerInvite"
       tags:
         - "system"
       parameters:
-        - $ref: "#/components/parameters/RemoteNode"
         - name: inviteId
           in: path
           description: "ID of the invite"
@@ -927,7 +924,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "503":
-          description: "No coordinator is running or reachable, or the server lacks the peer token"
+          description: "No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token"
           content:
             application/json:
               schema:
@@ -942,15 +939,21 @@ paths:
   /workers/{workerId}/certificate:
     delete:
       summary: "Remove a worker"
-      description: "Revokes the certificate of a worker that joined with an invite, so it stays out across restarts until it gets a new invite. A worker that is not connected is removed at once. A connected one gets no new runs and is removed once the runs it holds end. Admin only."
+      description: "Revokes the certificate of a worker that joined with an invite, so it stays out across restarts until it gets a new invite. The request names the certificate the workers list shows, so a worker that joined again with a new certificate is not removed by mistake. A worker that is not connected is removed at once. A connected one gets no new runs and is removed once the runs it holds end. Admin only, and not forwarded to a remote node."
       operationId: "removeWorker"
       tags:
         - "system"
       parameters:
-        - $ref: "#/components/parameters/RemoteNode"
         - name: workerId
           in: path
           description: "ID of the worker"
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - name: certificateId
+          in: query
+          description: "The certificateId the workers list shows for the worker"
           required: true
           schema:
             type: string
@@ -966,11 +969,17 @@ paths:
             $ref: "#/components/schemas/WorkerRemovalRuns"
       responses:
         "200":
-          description: "The removal started or completed"
+          description: "The removal started or completed. A removal of a certificate already revoked answers removed."
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/WorkerRemovalResponse"
+        "400":
+          description: "An invalid runs value, or no certificateId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "403":
           description: "Requires admin role"
           content:
@@ -984,13 +993,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: "The worker connects with the peer token, or the coordinator has no built-in TLS"
+          description: "The worker connects with the peer token, it no longer connects with or holds the named certificate, or the coordinator has no built-in TLS"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "503":
-          description: "No coordinator is running or reachable, or the server lacks the peer token"
+          description: "No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token"
           content:
             application/json:
               schema:
@@ -1031,7 +1040,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "503":
-          description: "No coordinator is running or reachable, or the server lacks the peer token"
+          description: "No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token"
           content:
             application/json:
               schema:
@@ -23432,8 +23441,8 @@ components:
       description: |
         Where a Dagu process runs:
         - host: neither of the below.
-        - container: a Docker or Podman container.
-        - kubernetes: a Kubernetes pod.
+        - container: a container.
+        - kubernetes: a pod of a cluster.
       enum: ["host", "container", "kubernetes"]
 
     BuiltinTLSReason:

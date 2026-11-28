@@ -277,13 +277,13 @@ export interface paths {
         };
         /**
          * List worker invites
-         * @description Lists the invites that let workers on other hosts join, without their secrets. Admin only.
+         * @description Lists the invites that let workers on other hosts join, without their secrets, as one coordinator reads them. The coordinators share the invite records. Admin only.
          */
         get: operations["listWorkerInvites"];
         put?: never;
         /**
          * Create a worker invite
-         * @description Creates an invite that lets a worker on another host join. Only this response contains the invite. A coordinator that listens on loopback only still creates it. Admin only.
+         * @description Creates an invite that lets a worker on another host join. Only this response contains the invite. A coordinator that listens on loopback only still creates it. Admin only, and not forwarded to a remote node.
          */
         post: operations["createWorkerInvite"];
         delete?: never;
@@ -304,7 +304,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a worker invite
-         * @description Deletes an invite, so it lets no further worker join. Workers that joined with it keep their certificates. Admin only.
+         * @description Deletes an invite, so it lets no further worker join. Workers that joined with it keep their certificates. A retry of a delete whose answer was lost succeeds. Admin only, and not forwarded to a remote node.
          */
         delete: operations["deleteWorkerInvite"];
         options?: never;
@@ -324,7 +324,7 @@ export interface paths {
         post?: never;
         /**
          * Remove a worker
-         * @description Revokes the certificate of a worker that joined with an invite, so it stays out across restarts until it gets a new invite. A worker that is not connected is removed at once. A connected one gets no new runs and is removed once the runs it holds end. Admin only.
+         * @description Revokes the certificate of a worker that joined with an invite, so it stays out across restarts until it gets a new invite. The request names the certificate the workers list shows, so a worker that joined again with a new certificate is not removed by mistake. A worker that is not connected is removed at once. A connected one gets no new runs and is removed once the runs it holds end. Admin only, and not forwarded to a remote node.
          */
         delete: operations["removeWorker"];
         options?: never;
@@ -9598,8 +9598,8 @@ export interface components {
         /**
          * @description Where a Dagu process runs:
          *     - host: neither of the below.
-         *     - container: a Docker or Podman container.
-         *     - kubernetes: a Kubernetes pod.
+         *     - container: a container.
+         *     - kubernetes: a pod of a cluster.
          *
          * @enum {string}
          */
@@ -12466,7 +12466,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description No coordinator is running or reachable, or the server lacks the peer token */
+            /** @description No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -12488,10 +12488,7 @@ export interface operations {
     };
     createWorkerInvite: {
         parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -12538,7 +12535,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description No coordinator is running or reachable, or the server lacks the peer token */
+            /** @description No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -12560,10 +12557,7 @@ export interface operations {
     };
     deleteWorkerInvite: {
         parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-            };
+            query?: never;
             header?: never;
             path: {
                 /** @description ID of the invite */
@@ -12607,7 +12601,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description No coordinator is running or reachable, or the server lacks the peer token */
+            /** @description No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -12629,9 +12623,9 @@ export interface operations {
     };
     removeWorker: {
         parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
+            query: {
+                /** @description The certificateId the workers list shows for the worker */
+                certificateId: string;
                 /** @description What happens to the runs the worker holds:
                  *     - finish: they run to their end. The default.
                  *     - stop: each one is canceled.
@@ -12647,13 +12641,22 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The removal started or completed */
+            /** @description The removal started or completed. A removal of a certificate already revoked answers removed. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["WorkerRemovalResponse"];
+                };
+            };
+            /** @description An invalid runs value, or no certificateId */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Requires admin role */
@@ -12674,7 +12677,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description The worker connects with the peer token, or the coordinator has no built-in TLS */
+            /** @description The worker connects with the peer token, it no longer connects with or holds the named certificate, or the coordinator has no built-in TLS */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -12683,7 +12686,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description No coordinator is running or reachable, or the server lacks the peer token */
+            /** @description No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -12742,7 +12745,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description No coordinator is running or reachable, or the server lacks the peer token */
+            /** @description No coordinator is running or reachable, or the coordinator refused the server, such as for lack of the peer token */
             503: {
                 headers: {
                     [name: string]: unknown;
