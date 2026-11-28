@@ -13,11 +13,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
+	"github.com/dagucloud/dagu/v2/internal/cmn/procutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -328,9 +330,11 @@ func TestStopKeepsQueuedRun(t *testing.T) {
 
 	c := newCluster(t)
 	started, release := c.dagu.ProjectPath("started"), c.dagu.ProjectPath("release")
+	// The step records its parent: the run's process, which outlives the
+	// stopped scheduler.
 	c.dagu.WriteFile("queued.yaml", fmt.Sprintf(`steps:
   - id: work
-    run: touch %q && until [ -e %q ]; do sleep 0.05; done
+    run: echo $PPID > %[1]q.tmp && mv %[1]q.tmp %[1]q && until [ -e %[2]q ]; do sleep 0.05; done
 `, started, release))
 
 	active := c.start()
@@ -349,6 +353,16 @@ func TestStopKeepsQueuedRun(t *testing.T) {
 	waitUntil(t, harness.WaitTimeout(t), "the run to succeed", func() bool {
 		result := c.dagu.RunWithEnv(env, "status", "--run-id="+runID, "queued.yaml")
 		return result.ExitCode() == 0 && strings.Contains(result.Stdout(), "Succeeded")
+	})
+
+	// The run's process still writes to the home after its status says
+	// Succeeded, and the test's cleanup removes the home.
+	recorded, err := os.ReadFile(started)
+	require.NoError(t, err)
+	runPID, err := strconv.Atoi(strings.TrimSpace(string(recorded)))
+	require.NoError(t, err)
+	waitUntil(t, harness.WaitTimeout(t), "the run's process to exit", func() bool {
+		return !procutil.IsAlive(runPID)
 	})
 }
 

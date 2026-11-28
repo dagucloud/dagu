@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,17 +69,61 @@ func startRun(t *testing.T, server test.Server, path string, body any) string {
 
 func waitForStatus(t *testing.T, server test.Server, name, runID string, want api.Status) {
 	t.Helper()
-	var last api.Status
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
+	reached := assert.EventuallyWithT(t, func(c *assert.CollectT) {
 		resp := server.Client().Get(fmt.Sprintf("/api/v1/dag-runs/%s/%s", name, runID)).Send(t)
 		if !assert.Equal(c, http.StatusOK, resp.Response.StatusCode()) {
 			return
 		}
 		var details api.GetDAGRunDetails200JSONResponse
 		resp.Unmarshal(t, &details)
-		last = details.DagRunDetails.Status
-		assert.Equal(c, want, last)
-	}, timeout, 200*time.Millisecond, "run %s/%s never reached %v (last %v)", name, runID, want, last)
+		assert.Equal(c, want, details.DagRunDetails.Status)
+	}, timeout, 200*time.Millisecond)
+	if !reached {
+		t.Fatalf("run %s/%s never reached %v\n%s", name, runID, want, runReport(t, server, name, runID))
+	}
+}
+
+// runReport describes a run as it is now: its status, each step's status and
+// times, and the tails of the run log and of each started step's logs. A run
+// that misses its status says where it stopped.
+func runReport(t *testing.T, server test.Server, name, runID string) string {
+	t.Helper()
+	base := fmt.Sprintf("/api/v1/dag-runs/%s/%s", name, runID)
+	resp := server.Client().Get(base).Send(t)
+	if resp.Response.StatusCode() != http.StatusOK {
+		return fmt.Sprintf("run details: HTTP %d: %s", resp.Response.StatusCode(), resp.Body)
+	}
+	var details api.GetDAGRunDetails200JSONResponse
+	resp.Unmarshal(t, &details)
+	run := details.DagRunDetails
+
+	var report strings.Builder
+	fmt.Fprintf(&report, "status %s, started %q, finished %q\n", run.StatusLabel, run.StartedAt, run.FinishedAt)
+	for _, node := range run.Nodes {
+		fmt.Fprintf(&report, "step %s: %s, started %q, finished %q\n", node.Step.Name, node.StatusLabel, node.StartedAt, node.FinishedAt)
+	}
+	report.WriteString(logTail(t, server, base+"/log?tail=100", "run log"))
+	for _, node := range run.Nodes {
+		if node.Status == api.NodeStatusNotStarted {
+			continue
+		}
+		for _, stream := range []string{"stdout", "stderr"} {
+			path := fmt.Sprintf("%s/steps/%s/log?stream=%s&tail=100", base, node.Step.Name, stream)
+			report.WriteString(logTail(t, server, path, node.Step.Name+" "+stream))
+		}
+	}
+	return report.String()
+}
+
+func logTail(t *testing.T, server test.Server, path, label string) string {
+	t.Helper()
+	resp := server.Client().Get(path).Send(t)
+	if resp.Response.StatusCode() != http.StatusOK {
+		return fmt.Sprintf("--- %s: HTTP %d\n", label, resp.Response.StatusCode())
+	}
+	var log api.Log
+	resp.Unmarshal(t, &log)
+	return fmt.Sprintf("--- %s:\n%s\n", label, log.Content)
 }
 
 func stepLog(t *testing.T, server test.Server, name, runID, step string) string {

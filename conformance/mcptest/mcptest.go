@@ -172,22 +172,18 @@ func (s *Server) StartDAG(t *testing.T, name string) string {
 func (s *Server) WaitForDAGRunStatus(t *testing.T, name, dagRunID string, status api.Status) {
 	t.Helper()
 
-	var lastStatus api.Status
-	var lastStatusCode int
+	// A failure reports the last poll's HTTP or run status as its error.
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		resp := s.server.Client().Get(fmt.Sprintf("/api/v1/dag-runs/%s/%s", name, dagRunID)).Send(t)
-		lastStatusCode = resp.Response.StatusCode()
-		if !assert.Equal(c, http.StatusOK, lastStatusCode) {
+		if !assert.Equal(c, http.StatusOK, resp.Response.StatusCode()) {
 			return
 		}
 
 		var result api.GetDAGRunDetails200JSONResponse
 		resp.Unmarshal(t, &result)
-		lastStatus = result.DagRunDetails.Status
-		assert.Equal(c, status, lastStatus)
+		assert.Equal(c, status, result.DagRunDetails.Status)
 	}, Timeout, 250*time.Millisecond,
-		"dag run %s/%s never reached status %v (last HTTP status: %d, last run status: %v)",
-		name, dagRunID, status, lastStatusCode, lastStatus)
+		"dag run %s/%s never reached status %v", name, dagRunID, status)
 }
 
 func (s *Server) CreateCompletedRun(t *testing.T, name string) string {
