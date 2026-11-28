@@ -53,12 +53,12 @@ func (c *rewordingCoordinator) GetJoinReadiness(context.Context, *coordinatorv1.
 	return nil, withReason(codes.Unauthenticated, "require_tls", "another reworded refusal")
 }
 
-// serveRewording serves c and returns its address.
-func serveRewording(t *testing.T, c *rewordingCoordinator) string {
+// serveRewording serves c with opts and returns its address.
+func serveRewording(t *testing.T, c *rewordingCoordinator, opts ...grpc.ServerOption) string {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	server := grpc.NewServer()
+	server := grpc.NewServer(opts...)
 	coordinatorv1.RegisterCoordinatorServiceServer(server, c)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(server.Stop)
@@ -116,4 +116,24 @@ func TestDeleteWorkerInviteRefusesInviteOverGRPC(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, httpStatus(t, err))
 	assert.Zero(t, c.calls.Load())
 	assert.Empty(t, store.entries)
+}
+
+// A coordinator under coordinator.require_tls refuses the server's h2c
+// call, and the REST answer keeps the reason through the client's rewrite
+// of the refusal message.
+func TestWorkerAccessRequireTLSReason(t *testing.T) {
+	t.Parallel()
+
+	addr := serveRewording(t, &rewordingCoordinator{}, grpc.ChainUnaryInterceptor(coordinator.RequireTLSUnaryInterceptor()))
+	registry, err := coordinator.NewStaticRegistry([]string{addr})
+	require.NoError(t, err)
+	client := coordinator.New(registry, coordinator.DefaultConfig())
+	t.Cleanup(func() { _ = client.Cleanup(context.Background()) })
+	a, _ := rolesAPI(client)
+
+	_, err = a.CreateWorkerInvite(userContext(auth.RoleAdmin), openapiv1.CreateWorkerInviteRequestObject{})
+	var apiErr *Error
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusServiceUnavailable, apiErr.HTTPStatus)
+	assert.Equal(t, map[string]any{"reason": "require_tls"}, apiErr.Details)
 }

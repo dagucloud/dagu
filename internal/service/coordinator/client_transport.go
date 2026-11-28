@@ -423,7 +423,10 @@ func refusalError(err error, p *peer.Peer) error {
 	if !isRequireTLSRefusal(err) {
 		return err
 	}
-	return status.Error(codes.Unauthenticated, requireTLSClientMessage(h2cInfoOf(p).source))
+	// The refusal keeps its details, such as the reason callers act on.
+	refusal := status.Convert(err).Proto()
+	refusal.Message = requireTLSClientMessage(h2cInfoOf(p).source)
+	return status.FromProto(refusal).Err()
 }
 
 // h2cInfoOf returns the h2c details of the connection of p, or none when
