@@ -148,25 +148,35 @@ func TestWorkerAccessNoCoordinator(t *testing.T) {
 	}
 }
 
-// Each refusal of the coordinator maps to the answer of Spec 108 §REST API.
+// Each refusal of the coordinator maps to the answer of Spec 108 §REST API,
+// with the reason a caller picks its explanation by.
 func TestWorkerAccessErrors(t *testing.T) {
 	t.Parallel()
 
+	const (
+		ownCertificates = "invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file"
+		caUnavailable   = "invites need the built-in CA: this coordinator could not create or read its CA; see its start warning"
+		tokenMismatch   = "the peer token does not match the coordinator's peer token"
+	)
 	for _, tt := range []struct {
 		err     error
 		status  int
 		message string
+		reason  string
 	}{
-		{status.Error(codes.FailedPrecondition, "invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file"), http.StatusConflict,
-			"invites need the built-in CA: this coordinator uses peer.cert_file and peer.key_file"},
-		{status.Error(codes.InvalidArgument, "address must be host:port"), http.StatusBadRequest, "address must be host:port"},
-		{status.Error(codes.NotFound, "no invite has this ID"), http.StatusNotFound, "no invite has this ID"},
-		{status.Error(codes.Unauthenticated, peerTokenRefusal), http.StatusServiceUnavailable, coordinatorRefusedPrefix + peerTokenRefusal},
-		{status.Error(codes.Unauthenticated, requireTLSRefusal), http.StatusServiceUnavailable, coordinatorRefusedPrefix + requireTLSRefusal},
-		{status.Error(codes.Unimplemented, "unknown method CreateInvite"), http.StatusConflict, olderCoordinatorMessage},
-		{status.Error(codes.Unavailable, "connection refused"), http.StatusServiceUnavailable, coordinatorUnreachableMessage + ": connection refused"},
-		{errors.New("no coordinators available"), http.StatusServiceUnavailable, coordinatorUnreachableMessage},
-		{status.Error(codes.Internal, "failed to store the invite"), http.StatusInternalServerError, "the coordinator failed: failed to store the invite"},
+		{status.Error(codes.FailedPrecondition, ownCertificates), http.StatusConflict, ownCertificates, "own_certificates"},
+		{status.Error(codes.FailedPrecondition, caUnavailable), http.StatusConflict, caUnavailable, "ca_unavailable"},
+		{status.Error(codes.InvalidArgument, "address must be host:port"), http.StatusBadRequest, "address must be host:port", ""},
+		{status.Error(codes.NotFound, "no invite has this ID"), http.StatusNotFound, "no invite has this ID", ""},
+		{status.Error(codes.Unauthenticated, peerTokenRefusal), http.StatusServiceUnavailable, coordinatorRefusedPrefix + peerTokenRefusal, "peer_token_missing"},
+		{status.Error(codes.Unauthenticated, tokenMismatch), http.StatusServiceUnavailable, coordinatorRefusedPrefix + tokenMismatch, "peer_token_mismatch"},
+		{status.Error(codes.Unauthenticated, requireTLSRefusal), http.StatusServiceUnavailable, coordinatorRefusedPrefix + requireTLSRefusal, "require_tls"},
+		{status.Error(codes.Unauthenticated, "refused by a proxy"), http.StatusServiceUnavailable, coordinatorRefusedPrefix + "refused by a proxy", "coordinator_refused"},
+		{status.Error(codes.Unimplemented, "unknown method CreateInvite"), http.StatusConflict, olderCoordinatorMessage, "older_coordinator"},
+		{status.Error(codes.Unavailable, "connection refused"), http.StatusServiceUnavailable, coordinatorUnreachableMessage + ": connection refused", "no_coordinator"},
+		{status.Error(codes.DeadlineExceeded, "context deadline exceeded"), http.StatusServiceUnavailable, coordinatorUnreachableMessage + ": context deadline exceeded", "no_coordinator"},
+		{errors.New("no coordinators available"), http.StatusServiceUnavailable, coordinatorUnreachableMessage, "no_coordinator"},
+		{status.Error(codes.Internal, "failed to store the invite"), http.StatusInternalServerError, "the coordinator failed: failed to store the invite", ""},
 	} {
 		a, store := rolesAPI(&inviteCoordinatorStub{err: tt.err})
 		for name, call := range workerAccessCalls(a) {
@@ -178,8 +188,21 @@ func TestWorkerAccessErrors(t *testing.T) {
 			require.ErrorAs(t, err, &apiErr, name)
 			assert.Equal(t, tt.status, apiErr.HTTPStatus, "%s: %v", name, tt.err)
 			assert.Equal(t, tt.message, apiErr.Message, "%s: %v", name, tt.err)
+			assert.Equal(t, tt.reason, string(valueOf(errorReason(apiErr))), "%s: %v", name, tt.err)
 		}
 		assert.Empty(t, store.entries, "a refused change writes no audit entry")
+	}
+}
+
+// With no coordinator client, the answer still names its reason.
+func TestWorkerAccessNoCoordinatorReason(t *testing.T) {
+	t.Parallel()
+
+	a, _ := rolesAPI(nil)
+	for name, call := range workerAccessCalls(a) {
+		var apiErr *Error
+		require.ErrorAs(t, call(userContext(auth.RoleAdmin)), &apiErr, name)
+		assert.Equal(t, map[string]any{"reason": "no_coordinator"}, apiErr.Details, name)
 	}
 }
 
@@ -360,7 +383,10 @@ func TestGetWorkerJoinReadiness(t *testing.T) {
 					BuiltinTLSReason: new(openapiv1.BuiltinTLSReasonOwnCertificates),
 				},
 			},
-			{InstanceId: "coordinator-3", Host: "10.0.0.7", Port: 50055, Error: new(olderCoordinatorMessage)},
+			{
+				InstanceId: "coordinator-3", Host: "10.0.0.7", Port: 50055,
+				Error: new(olderCoordinatorMessage), ErrorReason: new(openapiv1.WorkerAccessReasonOlderCoordinator),
+			},
 		},
 		LastInviteAddress: new("192.168.1.20:50055"),
 	}, resp)
@@ -419,5 +445,6 @@ func TestGetWorkerJoinReadinessRefusal(t *testing.T) {
 		require.ErrorAs(t, err, &apiErr)
 		assert.Equal(t, http.StatusServiceUnavailable, apiErr.HTTPStatus)
 		assert.Equal(t, coordinatorRefusedPrefix+refusal, apiErr.Message)
+		assert.NotNil(t, apiErr.Details["reason"])
 	}
 }

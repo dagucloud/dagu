@@ -46,6 +46,10 @@ const (
 	// grpcHealthMethodPrefix names the health service, which probes call
 	// without credentials.
 	grpcHealthMethodPrefix = "/grpc.health.v1.Health/"
+	// peerTokenMismatchMessage and peerTokenMissingMessage refuse a call
+	// with a wrong peer token, and one without the token it needs.
+	peerTokenMismatchMessage = "the peer token does not match the coordinator's peer token" //nolint:gosec // A message, not a credential.
+	peerTokenMissingMessage  = "the coordinator requires a peer token: set peer.token, or let this process read the coordinator's data directory"
 )
 
 // peerTokenOnlyMethods take the peer token whatever coordinator.require_token
@@ -260,10 +264,9 @@ func (a *PeerTokenAuth) authorize(ctx context.Context, method string) error {
 	require := a.require || peerTokenOnlyMethods[method]
 	switch {
 	case got != "" && (a.configured || require):
-		return status.Error(codes.Unauthenticated, "the peer token does not match the coordinator's peer token")
+		return status.Error(codes.Unauthenticated, peerTokenMismatchMessage)
 	case got == "" && require:
-		return status.Error(codes.Unauthenticated,
-			"the coordinator requires a peer token: set peer.token, or let this process read the coordinator's data directory")
+		return status.Error(codes.Unauthenticated, peerTokenMissingMessage)
 	}
 	a.warn(ctx, method, got != "")
 	return nil
