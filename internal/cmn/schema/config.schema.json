@@ -1105,7 +1105,7 @@
         },
         "insecure": {
           "type": "boolean",
-          "description": "true uses h2c (HTTP/2 cleartext). false uses TLS. Unset uses built-in TLS when the process has a TLS source, such as ca_cert_file, and h2c otherwise."
+          "description": "For calls to a coordinator: true uses h2c (HTTP/2 cleartext). false uses TLS only. Unset uses built-in TLS when the coordinator's CA is known, such as from ca_cert_file, and h2c otherwise."
         },
         "max_retries": {
           "type": "integer",

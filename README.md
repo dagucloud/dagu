@@ -1051,7 +1051,7 @@ The auth, remote node, Git sync and Vault secrets can also be read from files, s
 | `DAGU_PEER_CERT_FILE` | - | Peer TLS certificate |
 | `DAGU_PEER_KEY_FILE` | - | Peer TLS private key |
 | `DAGU_PEER_CLIENT_CA_FILE` | - | CA for client verification |
-| `DAGU_PEER_INSECURE` | Unset | Use h2c instead of TLS; unset selects h2c as `true` does |
+| `DAGU_PEER_INSECURE` | Unset | Calls to a coordinator: `true` h2c; `false` TLS only; unset built-in TLS when its CA is known, else h2c |
 | `DAGU_PEER_SKIP_TLS_VERIFY` | - | Skip TLS certificate verification |
 
 ### Git Sync

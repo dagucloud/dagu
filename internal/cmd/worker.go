@@ -46,12 +46,12 @@ Flags:
                                            taking tasks
 
 TLS Configuration (uses global peer settings):
-  --peer.insecure                          true: h2c; false: TLS; unset: built-in TLS with a TLS source, else h2c
+  --peer.insecure                          Calls to a coordinator: true h2c; false TLS only; unset built-in TLS when its CA is known, else h2c
   --peer.cert-file string                  Path to TLS certificate file for mutual TLS
   --peer.key-file string                   Path to TLS key file for mutual TLS
   --peer.client-ca-file string             Path to CA certificate file for server verification
   --peer.skip-tls-verify                   Skip TLS certificate verification (insecure)
-  --peer.ca-cert-file string               Path to the CA certificate that signs coordinator certificates
+  --peer.ca-cert-file string               Path to the peer CA certificate, which signs coordinator certificates
 
 Example:
   dagu worker --worker.coordinators=coordinator-1:50055
@@ -70,6 +70,9 @@ Example:
   dagu worker --worker.coordinators=coordinator-1:50055 --peer.insecure=false --peer.cert-file=client.crt --peer.key-file=client.key
   dagu worker --worker.coordinators=coordinator-1:50055 --peer.insecure=false --peer.client-ca-file=ca.crt
   dagu worker --worker.coordinators=coordinator-1:50055 --peer.insecure=false --peer.skip-tls-verify  # For self-signed certificates
+
+  # For built-in TLS, verified against the peer CA certificate:
+  dagu worker --worker.coordinators=coordinator-1:50055 --peer.ca-cert-file=ca.crt
 
 This process runs continuously in the foreground until terminated. On SIGINT or
 SIGTERM it stops polling and lets running DAG runs finish their cleanup and
