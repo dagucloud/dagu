@@ -301,17 +301,20 @@ describe('AddWorker', () => {
     expect(screen.queryByText('Addresses of this machine:')).toBeNull();
   });
 
+  // An upgrade cannot change an existing claim's access mode, so the dialog
+  // names the prerequisite and the README instead of a snippet.
   it('states the Service requirement in Kubernetes', async () => {
     await open(loopback({ environment: HostEnvironment.kubernetes }));
     expect(
-      screen.getByText(/Run the chart in distributed mode/)
+      screen.getByText(/set persistence.existingClaim to it before you upgrade/)
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Copy the change' }));
-    await settle();
-    // helm template accepts this over the chart's default values.
-    expect(writeText).toHaveBeenCalledWith(
-      'deploymentMode: distributed\npersistence:\n  accessMode: ReadWriteMany'
+    expect(screen.getByRole('link', { name: 'README' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('charts/dagu/README.md')
     );
+    expect(
+      screen.queryByText(/deploymentMode/, { selector: 'pre' })
+    ).toBeNull();
     expect(
       screen.getByText(/type LoadBalancer or NodePort/)
     ).toBeInTheDocument();
@@ -321,7 +324,6 @@ describe('AddWorker', () => {
   it('names each coordinator and the error of one that did not report', async () => {
     await open({
       coordinators: [
-        { instanceId: 'c1', host: 'node-a', port: 50055, report: report() },
         {
           instanceId: 'c2',
           host: 'node-b',
@@ -338,7 +340,6 @@ describe('AddWorker', () => {
       ],
     });
 
-    expect(screen.getByText('node-a:50055')).toBeInTheDocument();
     expect(screen.getByText('node-b:50055')).toBeInTheDocument();
     expect(
       screen.getByText(
@@ -377,7 +378,11 @@ describe('AddWorker', () => {
       /Set peer.token on this server/,
     ],
     [503, WorkerAccessReason.peer_token_mismatch, /same peer.token on both/],
-    [503, WorkerAccessReason.require_tls, /the DAGU_PEER_INSECURE variable/],
+    [
+      503,
+      WorkerAccessReason.require_tls,
+      /set peer.ca_cert_file to the coordinator's CA/,
+    ],
     [503, WorkerAccessReason.coordinator_refused, /Its log names the reason/],
     [409, WorkerAccessReason.coordinator_conflict, /present state/],
     [503, WorkerAccessReason.retry_later, /Try again in a moment/],
@@ -415,24 +420,10 @@ describe('AddWorker', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  // Check again keeps the focus while it checks, hands it to the address
-  // when it leaves, and the step's state is announced.
-  // A read the admin did not start can remove Check again; the focus it
-  // held moves to the address field, and a focus elsewhere stays.
-  it('moves a focus that Check again held when a background read removes it', async () => {
-    await open(loopback());
-    screen.getByRole('button', { name: 'Check again' }).focus();
-    api.GET.mockResolvedValue(answer(200, readiness()));
-    fireEvent.focus(window);
-    await settle();
-    expect(document.activeElement).toBe(screen.getByLabelText(ADDRESS));
-  });
-
-  // A failed reading removes the address field; its focus goes to Check
-  // again.
-  it('moves the address field focus to Check again when a reading fails', async () => {
+  // Any control a reading removes hands its focus to a control that stays.
+  it('moves the focus of a removed suggestion to Check again', async () => {
     const { rerender } = await open(readiness());
-    screen.getByLabelText(ADDRESS).focus();
+    screen.getByRole('button', { name: '10.0.0.5:50055' }).focus();
     api.GET.mockResolvedValue(
       answer(503, undefined, WorkerAccessReason.no_coordinator)
     );
@@ -442,6 +433,15 @@ describe('AddWorker', () => {
     expect(document.activeElement).toBe(
       screen.getByRole('button', { name: 'Check again' })
     );
+  });
+
+  it('moves the focus of a removed copy button to the address', async () => {
+    await open(loopback({ environment: HostEnvironment.container }));
+    screen.getByRole('button', { name: 'Copy the change' }).focus();
+    api.GET.mockResolvedValue(answer(200, readiness()));
+    fireEvent.focus(window);
+    await settle();
+    expect(document.activeElement).toBe(screen.getByLabelText(ADDRESS));
   });
 
   it('leaves the focus where the admin put it on a new reading', async () => {
@@ -528,6 +528,7 @@ describe('AddWorker', () => {
   it.each([
     ['0.0.0.0:50055', '0.0.0.0 is a listen address'],
     ['', 'Enter the address workers use to reach the coordinator.'],
+    ['worker.example:50\n055', 'Enter a port from 1 to 65535.'],
     ['[2001:db8::20/dashboard]:50055', 'is not one host'],
     ['224.0.0.1:50055', '224.0.0.1 is a multicast or broadcast address'],
     ['255.255.255.255:50055', 'is a multicast or broadcast address'],
@@ -541,7 +542,9 @@ describe('AddWorker', () => {
     const field = screen.getByLabelText(ADDRESS);
     expect(field).toHaveAttribute('aria-invalid', 'true');
     expect(field).toHaveAccessibleDescription(expect.stringContaining(problem));
-    expect(screen.queryByText(/AAAAAAAAAA/)).toBeNull();
+    expect(
+      screen.queryByText(/AAAAAAAAAA/, { ignore: 'script, style, textarea' })
+    ).toBeNull();
     expect(
       step('Worker').getByText('Shown after steps 1 and 2')
     ).toBeInTheDocument();

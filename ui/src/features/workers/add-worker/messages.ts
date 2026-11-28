@@ -6,12 +6,12 @@ import { defineMessages } from '@/features/workflow-workspace/messages/define';
 /** The static messages of the Add worker dialog. */
 export const addWorkerMessages = defineMessages({
   en: {
-    'Check again': 'Check again',
-    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. It needs storage that supports ReadWriteMany. Then upgrade the release:':
-      'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. It needs storage that supports ReadWriteMany. Then upgrade the release:',
-    'The coordinator requires TLS. Remove peer.insecure from this server wherever it is set (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), then restart it.':
-      'The coordinator requires TLS. Remove peer.insecure from this server wherever it is set (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), then restart it.',
     'Copy the change': 'Copy the change',
+    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. That mode needs a ReadWriteMany volume, and an existing ReadWriteOnce claim cannot change its access mode: move its data to a ReadWriteMany claim and set persistence.existingClaim to it before you upgrade.':
+      'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. That mode needs a ReadWriteMany volume, and an existing ReadWriteOnce claim cannot change its access mode: move its data to a ReadWriteMany claim and set persistence.existingClaim to it before you upgrade.',
+    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), and if it cannot read the coordinator's data directory, set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.":
+      "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), and if it cannot read the coordinator's data directory, set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.",
+    'Check again': 'Check again',
     'The coordinator cannot do this yet. Try again in a moment.':
       'The coordinator cannot do this yet. Try again in a moment.',
     'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
@@ -91,12 +91,12 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Shown after steps 1 and 2',
   },
   'zh-CN': {
-    'Check again': '重新检查',
-    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. It needs storage that supports ReadWriteMany. Then upgrade the release:':
-      '以分布式模式运行 Chart，其协调器监听 0.0.0.0。该模式需要支持 ReadWriteMany 的存储。然后升级 Release：',
-    'The coordinator requires TLS. Remove peer.insecure from this server wherever it is set (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), then restart it.':
-      '协调器要求 TLS。请从此服务器上所有设置 peer.insecure 的地方将其删除（--peer.insecure 参数、DAGU_PEER_INSECURE 变量或配置文件），然后重启它。',
     'Copy the change': '复制修改内容',
+    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. That mode needs a ReadWriteMany volume, and an existing ReadWriteOnce claim cannot change its access mode: move its data to a ReadWriteMany claim and set persistence.existingClaim to it before you upgrade.':
+      '以分布式模式运行 Chart，其协调器监听 0.0.0.0。该模式需要 ReadWriteMany 卷，而现有的 ReadWriteOnce 声明无法更改访问模式：请在升级前将其数据迁移到 ReadWriteMany 声明，并将 persistence.existingClaim 设为该声明。',
+    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), and if it cannot read the coordinator's data directory, set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.":
+      '协调器要求 TLS。请在此服务器上删除所有 peer.insecure: true（--peer.insecure 参数、DAGU_PEER_INSECURE 变量或配置文件）；如果它无法读取协调器的数据目录，请将 peer.ca_cert_file 设为协调器的 CA 证书。然后重启它。',
+    'Check again': '重新检查',
     'The coordinator cannot do this yet. Try again in a moment.':
       '协调器暂时无法执行此操作。请稍后重试。',
     'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
@@ -175,12 +175,12 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': '完成步骤 1 和 2 后显示',
   },
   ja: {
-    'Check again': '再確認',
-    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. It needs storage that supports ReadWriteMany. Then upgrade the release:':
-      'チャートを分散モードで実行してください。そのコーディネーターは 0.0.0.0 で待ち受けます。ReadWriteMany に対応したストレージが必要です。その後リリースをアップグレードしてください:',
-    'The coordinator requires TLS. Remove peer.insecure from this server wherever it is set (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), then restart it.':
-      'コーディネーターは TLS を必要とします。このサーバーで peer.insecure を設定している箇所 (--peer.insecure フラグ、DAGU_PEER_INSECURE 変数、設定ファイル) からすべて削除し、再起動してください。',
     'Copy the change': '変更をコピー',
+    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. That mode needs a ReadWriteMany volume, and an existing ReadWriteOnce claim cannot change its access mode: move its data to a ReadWriteMany claim and set persistence.existingClaim to it before you upgrade.':
+      'チャートを分散モードで実行してください。そのコーディネーターは 0.0.0.0 で待ち受けます。このモードには ReadWriteMany のボリュームが必要で、既存の ReadWriteOnce のクレームはアクセスモードを変更できません。アップグレードの前にデータを ReadWriteMany のクレームに移し、persistence.existingClaim をそのクレームにしてください。',
+    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), and if it cannot read the coordinator's data directory, set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.":
+      'コーディネーターは TLS を必要とします。このサーバーで peer.insecure: true をすべて削除し (--peer.insecure フラグ、DAGU_PEER_INSECURE 変数、設定ファイル)、コーディネーターのデータディレクトリを読めない場合は peer.ca_cert_file をコーディネーターの CA 証明書にしてください。その後再起動してください。',
+    'Check again': '再確認',
     'The coordinator cannot do this yet. Try again in a moment.':
       'コーディネーターはまだこれを実行できません。少し待ってからもう一度試してください。',
     'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
@@ -261,12 +261,12 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'ステップ 1 と 2 の後に表示',
   },
   de: {
-    'Check again': 'Erneut prüfen',
-    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. It needs storage that supports ReadWriteMany. Then upgrade the release:':
-      'Betreiben Sie das Chart im verteilten Modus, dessen Koordinator auf 0.0.0.0 lauscht. Er braucht Speicher, der ReadWriteMany unterstützt. Aktualisieren Sie dann das Release:',
-    'The coordinator requires TLS. Remove peer.insecure from this server wherever it is set (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), then restart it.':
-      'Der Koordinator verlangt TLS. Entfernen Sie peer.insecure auf diesem Server überall, wo es gesetzt ist (das Flag --peer.insecure, die Variable DAGU_PEER_INSECURE oder die Konfigurationsdatei), und starten Sie ihn neu.',
     'Copy the change': 'Änderung kopieren',
+    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. That mode needs a ReadWriteMany volume, and an existing ReadWriteOnce claim cannot change its access mode: move its data to a ReadWriteMany claim and set persistence.existingClaim to it before you upgrade.':
+      'Betreiben Sie das Chart im verteilten Modus, dessen Koordinator auf 0.0.0.0 lauscht. Dieser Modus braucht ein ReadWriteMany-Volume, und ein bestehender ReadWriteOnce-Claim kann seinen Zugriffsmodus nicht ändern: Verschieben Sie seine Daten vor dem Upgrade in einen ReadWriteMany-Claim und setzen Sie persistence.existingClaim darauf.',
+    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), and if it cannot read the coordinator's data directory, set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.":
+      'Der Koordinator verlangt TLS. Entfernen Sie auf diesem Server jedes peer.insecure: true (das Flag --peer.insecure, die Variable DAGU_PEER_INSECURE oder die Konfigurationsdatei), und setzen Sie peer.ca_cert_file auf das CA-Zertifikat des Koordinators, falls der Server dessen Datenverzeichnis nicht lesen kann. Starten Sie ihn dann neu.',
+    'Check again': 'Erneut prüfen',
     'The coordinator cannot do this yet. Try again in a moment.':
       'Der Koordinator kann dies noch nicht tun. Versuchen Sie es gleich noch einmal.',
     'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
@@ -348,12 +348,12 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Erscheint nach Schritt 1 und 2',
   },
   fr: {
-    'Check again': 'Revérifier',
-    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. It needs storage that supports ReadWriteMany. Then upgrade the release:':
-      'Exécutez le chart en mode distribué, dont le coordinateur écoute sur 0.0.0.0. Il nécessite un stockage compatible ReadWriteMany. Puis mettez à jour la release :',
-    'The coordinator requires TLS. Remove peer.insecure from this server wherever it is set (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), then restart it.':
-      'Le coordinateur exige TLS. Retirez peer.insecure de ce serveur partout où il est défini (l’option --peer.insecure, la variable DAGU_PEER_INSECURE ou le fichier de configuration), puis redémarrez-le.',
     'Copy the change': 'Copier la modification',
+    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. That mode needs a ReadWriteMany volume, and an existing ReadWriteOnce claim cannot change its access mode: move its data to a ReadWriteMany claim and set persistence.existingClaim to it before you upgrade.':
+      'Exécutez le chart en mode distribué, dont le coordinateur écoute sur 0.0.0.0. Ce mode nécessite un volume ReadWriteMany, et une demande ReadWriteOnce existante ne peut pas changer de mode d’accès : déplacez ses données vers une demande ReadWriteMany et définissez persistence.existingClaim sur celle-ci avant la mise à jour.',
+    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), and if it cannot read the coordinator's data directory, set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.":
+      'Le coordinateur exige TLS. Sur ce serveur, retirez tout peer.insecure : true (l’option --peer.insecure, la variable DAGU_PEER_INSECURE ou le fichier de configuration) et, s’il ne peut pas lire le répertoire de données du coordinateur, définissez peer.ca_cert_file sur le certificat de CA du coordinateur. Puis redémarrez-le.',
+    'Check again': 'Revérifier',
     'The coordinator cannot do this yet. Try again in a moment.':
       'Le coordinateur ne peut pas encore le faire. Réessayez dans un instant.',
     'The coordinator cannot do this in its present state. Its log names the reason; fix it, then try again.':
@@ -375,7 +375,7 @@ export const addWorkerMessages = defineMessages({
     '{host} is a link-local address, which another network does not route. Enter another address of the machine.':
       '{host} est une adresse lien-local qu’un autre réseau ne route pas. Saisissez une autre adresse de la machine.',
     'Each change needs a restart of Dagu. This dialog checks again when the server is back; if it does not, use Check again.':
-      'Chaque modification nécessite un redémarrage de Dagu. Cette boîte de dialogue vérifie à nouveau quand le serveur revient ; sinon, utilisez Vérifier à nouveau.',
+      'Chaque modification nécessite un redémarrage de Dagu. Cette boîte de dialogue vérifie à nouveau quand le serveur revient ; sinon, utilisez Revérifier.',
     'This coordinator did not report. Start or upgrade it, then check again.':
       'Ce coordinateur n’a pas répondu. Démarrez-le ou mettez-le à jour, puis vérifiez à nouveau.',
     'The server refused the address. Check it and try again.':

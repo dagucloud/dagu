@@ -17,8 +17,8 @@ type Report = components['schemas']['JoinReadinessReport'];
 const ALL_INTERFACES = '0.0.0.0';
 const DEFAULT_HOST_VARIABLE = 'DAGU_COORDINATOR_HOST';
 
-const CHART_VALUES =
-  'deploymentMode: distributed\npersistence:\n  accessMode: ReadWriteMany';
+const CHART_README_URL =
+  'https://github.com/dagucloud/dagu/blob/main/charts/dagu/README.md#distributed';
 
 /** Whether every coordinator reports that a worker on another host can join. */
 export function allReady(coordinators: CoordinatorReadiness[]): boolean {
@@ -120,12 +120,19 @@ function ListenChange({ report }: { report: Report }) {
         {pinned ? (
           sourceChange
         ) : (
-          <>
-            <p>
-              <I18nText text="Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. It needs storage that supports ReadWriteMany. Then upgrade the release:" />
-            </p>
-            <CommandBlock text={CHART_VALUES} label="Copy the change" />
-          </>
+          // An upgrade cannot change an existing claim's access mode, so
+          // the steps live in the chart's README.
+          <p>
+            <I18nText text="Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. That mode needs a ReadWriteMany volume, and an existing ReadWriteOnce claim cannot change its access mode: move its data to a ReadWriteMany claim and set persistence.existingClaim to it before you upgrade." />{' '}
+            <a
+              href={CHART_README_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2"
+            >
+              README
+            </a>
+          </p>
         )}
       </>
     );

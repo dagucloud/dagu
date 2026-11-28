@@ -29,7 +29,7 @@ const REASON_TEXT: Partial<Record<WorkerAccessReason, string>> = {
   [WorkerAccessReason.peer_token_mismatch]:
     "This server's peer.token is not the coordinator's. Set the same peer.token on both, then restart them.",
   [WorkerAccessReason.require_tls]:
-    'The coordinator requires TLS. Remove peer.insecure from this server wherever it is set (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), then restart it.',
+    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), and if it cannot read the coordinator's data directory, set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.",
   [WorkerAccessReason.coordinator_refused]:
     'The coordinator refused this server. Its log names the reason.',
   [WorkerAccessReason.coordinator_conflict]:

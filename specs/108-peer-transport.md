@@ -1248,17 +1248,17 @@ and prints the message:
 
 #### Add Worker
 
-- **Add worker** is on the Workers page, for admins. It reads join
-  readiness and creates the invite on the server that serves the page.
-  While System status shows a remote node, **Add worker** is disabled and
-  says to switch to the local server.
+- **Add worker** is on the Workers page, for admins.
 - Step 1 shows each coordinator whose join readiness is not ready. `<port>`
   below is the reported `port`:
   - While `loopbackOnly`, the change for how Dagu was started:
     - in Kubernetes: for `hostSource` `env` or `flag`, the change below;
       otherwise the chart's `deploymentMode: distributed`, whose
       coordinator Deployment sets `DAGU_COORDINATOR_HOST` to `0.0.0.0`, and
-      the `ReadWriteMany` storage that mode needs
+      the `ReadWriteMany` storage that mode needs. An existing
+      `ReadWriteOnce` claim cannot change its access mode, so its data moves
+      to a `ReadWriteMany` claim named in `persistence.existingClaim` before
+      the upgrade, as the chart's README describes
     - in a container: recreate it with `-p <port>:<port>`, and with
       `-e <variable>=0.0.0.0`, where `<variable>` is the `hostSource`
       variable or `DAGU_COORDINATOR_HOST`. A flag wins over a variable, and
@@ -1275,8 +1275,6 @@ and prints the message:
     `peer.cert_file` and `peer.key_file`, or for `caUnavailable`, that it
     could not create or read its CA and to see its start warning.
   - Each change needs a restart.
-  - For a coordinator that did not report, its `errorReason` in the
-    dialog's words, or that it did not report.
 - The dialog explains a refused call by `details.reason`, and a coordinator
   that did not report by `errorReason`, in its own words with the change to
   make. It never shows the message of the server or of a coordinator.
@@ -1296,7 +1294,8 @@ and prints the message:
   container. It never fills in a host name, a container ID, or the
   browser's host.
 - The field holds `host:port`, trimmed of surrounding white space as the
-  MCP action trims it. Its starting value and each suggestion pass the rule
+  MCP action trims it, and keeps a pasted line break, which the rule below
+  refuses inside the address. Its starting value and each suggestion pass the rule
   below, and an advertised address takes the `port` of the
   coordinator that reported it. A new reading resets the field while the
   admin has not changed it.

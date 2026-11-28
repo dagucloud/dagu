@@ -16,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Spinner } from '@/components/ui/spinner';
 import { useClient } from '@/hooks/api';
 import { I18nText } from '@/i18n/I18nText';
@@ -69,10 +69,8 @@ export function AddWorkerDialog({
   // Only the latest read may change the dialog: an earlier one that ends
   // later must not replace a newer answer.
   const latest = React.useRef(0);
-  const hostField = React.useRef<HTMLInputElement>(null);
+  const hostField = React.useRef<HTMLTextAreaElement>(null);
   const checkButton = React.useRef<HTMLButtonElement>(null);
-  const checkHadFocus = React.useRef(false);
-  const fieldHadFocus = React.useRef(false);
 
   const load = React.useCallback(async () => {
     const id = ++latest.current;
@@ -134,24 +132,16 @@ export function AddWorkerDialog({
     return () => window.removeEventListener('focus', reload);
   }, [ready, load]);
 
-  // Check again leaves once the coordinator is ready, whatever read found
-  // it so. A focus it held moves on to the address field, which stays.
+  // A reading or a read can remove the control that has the focus, such as
+  // Check again, a suggestion, or a copy button. The focus then moves to the
+  // address field, or to Check again while step 2 is gone.
+  const lastFocus = React.useRef<HTMLElement | null>(null);
   React.useEffect(() => {
-    if (ready && checkHadFocus.current) {
-      checkHadFocus.current = false;
-      hostField.current?.focus();
+    if (lastFocus.current && !lastFocus.current.isConnected) {
+      lastFocus.current = null;
+      (hostField.current ?? checkButton.current)?.focus();
     }
-  }, [ready]);
-
-  // A failed reading removes step 2; a focus the address field held moves
-  // to Check again, which a failure always shows.
-  const failed = readiness.state === 'failed';
-  React.useEffect(() => {
-    if (failed && fieldHadFocus.current) {
-      fieldHadFocus.current = false;
-      checkButton.current?.focus();
-    }
-  }, [failed]);
+  });
 
   const problem = address !== undefined ? addressProblem(address) : undefined;
   const validAddress =
@@ -162,7 +152,10 @@ export function AddWorkerDialog({
 
   return (
     <Dialog open onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="flex max-h-[90dvh] max-w-2xl flex-col gap-5 overflow-y-auto">
+      <DialogContent
+        className="flex max-h-[90dvh] max-w-2xl flex-col gap-5 overflow-y-auto"
+        onFocusCapture={(e) => (lastFocus.current = e.target as HTMLElement)}
+      >
         <DialogHeader>
           <DialogTitle>
             <I18nText text="Add worker" />
@@ -195,8 +188,6 @@ export function AddWorkerDialog({
               ref={checkButton}
               size="xs"
               aria-disabled={checking || undefined}
-              onFocus={() => (checkHadFocus.current = true)}
-              onBlur={() => (checkHadFocus.current = false)}
               onClick={() => {
                 if (!checking) void load();
               }}
@@ -219,7 +210,6 @@ export function AddWorkerDialog({
               data={data}
               address={address}
               hostField={hostField}
-              onFocusChange={(focused) => (fieldHadFocus.current = focused)}
               problem={touched.current || address ? problem : undefined}
               onChange={(next) => {
                 touched.current = true;
@@ -243,14 +233,12 @@ function AddressFields({
   data,
   address,
   hostField,
-  onFocusChange,
   problem,
   onChange,
 }: {
   data: JoinReadiness;
   address: string;
-  hostField: React.Ref<HTMLInputElement>;
-  onFocusChange: (focused: boolean) => void;
+  hostField: React.Ref<HTMLTextAreaElement>;
   problem?: AddressProblem;
   onChange: (address: string) => void;
 }) {
@@ -280,16 +268,19 @@ function AddressFields({
         >
           <I18nText text="Address and port" />
         </label>
-        <Input
+        {/* A one-line text area: an input would drop a pasted line break
+            that the MCP action reads, and refuses inside the address. */}
+        <Textarea
           ref={hostField}
           id={`${id}-address`}
+          rows={1}
+          className="min-h-9"
           placeholder="host:port"
           required
           value={address}
           aria-invalid={problem ? true : undefined}
           aria-describedby={problem ? errorId : undefined}
-          onFocus={() => onFocusChange(true)}
-          onBlur={() => onFocusChange(false)}
+          onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
           onChange={(e) => onChange(e.target.value)}
         />
       </div>
