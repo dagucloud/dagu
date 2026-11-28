@@ -1571,10 +1571,12 @@ func TestIsolatedStepStopsALeftoverTheScanMisses(t *testing.T) {
 	requireIsolation(t)
 	ctx := context.Background()
 	workDir := testWorkDir(t)
+	// The hook is restored after End, which waits for the watcher that reads
+	// it. End stops the processes through the kill helper.
+	t.Cleanup(func() { listProcesses = userProcesses })
 	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
 	require.NoError(t, err)
 	listProcesses = func(uint32) ([]int, error) { return nil, nil }
-	t.Cleanup(func() { listProcesses = userProcesses })
 
 	cmd := exec.Command("/bin/sh", "-c", "sleep 1000 &")
 	cmd.Dir = workDir
