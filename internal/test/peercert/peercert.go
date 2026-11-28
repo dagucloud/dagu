@@ -12,6 +12,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -24,6 +25,8 @@ type Options struct {
 	Name string
 	// DNSNames are the names the certificate covers.
 	DNSNames []string
+	// IPAddresses are the addresses the certificate covers.
+	IPAddresses []net.IP
 	// NotAfter is the expiry. Zero means one year from now.
 	NotAfter time.Time
 	// ExtKeyUsage lists the extended key usages. Empty means none, which
@@ -51,6 +54,7 @@ func Write(t testing.TB, dir string, opts Options) (certFile, keyFile string) {
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  opts.ExtKeyUsage,
 		DNSNames:     opts.DNSNames,
+		IPAddresses:  opts.IPAddresses,
 	}
 	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	if err != nil {

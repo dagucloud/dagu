@@ -316,6 +316,12 @@ var (
 		viperKey:  "worker.shutdown_timeout",
 	}
 
+	workerCheckFlag = commandLineFlag{
+		name:   "check",
+		usage:  "Check the connection to each coordinator and exit, without taking tasks",
+		isBool: true,
+	}
+
 	workerCoordinatorsFlag = commandLineFlag{
 		name:      "worker.coordinators",
 		usage:     "Required coordinator addresses (format: host1:port1,host2:port2)",

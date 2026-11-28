@@ -1859,7 +1859,16 @@ func getDialOptions(config *Config) ([]grpc.DialOption, error) {
 		return opts, nil
 	}
 
-	// Configure TLS
+	tlsConfig, err := clientTLSConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
+	return opts, nil
+}
+
+// clientTLSConfig returns the TLS configuration that config dials with.
+func clientTLSConfig(config *Config) (*tls.Config, error) {
 	tlsConfig := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 	}
@@ -1896,7 +1905,5 @@ func getDialOptions(config *Config) ([]grpc.DialOption, error) {
 		}
 		tlsConfig.RootCAs = certPool
 	}
-
-	opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
-	return opts, nil
+	return tlsConfig, nil
 }

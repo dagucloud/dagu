@@ -42,6 +42,8 @@ Flags:
   --worker.coordinators string             Coordinator addresses (format: host1:port1,host2:port2)
   --worker.shutdown-timeout string         How long to drain running DAG runs on SIGINT/SIGTERM before
                                            canceling them (default: 60s, 0 waits without a bound)
+  --check                                  Check the connection to each coordinator and exit, without
+                                           taking tasks
 
 TLS Configuration (uses global peer settings):
   --peer.insecure                          Use insecure connection (h2c) instead of TLS (unset selects h2c)
@@ -55,6 +57,9 @@ Example:
   dagu worker --worker.coordinators=coordinator-1:50055 --worker.max-active-runs=50
   dagu worker --worker.coordinators=coordinator-1:50055 --worker.id=worker-1 --worker.max-active-runs=200
   dagu worker --worker.coordinators=coordinator-1:50055 --worker.health-port=0
+
+  # Check that the worker can reach and authenticate to its coordinators:
+  dagu worker --worker.coordinators=coordinator-1:50055 --check
 
   # Worker with labels for capability matching:
   dagu worker --worker.coordinators=coordinator-1:50055 --worker.labels gpu=true,memory=64G,region=us-east-1
@@ -84,6 +89,7 @@ var workerFlags = []commandLineFlag{
 	workerLabelsFlag,
 	workerCoordinatorsFlag,
 	workerShutdownTimeoutFlag,
+	workerCheckFlag,
 	// Peer configuration flags for TLS
 	peerInsecureFlag,
 	peerCertFileFlag,
@@ -93,6 +99,9 @@ var workerFlags = []commandLineFlag{
 }
 
 func runWorker(ctx *Context, _ []string) error {
+	if isWorkerCheck(ctx.Command) {
+		return runWorkerCheck(ctx)
+	}
 	signalCtx, stop := notifyShutdownContext(ctx.Context, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
