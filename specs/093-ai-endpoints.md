@@ -114,7 +114,7 @@ model](094-ai-gateway.md#threat-model). This table gives the threat of the endpo
 | `scope` | string | Required. `global` or `workspace:<name>`. Fixed at creation. |
 | `allow.workspaces` | list | Required for the scope `global`. Workspace names, or `*`. Not valid in a workspace scope. |
 | `allow.dags` | list | Required. DAG names, or `*`. |
-| `key` | secret | Required. Write-only. See [The key](#the-key). |
+| `key` | secret | Required, except for the presets of a local model. Write-only. See [The key](#the-key). |
 
 An endpoint with no `allow` is not valid. No list means no access, so the administrator makes a
 choice. A name is an exact name. The value `*` is the only pattern, and it must be the only item of
@@ -884,7 +884,7 @@ held no model key, and the proxy had no model route. These facts are measured.
 | Item | Default |
 | --- | --- |
 | An endpoint for GitOps: an endpoint whose key is named by `api_key_file` or `api_key_env` in a file. | Not added. Endpoints and keys are managed data. The need is not shown. |
-| A local model with no key. The auth forms have no value `none`. | The preset Local model accepts an empty key and sets no header. |
+| A local model with no key. The auth forms have no value `none`. | The presets of a local model accept a create request with no field `key`, and set no header. |
 | A workspace endpoint hides a global endpoint of the same name. | As in this spec. |
 | A limit of models for an endpoint (`allow.models`), so that an agent cannot use an expensive model. | Not added. The agent can use each model that the key allows. |
 | The native `gemini` type of `chat.completion` as an endpoint. | Not an endpoint protocol. |
