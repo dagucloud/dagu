@@ -17,7 +17,8 @@ and `peer.ca_key_file`, [`dagu peer init`](#dagu-peer-init), the
 [One Port](#one-port) except the revoked set,
 [Require TLS](#require-tls), the [h2c Reasons](#h2c-reasons), the
 `connection` and `plaintextReason` of the [Workers List](#workers-list),
-the [h2c Callers](#h2c-callers), the `Connection` column and the h2c
+`connection` and `plaintext_reason` in its Dagu Cloud report, the
+[h2c Callers](#h2c-callers), the `Connection` column and the h2c
 callers of the [Workers Page](#workers-page), the coordinator call of
 [Join Readiness](#join-readiness), the [Invites](#invites) and their
 [Coordinator Calls](#coordinator-calls) except removal and the daily
@@ -757,8 +758,10 @@ or `stop`:
   and the worker has no `connection`.
 - A worker whose heartbeat reports an environment also has `environment`.
 - The Dagu Cloud report adds `connection` to each entry of
-  `health.workers[]`, on the plans that get the worker list today, within
-  its size cap.
+  `health.workers[]`, and `plaintext_reason` to a `plaintext` one, with the
+  values above. It lists them on the plans that get the worker list today.
+  The list stays within its 64 KiB cap, which counts the added fields. A
+  worker whose record has no `connection` has neither field.
 
 #### h2c Callers
 

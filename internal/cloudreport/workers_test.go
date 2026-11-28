@@ -40,9 +40,7 @@ func TestReportCarriesWorkers(t *testing.T) {
 		// A stale record the coordinator has yet to remove.
 		{WorkerID: "w-gone", LastHeartbeatAt: sentAt.Add(-time.Minute).UnixMilli()},
 	}
-	coordinator := &fakeRegistry{members: map[serviceregistry.ServiceName][]serviceregistry.HostInfo{
-		serviceregistry.ServiceNameCoordinator: {{ID: "c1"}},
-	}}
+	coordinator := coordinatorRegistry()
 	list := `[
 		{"id": "w-a", "total_pollers": 0, "busy_pollers": 0, "last_heartbeat_at": "2026-10-10T09:30:29Z"},
 		{"id": "w-b", "host": "gpu-1", "labels": {"gpu": "true"}, "total_pollers": 4, "busy_pollers": 1,
@@ -78,31 +76,75 @@ func TestReportCarriesWorkers(t *testing.T) {
 	}
 }
 
-// The worker list stops at maxWorkersBytes however long labels make each
-// worker, so the report stays under what Dagu Console accepts, while
-// workers_total still counts every live worker.
+// The worker list stops at maxWorkersBytes however long labels and the
+// connection make each worker, so the report stays under what Dagu Console
+// accepts, while workers_total still counts every live worker. The short
+// notes make the connection fields a large share of each entry, so the list
+// passes the cap if they go uncounted.
 func TestReportBoundsWorkerBytes(t *testing.T) {
 	t.Parallel()
 
 	sentAt := testClockStart.Add(maxStartDelay / 2)
-	note := strings.Repeat("x", 4<<10)
-	records := make([]dispatch.WorkerHeartbeatRecord, 100)
+	note := strings.Repeat("x", 256)
+	records := make([]dispatch.WorkerHeartbeatRecord, maxWorkers)
 	for i := range records {
 		records[i] = dispatch.WorkerHeartbeatRecord{WorkerID: fmt.Sprintf("w-%03d", i),
-			Labels: map[string]string{"note": note}, LastHeartbeatAt: sentAt.UnixMilli()}
+			Labels: map[string]string{"note": note}, LastHeartbeatAt: sentAt.UnixMilli(),
+			Connection: dispatch.WorkerConnectionPlaintext, PlaintextReason: "tls failed on the network path"}
 	}
-	coordinator := &fakeRegistry{members: map[serviceregistry.ServiceName][]serviceregistry.HostInfo{
-		serviceregistry.ServiceNameCoordinator: {{ID: "c1"}},
-	}}
 
-	health := firstReportHealth(t, config.ReportRuns, coordinator, &stubWorkers{records: records}, false)
-	assert.JSONEq(t, "100", string(health["workers_total"]))
+	health := firstReportHealth(t, config.ReportRuns, coordinatorRegistry(), &stubWorkers{records: records}, false)
+	assert.JSONEq(t, fmt.Sprint(maxWorkers), string(health["workers_total"]))
 	assert.LessOrEqual(t, len(health["workers"]), maxWorkersBytes+1)
 	var workers []workerHealth
 	require.NoError(t, json.Unmarshal(health["workers"], &workers))
 	require.NotEmpty(t, workers)
 	assert.Less(t, len(workers), len(records))
 	assert.Equal(t, "w-000", workers[0].ID)
+	for _, w := range workers {
+		assert.Equal(t, dispatch.WorkerConnectionPlaintext, w.Connection, w.ID)
+	}
+}
+
+// Each worker carries how its heartbeat reaches the coordinator, with the
+// values of GET /workers, and a plaintext one also why. A record that a
+// coordinator predating connections wrote carries neither.
+func TestReportCarriesWorkerConnections(t *testing.T) {
+	t.Parallel()
+
+	sentAt := testClockStart.Add(maxStartDelay / 2)
+	records := []dispatch.WorkerHeartbeatRecord{
+		{WorkerID: "w-cert", Connection: dispatch.WorkerConnectionCertificate},
+		{WorkerID: "w-tls", Connection: dispatch.WorkerConnectionTLS},
+		{WorkerID: "w-insecure", Connection: dispatch.WorkerConnectionPlaintext, PlaintextReason: "peer.insecure"},
+		{WorkerID: "w-old", Connection: dispatch.WorkerConnectionPlaintext, PlaintextReason: "older version"},
+		{WorkerID: "w-unknown"},
+	}
+	for i := range records {
+		records[i].LastHeartbeatAt = sentAt.UnixMilli()
+	}
+
+	health := firstReportHealth(t, config.ReportRuns, coordinatorRegistry(), &stubWorkers{records: records}, false)
+	assertField(t, health, "workers", `[
+		{"id": "w-cert", "connection": "certificate",
+			"total_pollers": 0, "busy_pollers": 0, "last_heartbeat_at": "2026-10-10T09:30:30Z"},
+		{"id": "w-insecure", "connection": "plaintext", "plaintext_reason": "peer.insecure",
+			"total_pollers": 0, "busy_pollers": 0, "last_heartbeat_at": "2026-10-10T09:30:30Z"},
+		{"id": "w-old", "connection": "plaintext", "plaintext_reason": "older version",
+			"total_pollers": 0, "busy_pollers": 0, "last_heartbeat_at": "2026-10-10T09:30:30Z"},
+		{"id": "w-tls", "connection": "tls",
+			"total_pollers": 0, "busy_pollers": 0, "last_heartbeat_at": "2026-10-10T09:30:30Z"},
+		{"id": "w-unknown",
+			"total_pollers": 0, "busy_pollers": 0, "last_heartbeat_at": "2026-10-10T09:30:30Z"}
+	]`)
+}
+
+// coordinatorRegistry is a registry with one coordinator, which keeps the
+// workers' heartbeats current.
+func coordinatorRegistry() *fakeRegistry {
+	return &fakeRegistry{members: map[serviceregistry.ServiceName][]serviceregistry.HostInfo{
+		serviceregistry.ServiceNameCoordinator: {{ID: "c1"}},
+	}}
 }
 
 // firstReportHealth starts a reporter at level and returns the health of the
