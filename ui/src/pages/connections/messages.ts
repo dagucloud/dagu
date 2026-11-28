@@ -84,6 +84,20 @@ export const connectionMessages = defineMessages({
     'Service checks': 'Service checks',
     'Needs reconnect': 'Needs reconnect',
     Broken: 'Broken',
+    'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.':
+      'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.',
+    'This workspace already has a connection named {name}.':
+      'This workspace already has a connection named {name}.',
+    'Open it': 'Open it',
+    'Other automation': 'Other automation',
+    'Steps call Google’s REST APIs with http.request.':
+      'Steps call Google’s REST APIs with http.request.',
+    'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.':
+      'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.',
+    'This server cannot sign in through a desktop client.':
+      'This server cannot sign in through a desktop client.',
+    'The app was registered, but this server cannot sign in with it.':
+      'The app was registered, but this server cannot sign in with it.',
     'Could not create the connection.': 'Could not create the connection.',
     'Connect Google Workspace': 'Connect Google Workspace',
     'The connection belongs to workspace {workspace}.':
@@ -101,9 +115,6 @@ export const connectionMessages = defineMessages({
     'AI agents': 'AI agents',
     'Steps call Google’s MCP servers with mcp.call, and AI steps use their tools.':
       'Steps call Google’s MCP servers with mcp.call, and AI steps use their tools.',
-    'Other automation and mail': 'Other automation and mail',
-    'Steps call Google’s REST APIs with http.request, and mail accounts use the mailbox.':
-      'Steps call Google’s REST APIs with http.request, and mail accounts use the mailbox.',
     'Who will use this connection?': 'Who will use this connection?',
     'Google requires separate OAuth clients for AI agents and for other automation, so each connection uses one kind. For both, add two connections.':
       'Google requires separate OAuth clients for AI agents and for other automation, so each connection uses one kind. For both, add two connections.',
@@ -145,7 +156,6 @@ export const connectionMessages = defineMessages({
     'App name': 'App name',
     'Client JSON file': 'Client JSON file',
     'Register app': 'Register app',
-    'Mail over IMAP and SMTP': 'Mail over IMAP and SMTP',
   },
   'zh-CN': {
     'Accounts that DAGs in this workspace use by name. Dagu keeps and refreshes their tokens.':
@@ -223,6 +233,20 @@ export const connectionMessages = defineMessages({
     'Service checks': '服务检查',
     'Needs reconnect': '需要重新连接',
     Broken: '已损坏',
+    'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.':
+      '只能使用小写字母、数字和连字符，并以字母或数字开头。',
+    'This workspace already has a connection named {name}.':
+      '此工作区已有名为 {name} 的连接。',
+    'Open it': '打开',
+    'Other automation': '其他自动化',
+    'Steps call Google’s REST APIs with http.request.':
+      '步骤通过 http.request 调用 Google 的 REST API。',
+    'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.':
+      '此服务器没有公开 URL，无法通过 Web 客户端登录。请改为创建桌面应用客户端并上传其 JSON。',
+    'This server cannot sign in through a desktop client.':
+      '此服务器无法通过桌面客户端登录。',
+    'The app was registered, but this server cannot sign in with it.':
+      '应用已注册，但此服务器无法通过它登录。',
     'Could not create the connection.': '无法创建连接。',
     'Connect Google Workspace': '连接 Google Workspace',
     'The connection belongs to workspace {workspace}.':
@@ -240,9 +264,6 @@ export const connectionMessages = defineMessages({
     'AI agents': 'AI 智能体',
     'Steps call Google’s MCP servers with mcp.call, and AI steps use their tools.':
       '步骤通过 mcp.call 调用 Google 的 MCP 服务器，AI 步骤使用其工具。',
-    'Other automation and mail': '其他自动化和邮件',
-    'Steps call Google’s REST APIs with http.request, and mail accounts use the mailbox.':
-      '步骤通过 http.request 调用 Google 的 REST API，邮件账号使用邮箱。',
     'Who will use this connection?': '谁将使用此连接？',
     'Google requires separate OAuth clients for AI agents and for other automation, so each connection uses one kind. For both, add two connections.':
       'Google 要求 AI 智能体和其他自动化使用不同的 OAuth 客户端，因此每个连接只使用一种。两者都需要时，请添加两个连接。',
@@ -283,7 +304,6 @@ export const connectionMessages = defineMessages({
     'App name': '应用名称',
     'Client JSON file': '客户端 JSON 文件',
     'Register app': '注册应用',
-    'Mail over IMAP and SMTP': '通过 IMAP 和 SMTP 收发邮件',
   },
   ja: {
     'Accounts that DAGs in this workspace use by name. Dagu keeps and refreshes their tokens.':
@@ -364,6 +384,20 @@ export const connectionMessages = defineMessages({
     'Service checks': 'サービスのチェック',
     'Needs reconnect': '再接続が必要',
     Broken: '破損',
+    'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.':
+      '小文字・数字・ハイフンだけを使い、英字か数字で始めてください。',
+    'This workspace already has a connection named {name}.':
+      'このワークスペースには {name} という接続がすでにあります。',
+    'Open it': '開く',
+    'Other automation': 'その他の自動化',
+    'Steps call Google’s REST APIs with http.request.':
+      'ステップは http.request で Google の REST API を呼び出します。',
+    'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.':
+      'このサーバーには公開 URL がないため、ウェブクライアントではサインインできません。代わりにデスクトップ アプリのクライアントを作成し、その JSON をアップロードしてください。',
+    'This server cannot sign in through a desktop client.':
+      'このサーバーはデスクトップ クライアントではサインインできません。',
+    'The app was registered, but this server cannot sign in with it.':
+      'アプリは登録されましたが、このサーバーはそのアプリでサインインできません。',
     'Could not create the connection.': '接続を作成できませんでした。',
     'Connect Google Workspace': 'Google Workspace を接続',
     'The connection belongs to workspace {workspace}.':
@@ -381,9 +415,6 @@ export const connectionMessages = defineMessages({
     'AI agents': 'AI エージェント',
     'Steps call Google’s MCP servers with mcp.call, and AI steps use their tools.':
       'ステップは mcp.call で Google の MCP サーバーを呼び出し、AI ステップはそのツールを使います。',
-    'Other automation and mail': 'その他の自動化とメール',
-    'Steps call Google’s REST APIs with http.request, and mail accounts use the mailbox.':
-      'ステップは http.request で Google の REST API を呼び出し、メールアカウントはメールボックスを使います。',
     'Who will use this connection?': 'この接続を使うのは？',
     'Google requires separate OAuth clients for AI agents and for other automation, so each connection uses one kind. For both, add two connections.':
       'Google では AI エージェントとその他の自動化に別々の OAuth クライアントが必要なため、1 つの接続はどちらか一方を使います。両方使う場合は接続を 2 つ追加してください。',
@@ -427,7 +458,6 @@ export const connectionMessages = defineMessages({
     'App name': 'アプリ名',
     'Client JSON file': 'クライアント JSON ファイル',
     'Register app': 'アプリを登録',
-    'Mail over IMAP and SMTP': 'IMAP と SMTP のメール',
   },
   de: {
     'Accounts that DAGs in this workspace use by name. Dagu keeps and refreshes their tokens.':
@@ -511,6 +541,20 @@ export const connectionMessages = defineMessages({
     'Service checks': 'Dienstprüfungen',
     'Needs reconnect': 'Neu verbinden nötig',
     Broken: 'Defekt',
+    'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.':
+      'Verwenden Sie nur Kleinbuchstaben, Ziffern und Bindestriche, und beginnen Sie mit einem Buchstaben oder einer Ziffer.',
+    'This workspace already has a connection named {name}.':
+      'Dieser Arbeitsbereich hat bereits eine Verbindung namens {name}.',
+    'Open it': 'Öffnen',
+    'Other automation': 'Andere Automatisierung',
+    'Steps call Google’s REST APIs with http.request.':
+      'Schritte rufen die REST-APIs von Google mit http.request auf.',
+    'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.':
+      'Dieser Server hat keine öffentliche URL und kann sich daher nicht über einen Web-Client anmelden. Erstellen Sie stattdessen einen Desktop-App-Client und laden Sie dessen JSON hoch.',
+    'This server cannot sign in through a desktop client.':
+      'Dieser Server kann sich nicht über einen Desktop-Client anmelden.',
+    'The app was registered, but this server cannot sign in with it.':
+      'Die App wurde registriert, aber dieser Server kann sich damit nicht anmelden.',
     'Could not create the connection.':
       'Die Verbindung konnte nicht erstellt werden.',
     'Connect Google Workspace': 'Google Workspace verbinden',
@@ -529,9 +573,6 @@ export const connectionMessages = defineMessages({
     'AI agents': 'KI-Agenten',
     'Steps call Google’s MCP servers with mcp.call, and AI steps use their tools.':
       'Schritte rufen die MCP-Server von Google mit mcp.call auf, und KI-Schritte nutzen ihre Tools.',
-    'Other automation and mail': 'Andere Automatisierung und E-Mail',
-    'Steps call Google’s REST APIs with http.request, and mail accounts use the mailbox.':
-      'Schritte rufen die REST-APIs von Google mit http.request auf, und E-Mail-Konten nutzen das Postfach.',
     'Who will use this connection?': 'Wer nutzt diese Verbindung?',
     'Google requires separate OAuth clients for AI agents and for other automation, so each connection uses one kind. For both, add two connections.':
       'Google verlangt getrennte OAuth-Clients für KI-Agenten und für andere Automatisierung, daher nutzt jede Verbindung eine Art. Für beides fügen Sie zwei Verbindungen hinzu.',
@@ -574,7 +615,6 @@ export const connectionMessages = defineMessages({
     'App name': 'App-Name',
     'Client JSON file': 'Client-JSON-Datei',
     'Register app': 'App registrieren',
-    'Mail over IMAP and SMTP': 'E-Mail über IMAP und SMTP',
   },
   fr: {
     'Accounts that DAGs in this workspace use by name. Dagu keeps and refreshes their tokens.':
@@ -604,16 +644,16 @@ export const connectionMessages = defineMessages({
     'Read and write': 'Lecture et écriture',
     Read: 'Lecture',
     'Not granted. Reconnect to ask for the missing scopes:':
-      'Non accordé. Reconnectez pour demander les portées manquantes :',
+      'Non accordé. Reconnectez pour demander les portées manquantes\u00a0:',
     'Granted scopes': 'Portées accordées',
     'Remove connection': 'Supprimer la connexion',
     'Remove {name}? Its tokens and tool lists are deleted, and DAGs that name it fail when they start.':
-      'Supprimer {name} ? Ses jetons et ses listes d’outils sont supprimés, et les DAG qui la nomment échouent au démarrage.',
+      'Supprimer {name}\u00a0? Ses jetons et ses listes d’outils sont supprimés, et les DAG qui la nomment échouent au démarrage.',
     'Dagu also revokes its sign-in at Google, so connections on other servers that use a client of the same Google Cloud project may lose access.':
-      'Dagu révoque aussi sa connexion chez Google : les connexions d’autres serveurs qui utilisent un client du même projet Google Cloud peuvent perdre l’accès.',
+      'Dagu révoque aussi sa connexion chez Google\u00a0: les connexions d’autres serveurs qui utilisent un client du même projet Google Cloud peuvent perdre l’accès.',
     'Dagu also revokes its sign-in at the provider, so connections on other servers that use the same client may lose access.':
-      'Dagu révoque aussi sa connexion chez le fournisseur : les connexions d’autres serveurs qui utilisent le même client peuvent perdre l’accès.',
-    'Copy {name}': 'Copier : {name}',
+      'Dagu révoque aussi sa connexion chez le fournisseur\u00a0: les connexions d’autres serveurs qui utilisent le même client peuvent perdre l’accès.',
+    'Copy {name}': 'Copier\u00a0: {name}',
     'Connections are kept on each server':
       'Les connexions sont conservées sur chaque serveur',
     'Remote nodes do not serve their connections. Select the local server to see its connections.':
@@ -626,9 +666,9 @@ export const connectionMessages = defineMessages({
     'The live tokens stay in use until you confirm the account that signed in.':
       'Les jetons actuels restent utilisés jusqu’à ce que vous confirmiez le compte connecté.',
     '{name} is connected.': '{name} est connectée.',
-    'Signing in failed: {reason}': 'La connexion a échoué : {reason}',
+    'Signing in failed: {reason}': 'La connexion a échoué\u00a0: {reason}',
     "This server has no public URL, so a web client can't receive the sign-in. Set server.public_url, or use an app with a desktop client.":
-      'Ce serveur n’a pas d’URL publique : un client web ne peut pas recevoir la connexion. Définissez server.public_url ou utilisez une application avec un client de bureau.',
+      'Ce serveur n’a pas d’URL publique\u00a0: un client web ne peut pas recevoir la connexion. Définissez server.public_url ou utilisez une application avec un client de bureau.',
     'After you consent, the popup ends on a page that fails to load. Copy that page’s address from the popup and paste it here.':
       'Après votre consentement, la fenêtre s’arrête sur une page qui ne se charge pas. Copiez l’adresse de cette page depuis la fenêtre et collez-la ici.',
     'Redirect URI to register in the client':
@@ -652,11 +692,25 @@ export const connectionMessages = defineMessages({
     'This is not {account}, the account the connection holds now. Confirming replaces it.':
       'Ce n’est pas {account}, le compte actuel de la connexion. Confirmer le remplace.',
     'Other connections in this workspace already hold this account through the same client: {names}.':
-      'D’autres connexions de cet espace de travail utilisent déjà ce compte avec le même client : {names}.',
+      'D’autres connexions de cet espace de travail utilisent déjà ce compte avec le même client\u00a0: {names}.',
     'The sign-in ends {date}.': 'La connexion prend fin le {date}.',
     'Service checks': 'Vérifications des services',
     'Needs reconnect': 'À reconnecter',
     Broken: 'Endommagée',
+    'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.':
+      'Utilisez uniquement des lettres minuscules, des chiffres et des tirets, en commençant par une lettre ou un chiffre.',
+    'This workspace already has a connection named {name}.':
+      'Cet espace de travail a déjà une connexion nommée {name}.',
+    'Open it': 'L’ouvrir',
+    'Other automation': 'Autres automatisations',
+    'Steps call Google’s REST APIs with http.request.':
+      'Les étapes appellent les API REST de Google avec http.request.',
+    'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.':
+      'Ce serveur n’a pas d’URL publique et ne peut donc pas se connecter avec un client Web. Créez plutôt un client Application de bureau et téléversez son JSON.',
+    'This server cannot sign in through a desktop client.':
+      'Ce serveur ne peut pas se connecter avec un client de bureau.',
+    'The app was registered, but this server cannot sign in with it.':
+      'L’application a été enregistrée, mais ce serveur ne peut pas se connecter avec elle.',
     'Could not create the connection.': 'Impossible de créer la connexion.',
     'Connect Google Workspace': 'Connecter Google Workspace',
     'The connection belongs to workspace {workspace}.':
@@ -674,12 +728,9 @@ export const connectionMessages = defineMessages({
     'AI agents': 'Agents IA',
     'Steps call Google’s MCP servers with mcp.call, and AI steps use their tools.':
       'Les étapes appellent les serveurs MCP de Google avec mcp.call, et les étapes IA utilisent leurs outils.',
-    'Other automation and mail': 'Autres automatisations et e-mail',
-    'Steps call Google’s REST APIs with http.request, and mail accounts use the mailbox.':
-      'Les étapes appellent les API REST de Google avec http.request, et les comptes e-mail utilisent la boîte aux lettres.',
-    'Who will use this connection?': 'Qui utilisera cette connexion ?',
+    'Who will use this connection?': 'Qui utilisera cette connexion\u00a0?',
     'Google requires separate OAuth clients for AI agents and for other automation, so each connection uses one kind. For both, add two connections.':
-      'Google exige des clients OAuth distincts pour les agents IA et pour les autres automatisations : chaque connexion en utilise un seul type. Pour les deux, ajoutez deux connexions.',
+      'Google exige des clients OAuth distincts pour les agents IA et pour les autres automatisations\u00a0: chaque connexion en utilise un seul type. Pour les deux, ajoutez deux connexions.',
     'OAuth app': 'Application OAuth',
     'No Google app for AI agents fits this server yet.':
       'Aucune application Google pour agents IA ne convient encore à ce serveur.',
@@ -687,15 +738,15 @@ export const connectionMessages = defineMessages({
       'Aucune application Google pour les autres automatisations ne convient encore à ce serveur.',
     'Register another app': 'Enregistrer une autre application',
     'DAGs that run on this server, rather than on a worker, run as Dagu’s user, so their authors can read this connection’s tokens.':
-      'Les DAG exécutés sur ce serveur, et non sur un worker, s’exécutent sous l’utilisateur de Dagu : leurs auteurs peuvent donc lire les jetons de cette connexion.',
+      'Les DAG exécutés sur ce serveur, et non sur un worker, s’exécutent sous l’utilisateur de Dagu\u00a0: leurs auteurs peuvent donc lire les jetons de cette connexion.',
     'Ask an admin to register a Google OAuth app with:':
-      'Demandez à un administrateur d’enregistrer une application OAuth Google avec :',
-    'Client type: Web application': 'Type de client : application Web',
-    'Client type: Desktop app': 'Type de client : application de bureau',
+      'Demandez à un administrateur d’enregistrer une application OAuth Google avec\u00a0:',
+    'Client type: Web application': 'Type de client\u00a0: application Web',
+    'Client type: Desktop app': 'Type de client\u00a0: application de bureau',
     '“Use this client for an AI-powered agent” ticked':
-      '« Use this client for an AI-powered agent » coché',
+      '«\u00a0Use this client for an AI-powered agent\u00a0» coché',
     '“Use this client for an AI-powered agent” not ticked':
-      '« Use this client for an AI-powered agent » non coché',
+      '«\u00a0Use this client for an AI-powered agent\u00a0» non coché',
     'Could not register the app.': 'Impossible d’enregistrer l’application.',
     'Enable the APIs': 'Activer les API',
     'Enable APIs in Google Cloud': 'Activer les API dans Google Cloud',
@@ -706,19 +757,18 @@ export const connectionMessages = defineMessages({
     'An app in Testing status accepts only its test users, and their sign-ins end after seven days. Publish the app to Production, or make it Internal in a Workspace organization, to avoid both.':
       'Une application en statut Testing n’accepte que ses utilisateurs de test, et leurs connexions expirent après sept jours. Publiez l’application en Production, ou rendez-la Internal dans une organisation Workspace, pour éviter les deux.',
     'An app that Google has not verified shows “Google hasn’t verified this app” at sign-in. That is expected for your own app.':
-      'Une application que Google n’a pas vérifiée affiche « Google hasn’t verified this app » à la connexion. C’est normal pour votre propre application.',
+      'Une application que Google n’a pas vérifiée affiche «\u00a0Google hasn’t verified this app\u00a0» à la connexion. C’est normal pour votre propre application.',
     'Create the OAuth client': 'Créer le client OAuth',
     'Open Google Cloud clients': 'Ouvrir les clients Google Cloud',
     'Choose the application type Web application.':
       'Choisissez le type d’application Application Web.',
     'Choose the application type Desktop app. This server has no public URL, so the sign-in ends on a page whose address you paste back.':
-      'Choisissez le type d’application Application de bureau. Ce serveur n’a pas d’URL publique : la connexion se termine sur une page dont vous recollez l’adresse.',
+      'Choisissez le type d’application Application de bureau. Ce serveur n’a pas d’URL publique\u00a0: la connexion se termine sur une page dont vous recollez l’adresse.',
     'Tick “Use this client for an AI-powered agent”.':
-      'Cochez « Use this client for an AI-powered agent ».',
+      'Cochez «\u00a0Use this client for an AI-powered agent\u00a0».',
     'Upload the client JSON': 'Téléverser le JSON du client',
     'App name': 'Nom de l’application',
     'Client JSON file': 'Fichier JSON du client',
     'Register app': 'Enregistrer l’application',
-    'Mail over IMAP and SMTP': 'E-mail via IMAP et SMTP',
   },
 });

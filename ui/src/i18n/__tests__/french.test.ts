@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { backfillMessages } from '@/features/backfills/messages';
 import { workspaceModules } from '@/features/workflow-workspace/messages';
+import { connectionMessages } from '@/pages/connections/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
 import { nodeTestMessages, workerNodeMessages } from '@/pages/nodes/messages';
 import { findFrenchTextProblems } from '@/testing/frenchText';
@@ -25,6 +26,7 @@ const MODULES: Readonly<Record<string, MessageModule>> = {
   nodes: nodeTestMessages,
   workerNodes: workerNodeMessages,
   inventories: inventoryMessages,
+  connections: connectionMessages,
 };
 
 function sameKeys(a: Catalog, b: Catalog): boolean {
