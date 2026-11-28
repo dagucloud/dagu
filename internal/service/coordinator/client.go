@@ -38,7 +38,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 )
@@ -1850,13 +1849,13 @@ func getDialOptions(config *Config) ([]grpc.DialOption, error) {
 	if config.Token != "" || config.TokenFile != "" {
 		opts = append(opts, grpc.WithPerRPCCredentials(newPeerTokenCredentials(config.Token, config.TokenFile)))
 	}
+	opts = append(opts, grpc.WithPerRPCCredentials(h2cReasonCredentials{}))
 
 	if config.picksTransportPerConnection() {
 		return opts, nil
 	}
 	if config.Insecure {
-		// Use insecure connection (h2c)
-		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		opts = append(opts, grpc.WithTransportCredentials(h2cCredentials{source: sourceInsecure}))
 		return opts, nil
 	}
 

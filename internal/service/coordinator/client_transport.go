@@ -65,6 +65,19 @@ const (
 	sourceNetworkPath = "tls failed on the network path"
 )
 
+// h2cReasonMetadataKey carries, on each call over h2c, why the client uses
+// h2c. A call over h2c without it comes from a Dagu that predates the key.
+const h2cReasonMetadataKey = "dagu-peer-h2c-reason"
+
+// The h2c reasons a client sends, and the one the coordinator reports for a
+// call that carries none.
+const (
+	h2cReasonInsecure     = "peer.insecure"
+	h2cReasonNoTLS        = sourceNoTLS
+	h2cReasonNetworkPath  = sourceNetworkPath
+	h2cReasonOlderVersion = "older version"
+)
+
 // transportChoice is a transport and the source that selected it.
 type transportChoice struct {
 	transport string
@@ -577,7 +590,7 @@ func (c *connectionCredentials) ClientHandshake(ctx context.Context, _ string, r
 	if plan.roots == nil {
 		c.link.connected(plan)
 		t.use(address, plan.choice)
-		return insecure.NewCredentials().ClientHandshake(ctx, address, rawConn)
+		return h2cCredentials{source: plan.choice.source}.ClientHandshake(ctx, address, rawConn)
 	}
 	conn := &handshakeConn{Conn: rawConn}
 	creds := credentials.NewTLS(&tls.Config{RootCAs: plan.roots, MinVersion: tls.VersionTLS13})
@@ -647,4 +660,65 @@ func (c *handshakeConn) transportLevelFailure(err error) bool {
 func isUnknownAuthority(err error) bool {
 	var unknown x509.UnknownAuthorityError
 	return errors.As(err, &unknown)
+}
+
+// h2cCredentials dial h2c, and give each connection an h2cInfo with the
+// source that chose h2c.
+type h2cCredentials struct {
+	source string
+}
+
+func (c h2cCredentials) ClientHandshake(ctx context.Context, authority string, rawConn net.Conn) (net.Conn, credentials.AuthInfo, error) {
+	conn, _, err := insecure.NewCredentials().ClientHandshake(ctx, authority, rawConn)
+	if err != nil {
+		return nil, nil, err
+	}
+	return conn, h2cInfo{CommonAuthInfo: credentials.CommonAuthInfo{SecurityLevel: credentials.NoSecurity}, source: c.source}, nil
+}
+
+func (h2cCredentials) ServerHandshake(net.Conn) (net.Conn, credentials.AuthInfo, error) {
+	return nil, nil, errors.New("h2c credentials only dial")
+}
+
+func (h2cCredentials) Info() credentials.ProtocolInfo {
+	return insecure.NewCredentials().Info()
+}
+
+func (c h2cCredentials) Clone() credentials.TransportCredentials {
+	return c
+}
+
+func (h2cCredentials) OverrideServerName(string) error {
+	return nil
+}
+
+// h2cInfo is the AuthInfo of a connection on h2c.
+type h2cInfo struct {
+	credentials.CommonAuthInfo
+	source string
+}
+
+func (h2cInfo) AuthType() string {
+	return "insecure"
+}
+
+// h2cReasonCredentials send the h2c reason on each call over a connection
+// that h2cCredentials dialed, and nothing over TLS.
+type h2cReasonCredentials struct{}
+
+func (h2cReasonCredentials) GetRequestMetadata(ctx context.Context, _ ...string) (map[string]string, error) {
+	request, _ := credentials.RequestInfoFromContext(ctx)
+	info, ok := request.AuthInfo.(h2cInfo)
+	if !ok {
+		return nil, nil
+	}
+	reason := info.source
+	if reason == sourceInsecure {
+		reason = h2cReasonInsecure
+	}
+	return map[string]string{h2cReasonMetadataKey: reason}, nil
+}
+
+func (h2cReasonCredentials) RequireTransportSecurity() bool {
+	return false
 }
