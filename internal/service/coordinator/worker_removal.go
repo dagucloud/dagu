@@ -607,9 +607,10 @@ func (h *Handler) settleRemovals(ctx context.Context, removing []persis.WorkerCe
 // revokeIdle revokes the removing certificate of removal once it is due
 // from listings taken after its removal record was read, in one write
 // from that version: an acceptance confirmed in between changes the
-// record, so the listings are taken again and see its lease.
+// record, so the listings are taken again and see its lease. The holder
+// it waits for is the one that version names.
 func (h *Handler) revokeIdle(ctx context.Context, removal persis.WorkerCertificateRemoval, now time.Time) {
-	cert, revoked, err := h.workerCertificates.RevokeIfIdle(ctx, removal.ID, func(ctx context.Context) (bool, error) {
+	cert, revoked, err := h.workerCertificates.RevokeIfIdle(ctx, removal.ID, func(ctx context.Context, read persis.WorkerCertificate) (bool, error) {
 		presence, err := h.listPresence(ctx)
 		if err != nil {
 			return false, err
@@ -618,7 +619,7 @@ func (h *Handler) revokeIdle(ctx context.Context, removal persis.WorkerCertifica
 		if err != nil {
 			return false, err
 		}
-		return h.removalDue(removal, presence, leases, now), nil
+		return h.removalDue(removalOf(read), presence, leases, now), nil
 	})
 	if err != nil {
 		logger.Warn(ctx, "Failed to revoke a removed worker's certificate", slog.String("certificate-id", removal.ID), tag.Error(err))

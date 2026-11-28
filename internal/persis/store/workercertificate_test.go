@@ -255,7 +255,7 @@ func TestWorkerCertificateStore_RevokeIfIdleKeepsHeartbeatDuringCheck(t *testing
 	_, err := s.MarkRemoving(ctx, "cert-1", "worker-a", clockAt(removingAt))
 	require.NoError(t, err)
 
-	_, revoked, err := s.RevokeIfIdle(ctx, "cert-1", func(context.Context) (bool, error) {
+	_, revoked, err := s.RevokeIfIdle(ctx, "cert-1", func(context.Context, persis.WorkerCertificate) (bool, error) {
 		beat := workerCertificate("cert-1")
 		beat.WorkerID = "worker-b"
 		beat.LastHeartbeatAt = removingAt.Add(time.Minute)

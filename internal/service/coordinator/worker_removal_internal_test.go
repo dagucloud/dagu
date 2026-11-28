@@ -1751,23 +1751,27 @@ func (s *stallLeaseWrite) Upsert(ctx context.Context, lease dispatch.DAGRunLease
 	return s.DAGRunLeaseStore.Upsert(ctx, lease)
 }
 
-// afterListAll runs hook once, right after the first lease listing.
-type afterListAll struct {
-	dispatch.DAGRunLeaseStore
+// afterIdleCheck runs hook once, right after the first idle check of a
+// revocation, which lists the leases after it read the removal record.
+type afterIdleCheck struct {
+	persis.WorkerCertificateStore
 	hook func()
 	once sync.Once
 }
 
-func (s *afterListAll) ListAll(ctx context.Context) ([]dispatch.DAGRunLease, error) {
-	leases, err := s.DAGRunLeaseStore.ListAll(ctx)
-	s.once.Do(s.hook)
-	return leases, err
+func (s *afterIdleCheck) RevokeIfIdle(ctx context.Context, id string, idle func(context.Context, persis.WorkerCertificate) (bool, error)) (persis.WorkerCertificate, bool, error) {
+	return s.WorkerCertificateStore.RevokeIfIdle(ctx, id, func(ctx context.Context, read persis.WorkerCertificate) (bool, error) {
+		ok, err := idle(ctx, read)
+		s.once.Do(s.hook)
+		return ok, err
+	})
 }
 
 // An acceptance that read the certificate active stalls before its lease.
-// A removal with finish becomes due, and its pass lists the leases before
-// the acceptance writes its lease and confirms. The revocation fails its
-// write and lists again, so it finds the lease and waits; the acceptance
+// A removal with finish becomes due, and its revocation reads the removal
+// record and lists the leases before the acceptance writes its lease and
+// confirms. The confirmation changes the record, so the revocation's write
+// fails, and it lists again, finds the lease and waits; the acceptance
 // stands (Spec 108 §Removal).
 func TestFinishRevocationAfterAcceptance(t *testing.T) {
 	f := newRemovalFixture(t)
@@ -1790,7 +1794,7 @@ func TestFinishRevocationAfterAcceptance(t *testing.T) {
 	}()
 	<-reached
 	f.remove(t, w)
-	f.h.dagRunLeaseStore = &afterListAll{DAGRunLeaseStore: f.leases, hook: func() {
+	f.h.workerCertificates = &afterIdleCheck{WorkerCertificateStore: f.certs, hook: func() {
 		close(release)
 		ack := <-acked
 		assert.True(t, ack.Accepted)

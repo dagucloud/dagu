@@ -86,11 +86,12 @@ type WorkerCertificateStore interface {
 	ConfirmAcceptance(ctx context.Context, id string) (WorkerCertificate, error)
 
 	// RevokeIfIdle revokes the removing certificate id when idle, which
-	// runs after the removal record is read, reports that it may be. The
-	// revocation is written from that version, so an acceptance recorded
-	// after the read makes it read and ask idle again. It returns the
-	// record as stored and whether it revoked.
-	RevokeIfIdle(ctx context.Context, id string, idle func(context.Context) (bool, error)) (WorkerCertificate, bool, error)
+	// runs after the removal record is read and gets the certificate as
+	// read, reports that it may be. The revocation is written from that
+	// version, so an acceptance recorded after the read makes it read and
+	// ask idle again. It returns the record as stored and whether it
+	// revoked.
+	RevokeIfIdle(ctx context.Context, id string, idle func(context.Context, WorkerCertificate) (bool, error)) (WorkerCertificate, bool, error)
 
 	// SetState moves the certificate to state and returns the record as
 	// stored. States only move forward, from active to removing to revoked;

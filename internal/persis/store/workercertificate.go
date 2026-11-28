@@ -539,7 +539,7 @@ func (s *WorkerCertificateStore) ConfirmAcceptance(ctx context.Context, id strin
 	return result, nil
 }
 
-func (s *WorkerCertificateStore) RevokeIfIdle(ctx context.Context, id string, idle func(context.Context) (bool, error)) (persis.WorkerCertificate, bool, error) {
+func (s *WorkerCertificateStore) RevokeIfIdle(ctx context.Context, id string, idle func(context.Context, persis.WorkerCertificate) (bool, error)) (persis.WorkerCertificate, bool, error) {
 	var result persis.WorkerCertificate
 	revoked := false
 	err := retryConflict(ctx, func(ctx context.Context) error {
@@ -552,7 +552,7 @@ func (s *WorkerCertificateStore) RevokeIfIdle(ctx context.Context, id string, id
 		if current == nil || cert.State != persis.WorkerCertificateRemoving {
 			return nil
 		}
-		ok, err := idle(ctx)
+		ok, err := idle(ctx, cert)
 		if err != nil || !ok {
 			return err
 		}
