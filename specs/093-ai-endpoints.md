@@ -434,8 +434,10 @@ protocol `openai` gives no detail, so its list has names only.
 
 The models URL of a preset follows the base URL of the endpoint. The text `<base_url>` of the table
 stands for the base URL. Some URLs of the table start with the default base URL of the row. For such a
-URL, the server puts the base URL of the endpoint in place of the default, and keeps the rest. The preset Custom uses
-its field `models_url`.
+URL, the server puts the base URL of the endpoint in place of the default, and keeps the rest. Another
+URL of the table, such as the one of the DeepSeek Anthropic row, holds only while the endpoint keeps the
+default base URL. With another base URL, such an endpoint has no models URL, so the key never goes to a
+host that the administrator did not set. The preset Custom uses its field `models_url`.
 
 The endpoint has no list when the models URL is empty. This case is valid. The preset Custom with no
 `models_url` is this case, and so is a row of the table with no models URL. The field `model` of a step
