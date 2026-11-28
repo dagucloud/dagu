@@ -185,13 +185,13 @@ func checkModelInputs(ctx context.Context, dag *ir.DAG, params []toolParam) erro
 	// Both variables hold every param as JSON.
 	inputs[runenv.EnvKeyDAGParamsJSON] = true
 	inputs[runenv.EnvKeyDAGParamsJSONCompat] = true
-	env, err := rawEnv(ctx, dag)
+	raw, err := rawDAG(ctx, dag)
 	if err != nil {
 		return err
 	}
-	inputs = withEnvCopies(inputs, env)
+	inputs = withEnvCopies(inputs, raw.Env)
 
-	for _, def := range dag.ParamDefs {
+	for _, def := range raw.ParamDefs {
 		if ref, variable, ok := modelRef(def.Eval, inputs, true); ok {
 			return modelInputError(dag, fmt.Sprintf("the eval of param %q", def.Name), ref, variable, false)
 		}
@@ -238,14 +238,16 @@ func checkModelInputs(ctx context.Context, dag *ir.DAG, params []toolParam) erro
 	return nil
 }
 
-// rawEnv returns the env entries of the tool DAG as written. The loaded DAG
-// holds them with the param defaults filled in, which hides a copy of an input.
-func rawEnv(ctx context.Context, dag *ir.DAG) ([]string, error) {
+// rawDAG returns the tool DAG as written, for its env and its param evals. The
+// loaded DAG holds the env with the param defaults filled in, which hides a
+// copy of an input, and a DAG read from a run snapshot has no param evals.
+func rawDAG(ctx context.Context, dag *ir.DAG) (*ir.DAG, error) {
 	if len(dag.YamlData) == 0 {
-		return dag.Env, nil
+		return dag, nil
 	}
-	// Only the env is read, so the params schema is skipped. The source file
-	// keeps relative paths resolving as they did when the DAG loaded.
+	// Only the env and the inline param evals are read, so the params schema is
+	// skipped. The source file keeps relative paths resolving as they did when
+	// the DAG loaded.
 	opts := []spec.LoadOption{
 		spec.WithoutEval(),
 		spec.SkipSchemaValidation(),
@@ -256,9 +258,9 @@ func rawEnv(ctx context.Context, dag *ir.DAG) ([]string, error) {
 	}
 	raw, err := spec.LoadYAML(ctx, dag.YamlData, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("tool DAG %q: failed to read its env: %w", dag.Name, err)
+		return nil, fmt.Errorf("tool DAG %q: failed to read its YAML: %w", dag.Name, err)
 	}
-	return raw.Env, nil
+	return raw, nil
 }
 
 // withEnvCopies returns inputs with the names of the env entries whose value

@@ -5,6 +5,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -257,16 +258,24 @@ func TestNewToolRegistryRefusesEvaluatedInput(t *testing.T) {
 			t.Parallel()
 			tool, err := spec.LoadYAML(context.Background(), []byte("name: tool\n"+tc.body))
 			require.NoError(t, err)
-			parent := &ir.DAG{Name: "parent", LocalDAGs: map[string]*ir.DAG{"tool": tool}}
-			ctx := runctx.NewContext(context.Background(), parent, "run-1", "/tmp/log")
-			_, err = NewToolRegistry(ctx, []string{"tool"})
-			if tc.want == "" {
-				assert.NoError(t, err)
-				return
+			// A queued run, a retry or a restart reads its local DAGs from the
+			// JSON snapshot of the run, which drops the fields marked json:"-".
+			data, err := json.Marshal(tool)
+			require.NoError(t, err)
+			var snapshot ir.DAG
+			require.NoError(t, json.Unmarshal(data, &snapshot))
+			for _, dag := range []*ir.DAG{tool, &snapshot} {
+				parent := &ir.DAG{Name: "parent", LocalDAGs: map[string]*ir.DAG{"tool": dag}}
+				ctx := runctx.NewContext(context.Background(), parent, "run-1", "/tmp/log")
+				_, err = NewToolRegistry(ctx, []string{"tool"})
+				if tc.want == "" {
+					assert.NoError(t, err)
+					continue
+				}
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), `tool DAG "tool": `)
+				assert.Contains(t, err.Error(), tc.want)
 			}
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), `tool DAG "tool": `)
-			assert.Contains(t, err.Error(), tc.want)
 		})
 	}
 }
