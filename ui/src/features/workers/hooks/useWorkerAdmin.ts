@@ -396,7 +396,11 @@ export function useWorkerActions() {
           },
         }
       );
-      if (!response.ok || !data) throw requestError(response.status, error);
+      // Only a state the API defines counts as accepted; an answer such as
+      // `{}` is a failure, so nothing that depends on the removal follows.
+      if (!response.ok || !isRemovalState(data?.state)) {
+        throw requestError(response.status, error);
+      }
       return data.state;
     },
     [client]
@@ -413,6 +417,12 @@ export function useWorkerActions() {
     rereadWorkers,
     session,
   };
+}
+
+function isRemovalState(state: unknown): state is WorkerRemovalState {
+  return Object.values(WorkerRemovalState).includes(
+    state as WorkerRemovalState
+  );
 }
 
 // Only a 409 and a 503 carry a worker access reason (Spec 108); the
