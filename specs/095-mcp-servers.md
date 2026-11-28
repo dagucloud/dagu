@@ -114,7 +114,8 @@ fixed headers.
 | `connected` | `needs_reconnect` | The server answers 401 to a request that carried the stored values |
 | `needs_reconnect` | `connected` | A rotation lists the tools |
 
-- A 401 causes no refresh and no retry.
+- A 401 causes no refresh and no retry. It changes the status only when
+  the rejected values are still the stored ones.
 - The change to `needs_reconnect` records the event
   `connection.needs_attention` of Spec 107, once. The UI calls this
   status "Credential rejected".
@@ -179,8 +180,9 @@ step "triage": harness provider "pi" cannot use mcp_servers: Dagu has no MCP ada
   the proxy credential, so the proxy MUST allow the server's host only
   with that credential (`--allow-with-credential` of Spec 105). The agent
   cannot use the proxy credential, so it cannot reach the server past
-  the gateway. The deployment keeps MCP servers off the proxy's
-  `--upstream` route, which needs no proxy credential.
+  the gateway. The deployment keeps an MCP server off every proxy route
+  that an agent can use without that credential, such as `--allow`
+  hosts on a shared listener and the `--upstream` route.
 
 ## User Interface
 

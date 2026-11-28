@@ -212,9 +212,9 @@ This spec adds these transitions to Spec 107, for the grants `api_key` and
 - A redirect from a request that carries the key fails the request.
 - A loopback base URL names the Dagu host. A run on a worker fails
   admission with such a connection, since its gateway is not there.
-- On a connection with a stored key, a change that adds or changes a base
-  URL or a models URL needs the key again in the same request, so no one
-  can send a stored key to a URL of their choosing.
+- On a connection or a shared key that holds a key, a change that adds
+  or changes a base URL or a models URL needs the key again in the same
+  request, so no one can send a stored key to a URL of their choosing.
 - Each base URL and models URL is a credential past its origin, since a
   path or query can hold a secret. Dagu stores it encrypted, as the key.
   Reads, errors, and audit entries show only the origin.
@@ -362,7 +362,9 @@ A CLI step takes the first of these that applies:
   `agent.run` and `harness.run`, `provider` names the CLI and stays.
 - A model list entry of `chat.completion` takes `connection` and `name`,
   beside the entries with `provider` of Spec 059. An entry with
-  `connection` rejects `provider`, `base_url`, and `api_key_name`.
+  `connection` rejects `provider`, `base_url`, and `api_key_name`, and
+  always uses its connection's URLs and auth. A step-level `base_url` or
+  `api_key_name` applies only to the entries with `provider`.
 - In `harness.run`, `connection` is a reserved key for a provider with an
   adapter, never passed as a CLI flag. A custom harness keeps it as a
   flag, as Spec 067 states. With `connection`, the adapter handles
@@ -453,9 +455,10 @@ conformance test confirms them.
 - An adapter lists the aliases of its CLI, such as `sonnet` and `opus` for
   `claude`. The editor offers them, and they pass the editor's model
   warning. Dagu passes an alias to the CLI unchanged.
-- A harness step with `container` (Spec 067) cannot use a model
-  connection yet, as RFC 026 refuses `mcp_servers` there. Such a step
-  fails admission with `option_conflict`.
+- A harness step that runs in a container, by its own `container` or
+  the DAG's (Spec 067), cannot use a model connection yet, as RFC 026
+  refuses `mcp_servers` there. Such a step fails admission with
+  `option_conflict`.
 - The `opencode` adapter covers the CLI only. An `opencode` step that
   uses a model connection runs the CLI, never the managed server.
 - Another built-in harness provider, such as `copilot`, `cursor`, `gemini`, or
@@ -525,8 +528,8 @@ conformance test confirms them.
   connection, and Works with: `chat.completion` and each CLI whose
   adapter accepts one of the connection's protocols.
 - Rotate key, Reload, Test, and Remove are actions of a row. Test reads
-  the models. Remove shows where the connection is used, as Spec 107
-  states.
+  the models, so a connection with no models URL has neither Reload nor
+  Test. Remove shows where the connection is used, as Spec 107 states.
 
 ### Step Forms
 
