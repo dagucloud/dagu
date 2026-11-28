@@ -30,9 +30,9 @@ import {
 } from 'react-router-dom';
 import { ConnectDialog, ProbeResults, ScopeList } from './ConnectDialog';
 import { ConnectionTools } from './ConnectionTools';
-import type { ConnectionPageState } from './NewConnectionDialog';
 import {
   type Connection,
+  type ConnectionPageState,
   ConnectionStatusBadge,
   GLOBAL_WORKSPACE,
   LOCAL_NODE,

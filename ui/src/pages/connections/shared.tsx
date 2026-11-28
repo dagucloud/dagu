@@ -3,7 +3,9 @@
 
 import {
   ConnectionProviderName,
+  ConnectionRedirectMode,
   ConnectionStatus,
+  OAuthClientType,
   UserRole,
   type components,
 } from '@/api/v1/schema';
@@ -20,6 +22,10 @@ import { Plug } from 'lucide-react';
 import React from 'react';
 
 export type Connection = components['schemas']['Connection'];
+type ConnectionRedirect = components['schemas']['ConnectionRedirect'];
+
+/** The router state that asks the connection page to start signing in. */
+export type ConnectionPageState = { connect?: boolean };
 
 /** The workspace value that names the connections of DAGs without one. */
 export const GLOBAL_WORKSPACE = 'global';
@@ -57,6 +63,23 @@ export function workspaceForSelection(selection?: WorkspaceSelection): string {
 
 export function connectionsPath(workspace: string): string {
   return `/connections?workspace=${encodeURIComponent(workspace)}`;
+}
+
+/**
+ * The redirect a browser's session of a client type gets: the first offer
+ * for it, as the server picks when the browser names no mode, skipping
+ * loopback, which needs the CLI's listener. None means the browser cannot
+ * sign in through such a client on this server.
+ */
+export function signInRedirect(
+  clientType: OAuthClientType,
+  redirects: ConnectionRedirect[]
+): ConnectionRedirect | undefined {
+  return redirects.find(
+    (offer) =>
+      offer.clientType === clientType &&
+      offer.mode !== ConnectionRedirectMode.loopback
+  );
 }
 
 /** The page of one connection, as connection events link to it. */

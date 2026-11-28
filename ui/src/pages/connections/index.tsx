@@ -127,6 +127,7 @@ function ConnectionList(): React.ReactElement {
       {canManage && (
         <NewConnectionDialog
           workspace={workspace}
+          existing={connections.map((connection) => connection.name)}
           open={adding}
           onClose={() => setAdding(false)}
         />

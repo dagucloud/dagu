@@ -107,23 +107,28 @@ function preset(name: string, apis: string[], writeScopes: string[] = []) {
   };
 }
 
-function routes(apps: OAuthApp[]) {
+const CALLBACK = {
+  mode: ConnectionRedirectMode.server_callback,
+  clientType: OAuthClientType.web,
+  redirectUri: CALLBACK_URI,
+};
+// The redirects of a server without a public URL.
+const DESKTOP_ONLY = [
+  {
+    mode: ConnectionRedirectMode.loopback,
+    clientType: OAuthClientType.desktop,
+  },
+  {
+    mode: ConnectionRedirectMode.paste,
+    clientType: OAuthClientType.desktop,
+    redirectUri: 'http://127.0.0.1:1/oauth/callback',
+  },
+];
+
+function routes(apps: OAuthApp[], redirects = [CALLBACK, ...DESKTOP_ONLY]) {
   mocks.routes['GET /connections'] = () => ({ connections: [] });
   mocks.routes['GET /connection-providers'] = () => ({
-    publicUrl: 'https://dagu.example.com',
-    redirects: [
-      {
-        mode: ConnectionRedirectMode.server_callback,
-        clientType: OAuthClientType.web,
-        redirectUri: CALLBACK_URI,
-      },
-      { mode: ConnectionRedirectMode.loopback, clientType: 'desktop' },
-      {
-        mode: ConnectionRedirectMode.paste,
-        clientType: OAuthClientType.desktop,
-        redirectUri: 'http://127.0.0.1:1/oauth/callback',
-      },
-    ],
+    redirects,
     providers: [
       {
         name: ConnectionProviderName.google,
@@ -185,6 +190,15 @@ async function throughAgents(user: ReturnType<typeof userEvent.setup>) {
   await user.type(await within(dialog).findByLabelText('Name'), 'work');
   await user.click(within(dialog).getByLabelText('Gmail'));
   await user.click(within(dialog).getByLabelText('Drive'));
+  await user.click(
+    within(dialog).getByRole('combobox', { name: 'Access for Gmail' })
+  );
+  await user.click(
+    await screen.findByRole('option', { name: 'Read and write' })
+  );
+  expect(
+    within(dialog).getByText('https://www.googleapis.com/auth/gmail.modify')
+  ).toBeVisible();
   await user.click(within(dialog).getByRole('button', { name: 'Next' }));
   await user.click(within(dialog).getByRole('radio', { name: /AI agents/ }));
   await user.click(within(dialog).getByRole('button', { name: 'Next' }));
@@ -249,7 +263,7 @@ describe('NewConnectionDialog', () => {
       name: 'work',
       app: 'agent-web',
       services: [
-        { name: 'gmail', access: ConnectionAccess.read },
+        { name: 'gmail', access: ConnectionAccess.write },
         { name: 'drive', access: ConnectionAccess.read },
       ],
     });
@@ -323,5 +337,62 @@ describe('NewConnectionDialog', () => {
       clientFile: json,
       agent: true,
     });
+  });
+
+  // A server without a public URL cannot sign in through a web client, so
+  // the browser refuses its JSON instead of registering an unusable app.
+  it('refuses a web client the server cannot use', async () => {
+    const user = userEvent.setup();
+    mocks.role = UserRole.admin;
+    routes([], DESKTOP_ONLY);
+
+    const dialog = await throughAgents(user);
+    expect(
+      within(dialog).getByText(/Choose the application type Desktop app/)
+    ).toBeVisible();
+    await user.upload(
+      within(dialog).getByLabelText('Client JSON file'),
+      new File(['{"web":{"client_id":"x"}}'], 'client.json', {
+        type: 'application/json',
+      })
+    );
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Register app' })
+    );
+
+    expect(
+      await within(dialog).findByText(/it cannot sign in through a web client/)
+    ).toBeVisible();
+    expect(mocks.bodies).not.toHaveProperty(['POST /oauth-apps']);
+    expect(
+      within(dialog).getByRole('button', { name: 'Create and sign in' })
+    ).toBeDisabled();
+  });
+
+  it('flags a name the workspace already has', async () => {
+    const user = userEvent.setup();
+    routes([app({})]);
+    mocks.routes['GET /connections'] = () => ({
+      connections: [{ name: 'work', workspace: 'ops' }],
+    });
+
+    renderPage();
+    await user.click(
+      await screen.findByRole('button', { name: 'New connection' })
+    );
+    const dialog = await screen.findByRole('dialog');
+    await user.click(
+      within(dialog).getByRole('button', { name: /Google Workspace/ })
+    );
+    await user.type(await within(dialog).findByLabelText('Name'), 'work');
+    await user.click(within(dialog).getByLabelText('Gmail'));
+
+    expect(
+      within(dialog).getByText(/already has a connection named work/)
+    ).toBeVisible();
+    expect(
+      within(dialog).getByRole('link', { name: 'Open it' })
+    ).toHaveAttribute('href', '/connections/work?workspace=ops');
+    expect(within(dialog).getByRole('button', { name: 'Next' })).toBeDisabled();
   });
 });

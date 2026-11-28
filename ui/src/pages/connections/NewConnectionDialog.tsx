@@ -11,6 +11,7 @@ import {
   OAuthClientType,
   type components,
 } from '@/api/v1/schema';
+import { InlineLoadError } from '@/components/PageStates';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -37,15 +38,17 @@ import { whenEnabled } from '@/hooks/queryUtils';
 import { useI18n } from '@/i18n/I18nProvider';
 import { cn } from '@/lib/utils';
 import { ExternalLink, Loader2 } from 'lucide-react';
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { ScopeList } from './ConnectDialog';
 import {
+  type ConnectionPageState,
   CopyableValue,
   GLOBAL_WORKSPACE,
   LOCAL_NODE,
   PROVIDER_LABELS,
   connectionPath,
+  signInRedirect,
 } from './shared';
 
 type Preset = components['schemas']['ConnectionPreset'];
@@ -55,16 +58,10 @@ type OAuthApp = components['schemas']['OAuthApp'];
 
 type Step = 'gallery' | 'services' | 'agents' | 'app';
 
-/** The router state that asks the connection page to start signing in. */
-export type ConnectionPageState = { connect?: boolean };
-
 // The rule of Spec 107, Names.
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 const QUERY = { params: { query: { remoteNode: LOCAL_NODE } } };
-
-// The Google service that reads and sends mail over IMAP and SMTP.
-const MAILBOX = 'mailbox';
 
 // Google's product names, which stay as they are in every locale.
 const SERVICE_LABELS: Record<string, string> = {
@@ -128,18 +125,27 @@ function clientToRegister(providers: ProviderList) {
 
 /** Whether a connection of this server can sign in through the app. */
 function fits(app: OAuthApp, agent: boolean, providers: ProviderList): boolean {
-  const usable = providers.redirects.some(
-    (offer) =>
-      offer.clientType === app.clientType &&
-      offer.mode !== ConnectionRedirectMode.loopback
-  );
   return (
     app.provider === ConnectionProviderName.google &&
     app.kind === OAuthAppKind.byo &&
     app.status === OAuthAppStatus.ok &&
     app.agent === agent &&
-    usable
+    !!signInRedirect(app.clientType, providers.redirects)
   );
+}
+
+/** The client type a Google client JSON describes, or null if unreadable. */
+function clientFileType(text: string): OAuthClientType | null {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed && typeof parsed === 'object') {
+      if ('web' in parsed) return OAuthClientType.web;
+      if ('installed' in parsed) return OAuthClientType.desktop;
+    }
+  } catch {
+    // The server reports what is wrong with the file.
+  }
+  return null;
 }
 
 /**
@@ -150,10 +156,13 @@ function fits(app: OAuthApp, agent: boolean, providers: ProviderList): boolean {
  */
 export function NewConnectionDialog({
   workspace,
+  existing,
   open,
   onClose,
 }: {
   workspace: string;
+  /** The names of the workspace's connections, which a new one cannot take. */
+  existing: string[];
   open: boolean;
   onClose: () => void;
 }): React.ReactElement {
@@ -167,10 +176,11 @@ export function NewConnectionDialog({
   const [appId, setAppId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { data: providers } = useQuery(
-    '/connection-providers',
-    whenEnabled(open, QUERY)
-  );
+  const {
+    data: providers,
+    error: providersError,
+    mutate: reloadProviders,
+  } = useQuery('/connection-providers', whenEnabled(open, QUERY));
   const google = providers?.providers.find(
     (provider) => provider.name === ConnectionProviderName.google
   );
@@ -178,8 +188,16 @@ export function NewConnectionDialog({
     (preset) => chosen[preset.name]
   );
   const nameValid = NAME_PATTERN.test(name);
+  const taken = existing.includes(name);
+
+  function go(to: Step) {
+    setError(null);
+    setStep(to);
+  }
 
   function close() {
+    // A create in flight owns the dialog until it answers.
+    if (creating) return;
     setStep('gallery');
     setName('');
     setChosen({});
@@ -226,7 +244,10 @@ export function NewConnectionDialog({
 
   const next: Record<Step, { ready: boolean; to?: Step }> = {
     gallery: { ready: false },
-    services: { ready: nameValid && presets.length > 0, to: 'agents' },
+    services: {
+      ready: nameValid && !taken && presets.length > 0,
+      to: 'agents',
+    },
     agents: { ready: agent !== null, to: 'app' },
     app: { ready: !!appId },
   };
@@ -262,12 +283,25 @@ export function NewConnectionDialog({
               {error}
             </div>
           )}
-          {step === 'gallery' && <Gallery onPick={() => setStep('services')} />}
+          {!providers && providersError ? (
+            <InlineLoadError
+              error={providersError}
+              onRetry={() => void reloadProviders()}
+            />
+          ) : (
+            step !== 'gallery' &&
+            !providers && (
+              <p className="text-muted-foreground">{ts('Loading...')}</p>
+            )
+          )}
+          {step === 'gallery' && <Gallery onPick={() => go('services')} />}
           {step === 'services' && google && (
             <ServicesStep
               provider={google}
+              workspace={workspace}
               name={name}
               nameValid={nameValid}
+              taken={taken}
               onName={setName}
               chosen={chosen}
               onChosen={setChosen}
@@ -298,7 +332,8 @@ export function NewConnectionDialog({
             <Button
               type="button"
               variant="ghost"
-              onClick={() => setStep(back[step]!)}
+              disabled={creating}
+              onClick={() => go(back[step]!)}
             >
               {ts('Back')}
             </Button>
@@ -320,7 +355,7 @@ export function NewConnectionDialog({
             <Button
               variant="primary"
               disabled={!next[step].ready}
-              onClick={() => setStep(next[step].to!)}
+              onClick={() => go(next[step].to!)}
             >
               {ts('Next')}
             </Button>
@@ -359,21 +394,26 @@ function Gallery({ onPick }: { onPick: () => void }): React.ReactElement {
 
 function ServicesStep({
   provider,
+  workspace,
   name,
   nameValid,
+  taken,
   onName,
   chosen,
   onChosen,
 }: {
   provider: Provider;
+  workspace: string;
   name: string;
   nameValid: boolean;
+  taken: boolean;
   onName: (name: string) => void;
   chosen: Record<string, ConnectionAccess>;
   onChosen: (chosen: Record<string, ConnectionAccess>) => void;
 }): React.ReactElement {
   const { ts } = useI18n();
   const scopes = requestedScopes(provider, chosen);
+  const invalid = name !== '' && !nameValid;
 
   function toggle(service: string, on: boolean) {
     const nextChosen = { ...chosen };
@@ -393,9 +433,34 @@ function ServicesStep({
           placeholder="work-google"
           autoComplete="off"
           className="h-8"
-          aria-invalid={name !== '' && !nameValid}
+          aria-invalid={invalid || taken}
+          aria-describedby={
+            invalid || taken
+              ? 'connection-name-error connection-name-hint'
+              : 'connection-name-hint'
+          }
         />
-        <p className="text-xs text-muted-foreground">
+        {invalid && (
+          <p id="connection-name-error" className="text-xs text-destructive">
+            {ts(
+              'Use only lowercase letters, digits, and hyphens, and start with a letter or digit.'
+            )}
+          </p>
+        )}
+        {taken && (
+          <p id="connection-name-error" className="text-xs text-destructive">
+            {ts('This workspace already has a connection named {name}.', {
+              name,
+            })}{' '}
+            <Link
+              to={connectionPath(name, workspace)}
+              className="font-medium underline"
+            >
+              {ts('Open it')}
+            </Link>
+          </p>
+        )}
+        <p id="connection-name-hint" className="text-xs text-muted-foreground">
           {ts(
             'DAGs name the connection with this. Up to 63 lowercase letters, digits, and hyphens, starting with a letter or digit.'
           )}
@@ -405,10 +470,7 @@ function ServicesStep({
       <fieldset className="space-y-1.5">
         <legend className="mb-1 text-sm font-medium">{ts('Services')}</legend>
         {provider.services.map((preset) => {
-          const label =
-            preset.name === MAILBOX
-              ? ts('Mail over IMAP and SMTP')
-              : (SERVICE_LABELS[preset.name] ?? preset.name);
+          const label = SERVICE_LABELS[preset.name] ?? preset.name;
           const access = chosen[preset.name];
           return (
             <div
@@ -502,10 +564,8 @@ function AgentsStep({
     },
     {
       value: false,
-      label: ts('Other automation and mail'),
-      description: ts(
-        'Steps call Google’s REST APIs with http.request, and mail accounts use the mailbox.'
-      ),
+      label: ts('Other automation'),
+      description: ts('Steps call Google’s REST APIs with http.request.'),
     },
   ];
   return (
@@ -556,14 +616,34 @@ function AppStep({
   presets: Preset[];
   agent: boolean;
   appId: string | null;
-  onApp: (id: string) => void;
+  onApp: (id: string | null) => void;
 }): React.ReactElement {
   const { ts } = useI18n();
   const isAdmin = useIsAdmin();
-  const { data, mutate } = useQuery('/oauth-apps', QUERY);
+  const { data, error, isLoading, mutate } = useQuery('/oauth-apps', QUERY);
   const apps = (data?.apps ?? []).filter((app) => fits(app, agent, providers));
   const selected = apps.find((app) => app.id === appId);
   const [registering, setRegistering] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  // Create follows the listed app: an app this step does not list is never
+  // the one a connection is created on.
+  const stale = !!data && !!appId && !selected;
+  useEffect(() => {
+    if (stale) onApp(null);
+  }, [stale, onApp]);
+
+  if (isLoading) {
+    return <p className="text-muted-foreground">{ts('Loading...')}</p>;
+  }
+  if (error && !data) {
+    return <InlineLoadError error={error} onRetry={() => void mutate()} />;
+  }
 
   return (
     <div className="space-y-3">
@@ -615,10 +695,13 @@ function AppStep({
             presets={presets}
             agent={agent}
             onRegistered={(app) => {
-              void mutate();
-              onApp(app.id);
               setRegistering(false);
+              // Selected once listed, and only while this step is shown.
+              void mutate().then(() => {
+                if (mounted.current) onApp(app.id);
+              });
             }}
+            onCancel={apps.length > 0 ? () => setRegistering(false) : undefined}
           />
         ) : (
           <Button size="sm" onClick={() => setRegistering(true)}>
@@ -684,11 +767,14 @@ function RegisterApp({
   presets,
   agent,
   onRegistered,
+  onCancel,
 }: {
   providers: ProviderList;
   presets: Preset[];
   agent: boolean;
   onRegistered: (app: OAuthApp) => void;
+  /** Closes the checklist without registering, when an app already fits. */
+  onCancel?: () => void;
 }): React.ReactElement {
   const { ts } = useI18n();
   const client = useClient();
@@ -704,11 +790,32 @@ function RegisterApp({
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   async function upload() {
     if (!file) return;
-    setUploading(true);
     setError(null);
+    const text = await file.text();
+    const type = clientFileType(text);
+    // The server stores a client that no redirect mode of this server can
+    // use, so the browser refuses it before registering.
+    if (type && !signInRedirect(type, providers.redirects)) {
+      setError(
+        type === OAuthClientType.web
+          ? ts(
+              'This server has no public URL, so it cannot sign in through a web client. Create a Desktop app client and upload its JSON instead.'
+            )
+          : ts('This server cannot sign in through a desktop client.')
+      );
+      return;
+    }
+    setUploading(true);
     const failed = ts('Could not register the app.');
     try {
       const { data, error: apiError } = await client.POST('/oauth-apps', {
@@ -716,16 +823,23 @@ function RegisterApp({
         body: {
           name: appName.trim(),
           provider: CreateOAuthAppRequestProvider.google,
-          clientFile: await file.text(),
+          clientFile: text,
           agent,
         },
       });
+      if (!mounted.current) return;
       if (apiError || !data) throw new Error(apiError?.message || failed);
+      if (!fits(data, agent, providers)) {
+        throw new Error(
+          ts('The app was registered, but this server cannot sign in with it.')
+        );
+      }
       onRegistered(data);
     } catch (err) {
+      if (!mounted.current) return;
       setError(err instanceof Error && err.message ? err.message : failed);
     } finally {
-      setUploading(false);
+      if (mounted.current) setUploading(false);
     }
   }
 
@@ -822,6 +936,16 @@ function RegisterApp({
           {uploading && <Loader2 className="h-4 w-4 animate-spin" />}
           {ts('Register app')}
         </Button>
+        {onCancel && (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={uploading}
+            onClick={onCancel}
+          >
+            {ts('Cancel')}
+          </Button>
+        )}
       </li>
     </ol>
   );

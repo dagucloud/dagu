@@ -26,7 +26,12 @@ import { useI18n } from '@/i18n/I18nProvider';
 import dayjs from '@/lib/dayjs';
 import { CheckCircle2, ExternalLink, Loader2, XCircle } from 'lucide-react';
 import React, { useState } from 'react';
-import { type Connection, CopyableValue, LOCAL_NODE } from './shared';
+import {
+  type Connection,
+  CopyableValue,
+  LOCAL_NODE,
+  signInRedirect,
+} from './shared';
 import { type ConnectState, useConnectSession } from './useConnectSession';
 
 type ConnectionProbe = components['schemas']['ConnectionProbe'];
@@ -53,11 +58,7 @@ function usePredictedRedirect(connection: Connection, open: boolean) {
     })
   );
   if (!providers || !app) return { app, redirect: undefined, known: false };
-  const redirect = providers.redirects.find(
-    (offer) =>
-      offer.clientType === app.clientType &&
-      offer.mode !== ConnectionRedirectMode.loopback
-  );
+  const redirect = signInRedirect(app.clientType, providers.redirects);
   return { app, redirect, known: true };
 }
 
