@@ -9474,8 +9474,8 @@ type RemoveWorkerResponse struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	State WorkerRemovalState     `protobuf:"varint,1,opt,name=state,proto3,enum=coordinator.v1.WorkerRemovalState" json:"state,omitempty"`
 	// The certificates the removal revoked: each one whose record names the
-	// worker ID among the IDs its heartbeats reported, or that the worker's
-	// last heartbeat carried.
+	// worker ID, as enrolled or among the IDs its heartbeats reported, or
+	// that the worker's last heartbeat carried.
 	CertificateIds []string `protobuf:"bytes,2,rep,name=certificate_ids,json=certificateIds,proto3" json:"certificate_ids,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -9533,8 +9533,8 @@ type RemoveWorkerResponse_builder struct {
 
 	State WorkerRemovalState
 	// The certificates the removal revoked: each one whose record names the
-	// worker ID among the IDs its heartbeats reported, or that the worker's
-	// last heartbeat carried.
+	// worker ID, as enrolled or among the IDs its heartbeats reported, or
+	// that the worker's last heartbeat carried.
 	CertificateIds []string
 }
 

@@ -61,8 +61,8 @@ type workerRemovals struct {
 	mu sync.RWMutex
 	// loaded is set once the certificates in removal were read.
 	loaded bool
-	// byID holds the certificates in removal by ID. It grows with removed
-	// workers only, as the store keeps one record for each.
+	// byID holds the certificates in removal by ID, one entry per removed
+	// certificate, as the store keeps one record for each.
 	byID map[string]persis.WorkerCertificateRemoval
 }
 
@@ -152,9 +152,10 @@ func (h *Handler) RemoveWorker(ctx context.Context, req *coordinatorv1.RemoveWor
 // revokeWorker revokes every certificate that names the worker workerID,
 // which is not connected. hb is its stale heartbeat, or nil. A certificate
 // that a worker under another ID may still connect with, as after a
-// restart, keeps it connected, so the removal is refused. A certificate
-// that an enrollment running alongside records for the worker is revoked
-// too.
+// restart, keeps it connected, so the removal is refused. The removal
+// counts itself on the worker ID's fence before its last listing, so an
+// enrollment of the worker that runs alongside either records its
+// certificate before that listing, which revokes it, or fails.
 func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatch.WorkerHeartbeatRecord, now time.Time) (*coordinatorv1.RemoveWorkerResponse, error) {
 	certs, err := h.workerCertificates.List(ctx)
 	if err != nil {
@@ -163,7 +164,7 @@ func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatc
 	}
 	var named []persis.WorkerCertificate
 	for _, cert := range certs {
-		if namesWorker(cert.WorkerID, cert.WorkerIDs, workerID) || (hb != nil && cert.ID == hb.CertificateID) {
+		if namesWorker(cert, workerID) || (hb != nil && cert.ID == hb.CertificateID) {
 			named = append(named, cert)
 		}
 	}
@@ -183,14 +184,18 @@ func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatc
 			return nil, status.Error(codes.FailedPrecondition, connectedWorkerMessage)
 		}
 	}
+	if err := h.workerCertificates.BeginWorkerRemoval(ctx, workerID); err != nil {
+		logger.Error(ctx, "Failed to begin a worker's removal", tag.WorkerID(workerID), tag.Error(err))
+		return nil, status.Error(codes.Internal, "failed to remove the worker")
+	}
 	ids, err := h.revokeAll(ctx, named)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to remove the worker")
 	}
-	// An enrollment reads the removals before and after it records its
-	// certificate, and refuses when the worker was removed in between. One
-	// that recorded its certificate before this listing ends is revoked
-	// here.
+	// An enrollment confirms on the fence that no removal began since it
+	// started, after it records its certificate. One that confirmed before
+	// the removal counted itself recorded its certificate before this
+	// listing, which finds it.
 	certs, err = h.workerCertificates.List(ctx)
 	if err != nil {
 		logger.Error(ctx, "Failed to list worker certificates", tag.Error(err))
@@ -198,7 +203,7 @@ func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatc
 	}
 	var enrolled []persis.WorkerCertificate
 	for _, cert := range certs {
-		if cert.State != persis.WorkerCertificateRevoked && namesWorker(cert.WorkerID, cert.WorkerIDs, workerID) {
+		if cert.State != persis.WorkerCertificateRevoked && namesWorker(cert, workerID) {
 			enrolled = append(enrolled, cert)
 		}
 	}
@@ -244,8 +249,9 @@ func (h *Handler) revokeAll(ctx context.Context, certs []persis.WorkerCertificat
 
 // mayHold reports whether a worker with a fresh heartbeat in presence may
 // connect with cert: its heartbeat carries the certificate, or it is a
-// certificate connection on the certificate's host that a coordinator
-// predating the certificate ID in heartbeats recorded without it.
+// certificate connection that a coordinator predating the certificate ID in
+// heartbeats recorded without it, under a worker ID the certificate's
+// record names or on the certificate's host.
 func mayHold(cert persis.WorkerCertificate, presence []dispatch.WorkerHeartbeatRecord, now time.Time, stale time.Duration) bool {
 	for _, hb := range presence {
 		if !dispatch.WorkerHeartbeatFresh(hb, now, stale) {
@@ -254,7 +260,8 @@ func mayHold(cert persis.WorkerCertificate, presence []dispatch.WorkerHeartbeatR
 		if hb.CertificateID == cert.ID {
 			return true
 		}
-		if hb.CertificateID == "" && hb.Connection == dispatch.WorkerConnectionCertificate && (cert.Host == "" || hb.Host == cert.Host) {
+		if hb.CertificateID == "" && hb.Connection == dispatch.WorkerConnectionCertificate &&
+			(cert.Host == "" || hb.Host == cert.Host || namesWorker(cert, hb.WorkerID)) {
 			return true
 		}
 	}
@@ -352,7 +359,7 @@ func (h *Handler) observeCertificateHeartbeat(ctx context.Context, cert *x509.Ce
 		logger.Warn(ctx, "Failed to record a worker certificate's heartbeat", slog.String("certificate-id", cert.Subject.CommonName), tag.Error(err))
 		return
 	}
-	if namesWorker(stored.WorkerID, stored.WorkerIDs, req.WorkerId) && stored.Host == req.Host {
+	if namesWorker(stored, req.WorkerId) && stored.Host == req.Host {
 		// The record holds what the worker reports, so the next pass waits
 		// the full interval.
 		h.mu.Lock()
@@ -390,7 +397,6 @@ func removalOf(cert persis.WorkerCertificate) persis.WorkerCertificateRemoval {
 		KeyFingerprint: cert.KeyFingerprint,
 		State:          cert.State,
 		WorkerID:       cert.WorkerID,
-		WorkerIDs:      cert.WorkerIDs,
 	}
 }
 
@@ -405,28 +411,9 @@ func keyRevoked(removals []persis.WorkerCertificateRemoval, fingerprint []byte) 
 	return false
 }
 
-// namesWorker reports whether a certificate record with the worker ID
-// primary and the worker IDs ids names the worker workerID.
-func namesWorker(primary string, ids []string, workerID string) bool {
-	return primary == workerID || slices.Contains(ids, workerID)
-}
-
-// workerRevokedSince reports whether after, a later read of the removals
-// than before, holds a certificate of the worker workerID revoked that
-// before did not.
-func workerRevokedSince(before, after []persis.WorkerCertificateRemoval, workerID string) bool {
-	revoked := make(map[string]bool, len(before))
-	for _, removal := range before {
-		if removal.State == persis.WorkerCertificateRevoked {
-			revoked[removal.ID] = true
-		}
-	}
-	for _, removal := range after {
-		if removal.State == persis.WorkerCertificateRevoked && namesWorker(removal.WorkerID, removal.WorkerIDs, workerID) && !revoked[removal.ID] {
-			return true
-		}
-	}
-	return false
+// namesWorker reports whether the record of cert names the worker workerID.
+func namesWorker(cert persis.WorkerCertificate, workerID string) bool {
+	return cert.WorkerID == workerID || slices.ContainsFunc(cert.WorkerIDs, func(seen persis.WorkerIDSeen) bool { return seen.ID == workerID })
 }
 
 // listPresence returns the shared heartbeat record of every worker.

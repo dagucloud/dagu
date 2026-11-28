@@ -930,8 +930,8 @@ message RemoveWorkerRequest {
 message RemoveWorkerResponse {
   WorkerRemovalState state = 1;
   // The certificates the removal revoked: each one whose record names the
-  // worker ID among the IDs its heartbeats reported, or that the worker's
-  // last heartbeat carried.
+  // worker ID, as enrolled or among the IDs its heartbeats reported, or
+  // that the worker's last heartbeat carried.
   repeated string certificate_ids = 2;
 }
 

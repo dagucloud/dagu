@@ -12,6 +12,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -422,7 +423,7 @@ func TestCertificateHeartbeat(t *testing.T) {
 	fingerprint := sha256.Sum256(w.cert.RawSubjectPublicKeyInfo)
 	assert.Equal(t, persis.WorkerCertificate{
 		ID: w.certID, InviteID: "invite-1", KeyFingerprint: fingerprint[:], State: persis.WorkerCertificateActive,
-		WorkerID: w.id, WorkerIDs: []string{w.id}, Host: "host-" + w.id, CreatedAt: got.CreatedAt, LastHeartbeatAt: f.now,
+		WorkerID: w.id, WorkerIDs: []persis.WorkerIDSeen{{ID: w.id, SeenAt: f.now}}, Host: "host-" + w.id, CreatedAt: got.CreatedAt, LastHeartbeatAt: f.now,
 	}, got)
 	assert.True(t, got.CreatedAt.Equal(removalStart), "the enrollment time, from the certificate: %v", got.CreatedAt)
 }
@@ -826,4 +827,114 @@ func TestSharedCertificateHeartbeatsBounded(t *testing.T) {
 		}
 	}
 	assert.LessOrEqual(t, records.calls, 2)
+}
+
+// heartbeatAs sends a heartbeat for w under the worker ID id at the time at.
+func (f *removalFixture) heartbeatAs(t *testing.T, w removalWorker, id string, at time.Time) {
+	t.Helper()
+	f.now = at
+	renamed := w
+	renamed.id = id
+	f.heartbeat(t, f.h, renamed)
+}
+
+// A worker enrolled as A ran under eight more IDs, so the record no longer
+// lists A, and stopped. A removal of A finds the certificate by A's stale
+// heartbeat while an enrollment of A runs on another coordinator, and the
+// enrollment fails (Spec 108 §Removal).
+func TestEnrollmentAcrossRemovalAfterIDEviction(t *testing.T) {
+	f := newRemovalFixture(t)
+	w := f.enroll(t, "worker-a")
+	f.heartbeat(t, f.h, w)
+	for i := range 8 {
+		f.heartbeatAs(t, w, fmt.Sprintf("worker-%d", i), removalStart.Add(time.Duration(i+1)*time.Second))
+	}
+	record, err := f.certs.Get(t.Context(), w.certID)
+	require.NoError(t, err)
+	require.False(t, namesWorker(record, w.id), "the record no longer names A")
+	f.now = removalStart.Add(time.Hour)
+	other := f.coordinator(t)
+	other.workerCertificates = &beforeCreate{WorkerCertificateStore: f.certs, hook: func() {
+		f.remove(t, w)
+	}}
+	req, tlsCtx := f.enrollCall(t, w.id)
+
+	_, err = other.Enroll(tlsCtx, req)
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
+	certs, err := f.certs.List(t.Context())
+	require.NoError(t, err)
+	for _, cert := range certs {
+		assert.Equal(t, persis.WorkerCertificateRevoked, cert.State, cert.ID)
+	}
+}
+
+// An enrollment of A starts, and a removal of A runs before it records its
+// certificate. A second enrollment of A starts after the removal returned,
+// and the first one fails and revokes its own certificate before the
+// second confirms. The second enrollment succeeds (Spec 108 §Removal).
+func TestEnrollmentAfterRemovalBesideRefusedOne(t *testing.T) {
+	f := newRemovalFixture(t)
+	w := f.enroll(t, "worker-a")
+	firstCoord, secondCoord := f.coordinator(t), f.coordinator(t)
+	removed, resume, firstDone := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	firstCoord.workerCertificates = &beforeCreate{WorkerCertificateStore: f.certs, hook: func() {
+		f.remove(t, w)
+		close(removed)
+		<-resume
+	}}
+	firstReq, firstCtx := f.enrollCall(t, w.id)
+	go func() {
+		_, err := firstCoord.Enroll(firstCtx, firstReq)
+		firstDone <- err
+	}()
+	<-removed
+	secondCoord.workerCertificates = &beforeCreate{WorkerCertificateStore: f.certs, hook: func() {
+		close(resume)
+		assert.Equal(t, codes.PermissionDenied, status.Code(<-firstDone))
+	}}
+	secondReq, secondCtx := f.enrollCall(t, w.id)
+
+	_, err := secondCoord.Enroll(secondCtx, secondReq)
+	assert.NoError(t, err)
+}
+
+// A worker ran under eight IDs, A first, then came back as A more than a
+// minute later, and a ninth ID joined. The record keeps A, the most
+// recently seen but one, so a removal by A finds the certificate after the
+// heartbeats are cleaned up (Spec 108 §Removal).
+func TestRemoveWorkerReturnedAtCapacity(t *testing.T) {
+	f := newRemovalFixture(t)
+	w := f.enroll(t, "worker-a")
+	f.heartbeat(t, f.h, w)
+	for i := range 7 {
+		f.heartbeatAs(t, w, fmt.Sprintf("worker-%d", i), removalStart.Add(time.Duration(i+1)*time.Second))
+	}
+	f.heartbeatAs(t, w, w.id, removalStart.Add(2*time.Minute))
+	f.heartbeatAs(t, w, "worker-8", removalStart.Add(2*time.Minute+time.Second))
+	f.now = removalStart.Add(time.Hour)
+	_, err := f.heartbeats.DeleteStale(t.Context(), f.now)
+	require.NoError(t, err)
+
+	resp := f.remove(t, w)
+	assert.Equal(t, []string{w.certID}, resp.CertificateIds)
+}
+
+// The record lists A and B. A coordinator that predates the certificate ID
+// in heartbeats records a fresh certificate heartbeat for B on another
+// host. A removal of A counts B as connected and is refused (Spec 108
+// §Removal).
+func TestRemoveWorkerLegacyHeartbeatOfKnownID(t *testing.T) {
+	f := newRemovalFixture(t)
+	w := f.enroll(t, "worker-a")
+	f.heartbeat(t, f.h, w)
+	f.heartbeatAs(t, w, "worker-b", removalStart.Add(time.Second))
+	f.now = removalStart.Add(time.Hour)
+	require.NoError(t, f.heartbeats.Upsert(t.Context(), dispatch.WorkerHeartbeatRecord{
+		WorkerID: "worker-b", Host: "host-elsewhere", LastHeartbeatAt: f.now.UnixMilli(),
+		Connection: dispatch.WorkerConnectionCertificate,
+	}))
+
+	_, err := f.h.RemoveWorker(t.Context(), &coordinatorv1.RemoveWorkerRequest{WorkerId: w.id})
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+	assert.Equal(t, persis.WorkerCertificateActive, f.state(t, w))
 }

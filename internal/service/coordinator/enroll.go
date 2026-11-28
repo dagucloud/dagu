@@ -76,6 +76,13 @@ func (h *Handler) Enroll(ctx context.Context, req *coordinatorv1.EnrollRequest) 
 	}
 
 	fingerprint := sha256.Sum256(csr.RawSubjectPublicKeyInfo)
+	// The removals of the worker ID are counted first, so a removal that
+	// begins later fails the confirmation below.
+	workerRemovals, err := h.workerCertificates.WorkerRemovals(ctx, req.WorkerId)
+	if err != nil {
+		logger.Error(ctx, "Failed to read the worker's removals", tag.WorkerID(req.WorkerId), tag.Error(err))
+		return nil, status.Error(codes.Internal, "failed to check the key")
+	}
 	removals, err := h.workerCertificates.ListRemovals(ctx)
 	if err != nil {
 		logger.Error(ctx, "Failed to read the removed workers", tag.Error(err))
@@ -116,11 +123,11 @@ func (h *Handler) Enroll(ctx context.Context, req *coordinatorv1.EnrollRequest) 
 		)
 		return nil, status.Error(codes.Internal, "failed to record the worker certificate")
 	}
-	// A removal that revoked the key, or the worker, while the certificate
-	// was issued refuses the enrollment, and the certificate is never handed
-	// out. A removal whose last listing of the certificates came after the
-	// record revokes it itself. The invite stays used, as when recording
-	// the certificate fails.
+	// A removal that revoked the key, or began for the worker ID, while the
+	// certificate was issued refuses the enrollment, and the certificate is
+	// never handed out. A removal that began after the confirmation finds
+	// the record in its last listing and revokes it itself. The invite stays
+	// used, as when recording the certificate fails.
 	after, err := h.workerCertificates.ListRemovals(ctx)
 	if err != nil {
 		logger.Error(ctx, "Failed to read the removed workers", slog.String("certificate-id", certID), tag.Error(err))
@@ -130,7 +137,13 @@ func (h *Handler) Enroll(ctx context.Context, req *coordinatorv1.EnrollRequest) 
 		_ = h.revoke(ctx, certID)
 		return nil, status.Error(codes.PermissionDenied, removedKeyMessage)
 	}
-	if workerRevokedSince(removals, after, req.WorkerId) {
+	confirmed, err := h.workerCertificates.ConfirmEnrollment(ctx, req.WorkerId, workerRemovals)
+	if err != nil {
+		logger.Error(ctx, "Failed to confirm an enrollment", slog.String("certificate-id", certID), tag.Error(err))
+		_ = h.revoke(ctx, certID)
+		return nil, status.Error(codes.Internal, "failed to check the key")
+	}
+	if !confirmed {
 		_ = h.revoke(ctx, certID)
 		return nil, status.Error(codes.PermissionDenied, removedDuringEnrollMessage)
 	}

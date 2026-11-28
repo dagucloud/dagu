@@ -9513,8 +9513,8 @@ type RemoveWorkerResponse_builder struct {
 
 	State WorkerRemovalState
 	// The certificates the removal revoked: each one whose record names the
-	// worker ID among the IDs its heartbeats reported, or that the worker's
-	// last heartbeat carried.
+	// worker ID, as enrolled or among the IDs its heartbeats reported, or
+	// that the worker's last heartbeat carried.
 	CertificateIds []string
 }
 
