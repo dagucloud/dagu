@@ -49,7 +49,7 @@ const (
 	// peerTokenMismatchMessage and peerTokenMissingMessage refuse a call
 	// with a wrong peer token, and one without the token it needs.
 	peerTokenMismatchMessage = "the peer token does not match the coordinator's peer token" //nolint:gosec // A message, not a credential.
-	peerTokenMissingMessage  = "the coordinator requires a peer token: set peer.token, or let this process read the coordinator's data directory"
+	peerTokenMissingMessage  = "the coordinator requires a peer token: set peer.token"
 )
 
 // peerTokenOnlyMethods take the peer token whatever coordinator.require_token

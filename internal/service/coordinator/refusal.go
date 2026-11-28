@@ -23,6 +23,10 @@ const (
 	reasonRequireTLS       = "require_tls"
 )
 
+// legacyPeerTokenMissing is how coordinators of an earlier release refuse
+// a call without the peer token.
+const legacyPeerTokenMissing = "the coordinator requires a peer token: set peer.token, or let this process read the coordinator's data directory"
+
 // refusal is a coordinator's refusal of a call: its code and message.
 type refusal struct {
 	code    codes.Code
@@ -35,6 +39,7 @@ var refusalReasons = map[refusal]string{
 	{codes.FailedPrecondition, ownCertificatesMessage}: reasonOwnCertificates,
 	{codes.FailedPrecondition, caUnavailableMessage}:   reasonCAUnavailable,
 	{codes.Unauthenticated, peerTokenMissingMessage}:   reasonPeerAuthMissing,
+	{codes.Unauthenticated, legacyPeerTokenMissing}:    reasonPeerAuthMissing,
 	{codes.Unauthenticated, peerTokenMismatchMessage}:  reasonPeerAuthMismatch,
 	{codes.Unauthenticated, requireTLSMessage}:         reasonRequireTLS,
 }
