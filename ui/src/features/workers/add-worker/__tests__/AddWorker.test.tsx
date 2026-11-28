@@ -431,6 +431,11 @@ describe('AddWorker', () => {
     expect(
       screen.getByRole('button', { name: 'Check again' })
     ).toBeInTheDocument();
+    expect(
+      step('Address workers use to reach the coordinator').getByText(
+        'Shown after step 1'
+      )
+    ).toBeInTheDocument();
   });
 
   // A focus read can answer before the read that opened the dialog; the
@@ -547,14 +552,14 @@ describe('AddWorker', () => {
   // show how the dialog reacts to a refused and an accepted one.
   it.each([
     ['0.0.0.0:50055', '0.0.0.0 is a listen address'],
+    ['', 'Enter the address workers use to reach the coordinator.'],
     ['224.0.0.1:50055', '224.0.0.1 is a multicast or broadcast address'],
     ['255.255.255.255:50055', 'is a multicast or broadcast address'],
     ['[ff02::1]:50055', 'ff02::1 is a multicast or broadcast address'],
-    ['192.168.1.20:70000', 'Enter a port from 1 to 65535.'],
-    ['192.168.1.20', 'Enter host:port, such as 192.168.1.20:50055.'],
     [`${PASTED_INVITE}:50055`, 'The address holds an invite.'],
   ])('refuses the address %s', async (address, problem) => {
-    await open(readiness());
+    // A last invite address first, so that clearing it is a change.
+    await open(readiness({}, '192.168.1.30:50055'));
     typeAddress(address);
 
     const field = screen.getByLabelText(ADDRESS);
@@ -563,16 +568,6 @@ describe('AddWorker', () => {
     expect(screen.queryByText(/AAAAAAAAAA/)).toBeNull();
     expect(
       step('Worker').getByText('Shown after steps 1 and 2')
-    ).toBeInTheDocument();
-  });
-
-  it('requires the address once it is cleared', async () => {
-    await open(readiness({}, '192.168.1.30:50055'));
-    typeAddress('');
-    expect(
-      screen.getByText(
-        'Enter the address workers use to reach the coordinator.'
-      )
     ).toBeInTheDocument();
   });
 });

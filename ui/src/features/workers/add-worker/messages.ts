@@ -6,6 +6,7 @@ import { defineMessages } from '@/features/workflow-workspace/messages/define';
 /** The static messages of the Add worker dialog. */
 export const addWorkerMessages = defineMessages({
   en: {
+    'Shown after step 1': 'Shown after step 1',
     '{host} is a multicast or broadcast address. Enter the address of one machine.':
       '{host} is a multicast or broadcast address. Enter the address of one machine.',
     'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:':
@@ -51,7 +52,6 @@ export const addWorkerMessages = defineMessages({
     'Needs change': 'Needs change',
     'Only admins can add workers.': 'Only admins can add workers.',
     'The request failed.': 'The request failed.',
-    'The server did not answer.': 'The server did not answer.',
     'The coordinator is from an earlier Dagu release. Upgrade every coordinator to add workers.':
       'The coordinator is from an earlier Dagu release. Upgrade every coordinator to add workers.',
     'The coordinator listens on {host}, so only this machine can connect.':
@@ -90,6 +90,7 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Shown after steps 1 and 2',
   },
   'zh-CN': {
+    'Shown after step 1': '完成步骤 1 后显示',
     '{host} is a multicast or broadcast address. Enter the address of one machine.':
       '{host} 是多播或广播地址。请输入一台机器的地址。',
     'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:':
@@ -135,7 +136,6 @@ export const addWorkerMessages = defineMessages({
     'Needs change': '需要修改',
     'Only admins can add workers.': '只有管理员可以添加 Worker。',
     'The request failed.': '请求失败。',
-    'The server did not answer.': '服务器没有响应。',
     'The coordinator is from an earlier Dagu release. Upgrade every coordinator to add workers.':
       '协调器来自较早的 Dagu 版本。升级所有协调器后才能添加 Worker。',
     'The coordinator listens on {host}, so only this machine can connect.':
@@ -173,6 +173,7 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': '完成步骤 1 和 2 后显示',
   },
   ja: {
+    'Shown after step 1': 'ステップ 1 の後に表示',
     '{host} is a multicast or broadcast address. Enter the address of one machine.':
       '{host} はマルチキャストまたはブロードキャストのアドレスです。1 台のマシンのアドレスを入力してください。',
     'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:':
@@ -218,7 +219,6 @@ export const addWorkerMessages = defineMessages({
     'Needs change': '変更が必要',
     'Only admins can add workers.': 'ワーカーを追加できるのは管理者だけです。',
     'The request failed.': 'リクエストに失敗しました。',
-    'The server did not answer.': 'サーバーが応答しませんでした。',
     'The coordinator is from an earlier Dagu release. Upgrade every coordinator to add workers.':
       'コーディネーターが以前の Dagu リリースです。ワーカーを追加するにはすべてのコーディネーターをアップグレードしてください。',
     'The coordinator listens on {host}, so only this machine can connect.':
@@ -258,6 +258,7 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'ステップ 1 と 2 の後に表示',
   },
   de: {
+    'Shown after step 1': 'Erscheint nach Schritt 1',
     '{host} is a multicast or broadcast address. Enter the address of one machine.':
       '{host} ist eine Multicast- oder Broadcast-Adresse. Geben Sie die Adresse eines einzelnen Rechners ein.',
     'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:':
@@ -304,7 +305,6 @@ export const addWorkerMessages = defineMessages({
     'Only admins can add workers.':
       'Nur Administratoren können Worker hinzufügen.',
     'The request failed.': 'Die Anfrage ist fehlgeschlagen.',
-    'The server did not answer.': 'Der Server hat nicht geantwortet.',
     'The coordinator is from an earlier Dagu release. Upgrade every coordinator to add workers.':
       'Der Koordinator stammt aus einer früheren Dagu-Version. Aktualisieren Sie jeden Koordinator, um Worker hinzuzufügen.',
     'The coordinator listens on {host}, so only this machine can connect.':
@@ -344,6 +344,7 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Erscheint nach Schritt 1 und 2',
   },
   fr: {
+    'Shown after step 1': 'Affiché après l’étape 1',
     '{host} is a multicast or broadcast address. Enter the address of one machine.':
       '{host} est une adresse multicast ou de diffusion. Saisissez l’adresse d’une seule machine.',
     'The flag {name} sets coordinator.host. Give it 0.0.0.0 where Dagu starts:':
@@ -390,7 +391,6 @@ export const addWorkerMessages = defineMessages({
     'Only admins can add workers.':
       'Seuls les administrateurs peuvent ajouter des workers.',
     'The request failed.': 'La requête a échoué.',
-    'The server did not answer.': 'Le serveur n’a pas répondu.',
     'The coordinator is from an earlier Dagu release. Upgrade every coordinator to add workers.':
       'Le coordinateur provient d’une version antérieure de Dagu. Mettez à jour chaque coordinateur pour ajouter des workers.',
     'The coordinator listens on {host}, so only this machine can connect.':

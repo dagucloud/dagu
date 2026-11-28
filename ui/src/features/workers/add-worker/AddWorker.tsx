@@ -121,7 +121,7 @@ function AddWorkerDialog({
     } catch {
       next = {
         state: 'failed',
-        problem: { text: 'The server did not answer.' },
+        problem: requestProblem(undefined, undefined, ''),
       };
     }
     if (id !== latest.current) return;
@@ -221,8 +221,13 @@ function AddWorkerDialog({
           {readiness.state === 'loading' && <Spinner />}
         </Step>
 
-        {data && address !== undefined && (
-          <Step number={2} title="Address workers use to reach the coordinator">
+        {/* Each step keeps its heading, so the steps read in order. */}
+        <Step
+          number={2}
+          title="Address workers use to reach the coordinator"
+          state={data ? undefined : 'Shown after step 1'}
+        >
+          {data && address !== undefined && (
             <AddressFields
               data={data}
               address={address}
@@ -233,8 +238,8 @@ function AddWorkerDialog({
                 setAddress(next);
               }}
             />
-          </Step>
-        )}
+          )}
+        </Step>
 
         <Step
           number={3}
