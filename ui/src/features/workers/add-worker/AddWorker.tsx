@@ -26,6 +26,7 @@ import {
   coordinatorEnvironment,
   inKubernetes,
   initialAddress,
+  movedEndpoint,
   podAddress,
   suggestedAddresses,
   type AddressProblem,
@@ -66,12 +67,10 @@ interface AddWorkerProps {
   refreshFailed: boolean;
 }
 
-// The address an untouched field starts with: none outside the cluster,
-// the pod's advertised address inside it, else the usual default.
-function defaultAddress(data: JoinReadiness, placement?: Placement): string {
-  if (placement === Placement.outside) return '';
-  if (placement === Placement.inside) return podAddress(data) ?? '';
-  return initialAddress(data);
+// The address a placement starts the field with: none outside the
+// cluster, the pod's advertised address inside it.
+function placedAddress(data: JoinReadiness, placement: Placement): string {
+  return placement === Placement.inside ? (podAddress(data) ?? '') : '';
 }
 
 /**
@@ -89,9 +88,11 @@ export function AddWorkerDialog({
   const [checking, setChecking] = React.useState(true);
   const [address, setAddress] = React.useState<string>();
   const [placement, setPlacement] = React.useState<Placement>();
-  // The placement as load reads it, to reset an untouched field.
-  const placed = React.useRef<Placement | undefined>(undefined);
   const touched = React.useRef(false);
+  // The reading step 2 started from. A later reading never rewrites the
+  // field; it offers an endpoint that moved since.
+  const [opened, setOpened] = React.useState<JoinReadiness>();
+  const openedRef = React.useRef<JoinReadiness | undefined>(undefined);
   // Only the latest read may change the dialog: an earlier one that ends
   // later must not replace a newer answer.
   const latest = React.useRef(0);
@@ -128,15 +129,15 @@ export function AddWorkerDialog({
     }
     if (id !== latest.current) return;
     setReadiness(next);
-    // The placement holds only while a pod reports.
-    if (next.state === 'loaded' && !inKubernetes(next.data)) {
-      placed.current = undefined;
-      setPlacement(undefined);
-    }
-    // A new reading resets the defaults the admin has not changed, as a
-    // port that changed in the restart.
-    if (next.state === 'loaded' && !touched.current) {
-      setAddress(defaultAddress(next.data, placed.current));
+    if (next.state === 'loaded') {
+      const loaded = next.data;
+      // The placement holds only while a pod reports.
+      if (!inKubernetes(loaded)) setPlacement(undefined);
+      if (!openedRef.current) {
+        openedRef.current = loaded;
+        setOpened(loaded);
+        setAddress(initialAddress(loaded));
+      }
     }
     setChecking(false);
   }, [client]);
@@ -268,11 +269,11 @@ export function AddWorkerDialog({
               hostField={hostField}
               placementField={placementField}
               placement={placement}
+              moved={opened && movedEndpoint(address, opened, data)}
               onPlace={(next) => {
-                placed.current = next;
                 touched.current = false;
                 setPlacement(next);
-                setAddress(defaultAddress(data, next));
+                setAddress(placedAddress(data, next));
               }}
               problem={touched.current || address ? problem : undefined}
               onChange={(next) => {
@@ -299,6 +300,7 @@ function AddressFields({
   hostField,
   placementField,
   placement,
+  moved,
   onPlace,
   problem,
   onChange,
@@ -308,6 +310,8 @@ function AddressFields({
   hostField: React.Ref<HTMLTextAreaElement>;
   placementField: React.Ref<HTMLInputElement>;
   placement?: Placement;
+  /** An endpoint the coordinators now report in place of the field's. */
+  moved?: string;
   onPlace: (placement: Placement) => void;
   problem?: AddressProblem;
   onChange: (address: string) => void;
@@ -390,6 +394,17 @@ function AddressFields({
           {problem && (
             <p id={errorId} className="text-xs text-destructive">
               <I18nText text={problem.text} values={problem.values} />
+            </p>
+          )}
+          {moved && (
+            <p className="flex flex-wrap items-center gap-2 text-xs">
+              <I18nText
+                text="The coordinator now reports {address}."
+                values={{ address: moved }}
+              />
+              <Button size="xs" onClick={() => onChange(moved)}>
+                <I18nText text="Use this address" />
+              </Button>
             </p>
           )}
           {suggestions.length > 0 && (

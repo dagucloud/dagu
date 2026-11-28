@@ -1293,9 +1293,9 @@ and prints the message:
   events, also when ready, since a restart can be quicker than that
   refresh and change the port. The newest reading wins over one still
   running. Step 3 waits for each reading.
-- Step 2 is a required address field. It starts with `lastInviteAddress`,
-  unless a coordinator now reports that host with another port, or with
-  `advertise`, or empty. It suggests `addresses`, and none in a
+- Step 2 is a required address field. It starts once, when the first
+  reading arrives, with `lastInviteAddress`, or with `advertise`, or
+  empty. It suggests `addresses`, and none in a
   container, where it asks for the address of the machine that runs the
   container. It never guesses a host from the machine's name, a container
   ID, or the browser's host; an explicit `advertise` may be a DNS name.
@@ -1315,8 +1315,11 @@ and prints the message:
   MCP action trims it, and keeps a pasted line break, which the rule below
   refuses inside the address. Its starting value and each suggestion pass the rule
   below, and an advertised address takes the `port` of the
-  coordinator that reported it. A new reading resets the field while the
-  admin has not changed it.
+  coordinator that reported it. A later reading never changes the field.
+  When the endpoints the coordinators report moved since step 2 started,
+  and the field holds none of them, step 2 says which endpoint the
+  coordinator now reports, compared with the host in lowercase, and **Use
+  this address** puts it in the field.
 - Step 2 refuses an address that a worker on another host cannot dial: one
   that is not `host:port` with a port from 1 to 65535, or whose host is
   not one IP address without a zone or one DNS name, or is `0.0.0.0`,

@@ -48,22 +48,11 @@ export function joinHostPort(host: string, port: number | string): string {
  * The address step 2 starts with: the last invite's address, else an
  * explicit coordinator.advertise with that coordinator's port, else empty.
  * Only an address that passes addressProblem counts, and nothing here comes
- * from the browser's location. A last invite address whose host a
- * coordinator now reports with another port is stale, as after a restart
- * on a new port, so the coordinator's own address wins.
+ * from the browser's location.
  */
 export function initialAddress(readiness: JoinReadiness): string {
-  const last = splitHostPort(readiness.lastInviteAddress ?? '');
-  const stale =
-    last !== undefined &&
-    readiness.coordinators.some(
-      ({ report }) =>
-        report &&
-        String(report.port) !== last[1] &&
-        [report.advertise, ...report.addresses].includes(last[0])
-    );
   const candidates = [
-    stale ? '' : (readiness.lastInviteAddress ?? ''),
+    readiness.lastInviteAddress ?? '',
     ...readiness.coordinators.flatMap(({ report }) =>
       report?.advertise ? [joinHostPort(report.advertise, report.port)] : []
     ),
@@ -115,6 +104,48 @@ export function suggestedAddresses(readiness: JoinReadiness): string[] {
     }
   }
   return [...out].filter((a) => !addressProblem(a));
+}
+
+// The address with its host in lowercase, so equal endpoints compare equal.
+function normalized(address: string): string {
+  const parts = splitHostPort(goTrimSpace(address));
+  return parts ? joinHostPort(parts[0].toLowerCase(), parts[1]) : address;
+}
+
+// The endpoints the coordinators report: each advertised host and each
+// interface address, with its coordinator's port.
+function reportedEndpoints(readiness: JoinReadiness): string[] {
+  return readiness.coordinators.flatMap(({ report }) =>
+    report
+      ? [report.advertise ?? '', ...report.addresses]
+          .filter(Boolean)
+          .map((host) => normalized(joinHostPort(host, report.port)))
+      : []
+  );
+}
+
+/**
+ * The endpoint to offer in place of the field's address after the
+ * coordinators' reports changed since step 2 started, as after a restart on
+ * a new port: a newly reported endpoint with the field's host, else one
+ * that replaced the field's address. Undefined while the field holds a
+ * reported endpoint or the reports are as they were.
+ */
+export function movedEndpoint(
+  address: string,
+  opened: JoinReadiness,
+  current: JoinReadiness
+): string | undefined {
+  const field = normalized(address);
+  const before = reportedEndpoints(opened);
+  const now = reportedEndpoints(current);
+  if (now.includes(field) || now.join() === before.join()) return undefined;
+  const host = splitHostPort(field)?.[0];
+  const fresh = now.filter((e) => !before.includes(e));
+  return (
+    fresh.find((e) => splitHostPort(e)?.[0] === host) ??
+    (before.includes(field) ? fresh[0] : undefined)
+  );
 }
 
 // Splits host:port as Go's net.SplitHostPort does, or returns undefined.

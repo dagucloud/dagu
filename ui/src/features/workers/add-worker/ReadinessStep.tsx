@@ -9,6 +9,7 @@ import {
   type components,
 } from '@/api/v1/schema';
 import { I18nText } from '@/i18n/I18nText';
+import { joinHostPort } from './address';
 import { CommandBlock, ReasonLinks, reasonText } from './parts';
 
 type CoordinatorReadiness = components['schemas']['CoordinatorJoinReadiness'];
@@ -42,7 +43,7 @@ export function ReadinessBody({
         <div key={c.instanceId} className="space-y-2 text-sm">
           {named && (
             <p className="font-mono text-xs text-muted-foreground">
-              {c.host}:{c.port}
+              {joinHostPort(c.host, c.port)}
             </p>
           )}
           {c.report ? (

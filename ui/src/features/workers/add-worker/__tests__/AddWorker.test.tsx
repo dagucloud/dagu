@@ -165,34 +165,61 @@ describe('AddWorker', () => {
     expect(screen.getByLabelText(ADDRESS)).toHaveValue('10.0.0.9:51055');
   });
 
-  // A restart can change the port; a default the admin did not touch
-  // follows it, and a typed address stays.
-  it('refreshes untouched defaults on a new reading only', async () => {
-    const { rerender } = await open(
-      loopback({ advertise: 'coord.example.com' })
-    );
-    expect(screen.getByLabelText(ADDRESS)).toHaveValue(
-      'coord.example.com:50055'
-    );
+  // A reading never rewrites the field. When the reported endpoint moved,
+  // as with a restart on a new port, the dialog offers it, compared without
+  // case, and Use this address takes it.
+  it.each([
+    ['the prefill', undefined],
+    ['a typed address in capitals', 'COORD.EXAMPLE.COM:50055'],
+  ])('offers a moved endpoint for %s', async (_, typed) => {
+    const advertise = 'coord.example.com';
+    const { rerender } = await open(readiness({ advertise }));
+    if (typed) typeAddress(typed);
+    const field = screen.getByLabelText(ADDRESS);
+    const before = (field as HTMLTextAreaElement).value;
+    expect(screen.queryByText(/now reports/)).toBeNull();
 
     api.GET.mockResolvedValue(
-      answer(200, readiness({ advertise: 'coord.example.com', port: 50155 }))
-    );
-    comeBack();
-    await settle();
-    expect(screen.getByLabelText(ADDRESS)).toHaveValue(
-      'coord.example.com:50155'
-    );
-
-    typeAddress('192.168.1.40:50055');
-    api.GET.mockResolvedValue(
-      answer(200, readiness({ advertise: 'coord.example.com', port: 50255 }))
+      answer(200, readiness({ advertise, port: 50155 }))
     );
     rerender(view(true));
     rerender(view(false));
     await settle();
-    expect(api.GET).toHaveBeenCalledTimes(3);
-    expect(screen.getByLabelText(ADDRESS)).toHaveValue('192.168.1.40:50055');
+    expect(field).toHaveValue(before);
+    expect(
+      screen.getByText('The coordinator now reports coord.example.com:50155.')
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Use this address' }));
+    expect(field).toHaveValue('coord.example.com:50155');
+    expect(screen.queryByText(/now reports/)).toBeNull();
+    typeAddress('COORD.EXAMPLE.COM:50155');
+    expect(screen.queryByText(/now reports/)).toBeNull();
+  });
+
+  // A retained address stays on open, and a reading that still reports it,
+  // or reports nothing new, offers nothing.
+  it.each([
+    ['a forwarded port', 'coord.example.com:51055', [50055], [50055]],
+    [
+      'a second coordinator',
+      'coord.example.com:50055',
+      [50055],
+      [50055, 50155],
+    ],
+  ])('keeps a retained address with %s', async (_, last, first, next) => {
+    const advertise = 'coord.example.com';
+    const reading = (ports: number[]) => ({
+      ...readings(...ports.map((port) => report({ advertise, port }))),
+      lastInviteAddress: last,
+    });
+    const { rerender } = await open(reading(first));
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue(last);
+    api.GET.mockResolvedValue(answer(200, reading(next)));
+    rerender(view(true));
+    rerender(view(false));
+    await settle();
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue(last);
+    expect(screen.queryByText(/now reports/)).toBeNull();
   });
 
   // The change goes to the source that set the host: a flag wins over a
@@ -384,10 +411,10 @@ describe('AddWorker', () => {
     expect(screen.queryByText(/runs the container/)).toBeNull();
   });
 
-  // Once no pod reports, the outside answer no longer applies: an untouched
-  // field takes its default again, and a typed address stays.
+  // Once no pod reports, the outside answer no longer applies, and the
+  // field stays as it is.
   it.each([
-    ['untouched', undefined, 'coord.example.com:50055'],
+    ['untouched', undefined, ''],
     ['typed', '203.0.113.7:30055', '203.0.113.7:30055'],
   ])('drops the placement when no pod reports, %s', async (_, typed, kept) => {
     const advertise = 'coord.example.com';
@@ -404,8 +431,8 @@ describe('AddWorker', () => {
   });
 
   // Inside starts with the pod's advertised address, never a last invite
-  // address made for outside, and follows it on a new reading. Without one,
-  // the field starts empty and the hint asks for the address.
+  // address made for outside, and offers a new one a reading reports.
+  // Without one, the field starts empty and the hint asks for the address.
   const qualified = 'coordinator.ops.svc.cluster.local';
   const reach = /^Check that worker pods can reach this address/;
   const ask = /^Enter the coordinator Service's address and port/;
@@ -429,8 +456,13 @@ describe('AddWorker', () => {
     rerender(view(false));
     await settle();
     expect(screen.getByLabelText(ADDRESS)).toHaveValue(
-      next ? `${next}:50055` : ''
+      first ? `${first}:50055` : ''
     );
+    if (next) {
+      expect(
+        screen.getByText(`The coordinator now reports ${next}:50055.`)
+      ).toBeInTheDocument();
+    }
   });
 
   // The field's description carries the placement hint and any refusal,
@@ -489,7 +521,7 @@ describe('AddWorker', () => {
   // the step, and so step 3, from being ready.
   it('names each coordinator and the error of one that did not report', async () => {
     const b = { instanceId: 'c2', host: 'node-b', port: 50055 };
-    const c = { ...b, instanceId: 'c3', host: 'node-c' };
+    const c = { ...b, instanceId: 'c3', host: 'fd00::3' };
     const mismatch = WorkerAccessReason.peer_token_mismatch;
     await open({
       lastInviteAddress: '192.168.1.30:50055',
@@ -504,6 +536,7 @@ describe('AddWorker', () => {
     ).toBeInTheDocument();
 
     expect(screen.getByText('node-b:50055')).toBeInTheDocument();
+    expect(screen.getByText('[fd00::3]:50055')).toBeInTheDocument();
     expect(
       screen.getByText(
         'This coordinator did not report. Start or upgrade it, then check again.'
@@ -686,7 +719,7 @@ describe('AddWorker', () => {
   });
 
   // A restart can change the port while the dialog shows Ready. Coming back
-  // to the window reads again, holds step 3 meanwhile, and takes the port.
+  // to the window reads again, holds step 3 meanwhile, and offers the port.
   it.each(['focus', 'visibility'] as const)(
     'rereads a ready dialog on %s',
     async (by) => {
@@ -704,7 +737,10 @@ describe('AddWorker', () => {
       expect(locked()).toBeInTheDocument();
       later.resolve(answer(200, readiness({ advertise, port: 50155 })));
       await settle();
-      expect(screen.getByLabelText(ADDRESS)).toHaveValue(`${advertise}:50155`);
+      expect(screen.getByLabelText(ADDRESS)).toHaveValue(`${advertise}:50055`);
+      expect(
+        screen.getByText(`The coordinator now reports ${advertise}:50155.`)
+      ).toBeInTheDocument();
       expect(locked()).toBeNull();
     }
   );
@@ -728,28 +764,10 @@ describe('AddWorker', () => {
     older.resolve(answer(200, readiness({ advertise })));
     await settle();
     expect(api.GET).toHaveBeenCalledTimes(3);
-    expect(screen.getByLabelText(ADDRESS)).toHaveValue(`${advertise}:50155`);
+    expect(
+      screen.getByText(`The coordinator now reports ${advertise}:50155.`)
+    ).toBeInTheDocument();
     expect(step('Worker').queryByText('Shown after steps 1 and 2')).toBeNull();
-  });
-
-  // A last invite made for the old port does not hold the field there once
-  // the coordinator reports a new one; a typed address stays.
-  it.each([
-    ['untouched', undefined, 'coord.example.com:50155'],
-    ['typed', '203.0.113.7:50055', '203.0.113.7:50055'],
-  ])('drops a last invite on an old port, %s', async (_, typed, kept) => {
-    const advertise = 'coord.example.com';
-    const last = 'coord.example.com:50055';
-    const { rerender } = await open(readiness({ advertise }, last));
-    expect(screen.getByLabelText(ADDRESS)).toHaveValue(last);
-    if (typed) typeAddress(typed);
-    api.GET.mockResolvedValue(
-      answer(200, readiness({ advertise, port: 50155 }, last))
-    );
-    rerender(view(true));
-    rerender(view(false));
-    await settle();
-    expect(screen.getByLabelText(ADDRESS)).toHaveValue(kept);
   });
 
   // The shared vectors in vectors.test.ts hold every address case; these
