@@ -15,10 +15,11 @@ export interface AddressProblem {
 // net.SplitHostPort and net.ParseIP and the invite API's
 // ValidInviteAddress; the shared vectors in __fixtures__ hold both to it.
 // The host is an IPv4 address, an IPv6 address in brackets without a
-// zone, or a host name: labels of letters, digits, and inner hyphens, at
-// most 63 characters each and 253 in all, with no trailing dot.
+// zone, or a host name: labels of letters, digits, underscores, and inner
+// hyphens, at most 63 characters each and 253 in all, with no trailing
+// dot.
 const HOST_NAME =
-  /^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
+  /^(?=.{1,253}$)[A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(\.[A-Za-z0-9_]([A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*$/;
 const IPV4_OCTET = '(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]\\d|\\d)';
 const IPV4 = new RegExp(`^${IPV4_OCTET}(\\.${IPV4_OCTET}){3}$`);
 // A short or full container ID, as a container's host name.

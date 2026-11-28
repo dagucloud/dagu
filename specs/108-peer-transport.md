@@ -1324,8 +1324,8 @@ and prints the message:
   that is not `host:port` with a port from 1 to 65535 written without a
   sign or leading zero; whose host is not an IPv4 address, an IPv6
   address in brackets without a zone, or a host name of dot-separated
-  labels of letters, digits, and inner hyphens, at most 63 characters
-  each and 253 in all, with no trailing dot; or whose host is `0.0.0.0`,
+  labels of letters, digits, underscores, and inner hyphens, at most 63
+  characters each and 253 in all, with no trailing dot; or whose host is `0.0.0.0`,
   `[::]`, a loopback, link-local, multicast, or broadcast address,
   `localhost`, a container ID (12 or 64 lowercase hexadecimal
   characters), or text shaped like an invite.
