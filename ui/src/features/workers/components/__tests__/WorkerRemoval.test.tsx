@@ -42,15 +42,23 @@ vi.mock('@/contexts/AuthContext', () => ({ useIsAdmin: vi.fn() }));
 // confirmations, and the invites list side by side; both read through one
 // cache. The page also reads /workers, which a removal reads again, and
 // shows the page's notices of failed background reads. `errors` is a failed
-// refresh of the workers list.
-function Page({ workers, errors }: { workers: Worker[]; errors?: string[] }) {
+// refresh of the workers list; `refreshes` counts the manual refreshes.
+function Page({
+  workers,
+  errors,
+  refreshes = 0,
+}: {
+  workers: Worker[];
+  errors?: string[];
+  refreshes?: number;
+}) {
   useQuery('/workers', { params: { query: { remoteNode: 'local' } } });
   return (
     <QueryFeedback>
       <WorkerActionsHost workers={workers}>
         <WorkersSummary workers={workers} isLoading={false} errors={errors} />
       </WorkerActionsHost>
-      <WorkerInvites workers={workers} live refreshes={0} />
+      <WorkerInvites workers={workers} live refreshes={refreshes} />
     </QueryFeedback>
   );
 }
@@ -70,11 +78,18 @@ function LivePage() {
 }
 
 function renderPage(workers: Worker[]) {
-  const view = render(<Page workers={workers} />, { wrapper: Providers });
+  let state: React.ComponentProps<typeof Page> = { workers };
+  const view = render(<Page {...state} />, { wrapper: Providers });
   return {
     ...view,
-    update: (next: Worker[], errors?: string[]) =>
-      view.rerender(<Page workers={next} errors={errors} />),
+    update: (next: Worker[], errors?: string[]) => {
+      state = { ...state, workers: next, errors };
+      view.rerender(<Page {...state} />);
+    },
+    refresh: () => {
+      state = { ...state, refreshes: (state.refreshes ?? 0) + 1 };
+      view.rerender(<Page {...state} />);
+    },
   };
 }
 
@@ -314,8 +329,37 @@ describe('Remove', () => {
     expect(requests('DELETE', '/workers/invites/inv-r')).toHaveLength(0);
   });
 
+  // Only a removal state the API defines counts as accepted. An answer
+  // without one deletes no invite.
+  it('deletes no invite after a removal answer without a state', async () => {
+    server.invites = invitesAnswer([
+      invite('inv-r', { kind: WorkerInviteKind.reusable }),
+    ]);
+    server.del = (request) =>
+      request.path.endsWith('/certificate')
+        ? { status: 200, body: {} }
+        : { status: 204 };
+    renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
+    await screen.findByText('Reusable');
+
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('checkbox', { name: /Also delete the invite/ })
+    );
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'The request failed.'
+    );
+    expect(within(dialog).queryByRole('status')).not.toBeInTheDocument();
+    expect(requests('DELETE', '/workers/invites/inv-r')).toHaveLength(0);
+  });
+
   // Each step reports its own outcome: an accepted removal and an invite
   // that could not be deleted, which a second click deletes on its own.
+  // That second click leaves the workers list as it is.
   it('reports an invite delete that fails after the removal', async () => {
     server.invites = invitesAnswer([
       invite('inv-r', { kind: WorkerInviteKind.reusable }),
@@ -345,6 +389,7 @@ describe('Remove', () => {
     expect(alert).not.toHaveTextContent('not removed');
 
     inviteAnswer = { status: 204 } as typeof inviteAnswer;
+    const workerReads = requests('GET', '/workers').length;
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'Delete the invite' })
     );
@@ -354,6 +399,7 @@ describe('Remove', () => {
     );
     expect(removals()).toHaveLength(1);
     expect(requests('DELETE', '/workers/invites/inv-r')).toHaveLength(2);
+    expect(requests('GET', '/workers')).toHaveLength(workerReads);
   });
 
   // A retry deletes the invite the admin confirmed, not the one the row
@@ -661,6 +707,40 @@ describe('Remove', () => {
     expect(
       screen.queryByText('Background request failed')
     ).not.toBeInTheDocument();
+  });
+
+  // The API reports coordinator errors in a 200 answer. The list shows
+  // the page's own words for them, not the coordinator's.
+  it('shows coordinator errors of a workers refresh in its own words', async () => {
+    const answers = [
+      { workers: [worker('worker-a1')], errors: [] },
+      { workers: [], errors: ['raw coordinator words'] },
+    ];
+    server.workers = () => ({ status: 200, body: answers.shift()! });
+    server.del = () => refused(503, '', 'internal_error', 'no_coordinator');
+    render(
+      <QueryFeedback>
+        <LivePage />
+      </QueryFeedback>,
+      { wrapper: Providers }
+    );
+    const [button] = await screen.findAllByRole('button', {
+      name: 'Remove worker-a1',
+    });
+    await userEvent.click(button!);
+
+    await userEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', {
+        name: 'Remove',
+      })
+    );
+
+    expect(
+      await screen.findByText(
+        'The coordinator could not report the workers. Check the coordinator log, then refresh the page.'
+      )
+    ).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('raw coordinator words');
   });
 
   // The invite can expire while the confirmation is open with the refresh
@@ -1027,6 +1107,39 @@ describe('Remove', () => {
       expect(dialog).toHaveTextContent('It joined with a reusable invite')
     );
     expect(requests('GET', '/workers/invites').length).toBeGreaterThan(before);
+  });
+
+  // The latest invite read decides. Once a refresh fails, the invite from
+  // the read before it is neither warned about nor offered for deletion.
+  it('lets a failed invite read win over an earlier one', async () => {
+    server.invites = invitesAnswer([
+      invite('inv-r', { kind: WorkerInviteKind.reusable }),
+    ]);
+    const { refresh } = renderPage([
+      worker('worker-a1', { inviteId: 'inv-r' }),
+    ]);
+    await screen.findByText('Reusable');
+    const dialog = await openRemove('worker-a1');
+    expect(dialog).toHaveTextContent('It joined with a reusable invite');
+
+    server.invites = refused(503, '', 'internal_error', 'no_coordinator');
+    refresh();
+
+    await waitFor(() =>
+      expect(dialog).toHaveTextContent(
+        'The invite it joined with could not be read'
+      )
+    );
+    expect(dialog).not.toHaveTextContent('It joined with a reusable invite');
+    expect(
+      within(dialog).queryByRole('checkbox', { name: /Also delete the invite/ })
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Try again' })
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    ).toBeEnabled();
   });
 
   it('says a Kubernetes pod keeps restarting until it is scaled down', async () => {

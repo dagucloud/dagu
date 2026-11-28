@@ -1320,15 +1320,17 @@ The Workers page is the list of workers on System status.
   certificate, or none, before the admin confirms, they say so and send
   nothing, also when that row later goes away; a new confirmation is
   needed.
-- A failed read of the workers list shows the page's own words in the
-  list and raises no page notice. The confirmation drops the warning about
+- A failed read of the workers list, or a list answer that carries
+  coordinator errors, shows the page's own words in the list and raises
+  no page notice. The confirmation drops the warning about
   a reusable invite once it expires, on the same clock as the invites list.
 - After a refused request, the confirmation and **Stop runs now** take
   no second one: they say to close and confirm again from the list. Enter
   confirms only on the confirm button, and the choices hold while a
   request is under way.
 - A removal answered `removing` or `removed` counts as accepted, also when
-  another admin started it or the certificate was revoked already.
+  another admin started it or the certificate was revoked already. Any
+  other answer is a failure.
 - The confirmation and **Stop runs now** close by themselves when every
   step they took succeeded. Otherwise only the admin closes them: they keep
   their outcome when a refresh of the list changes or drops the worker's
@@ -1348,7 +1350,8 @@ The Workers page is the list of workers on System status.
   use it, and offers to delete it. An invite the page's list lacks is read
   once more before the removal can start. When the invites cannot be read,
   the confirmation says so and offers to read them again, and the removal
-  stays available. The invite is deleted only after the server accepted
+  stays available; the latest read decides, so an invite from an earlier
+  read is not shown after a failed one. The invite is deleted only after the server accepted
   the removal, never before. When that delete fails, the confirmation says
   the removal was accepted and the invite was not deleted, and offers to
   delete that same invite again; it closes once that delete succeeds.

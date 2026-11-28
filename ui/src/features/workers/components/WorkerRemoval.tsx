@@ -302,7 +302,11 @@ function useInviteLookup(inviteId: string | undefined) {
   const { invites, error, mutate } = useWorkerInvites(!!inviteId);
   const [reading, setReading] = React.useState(false);
   const [readOnce, setReadOnce] = React.useState(false);
-  const invite = invites?.find((candidate) => candidate.id === inviteId);
+  // The latest read decides: after a failed read, an invite from an
+  // earlier one is not shown, and the dialog offers to read again.
+  const invite = error
+    ? undefined
+    : invites?.find((candidate) => candidate.id === inviteId);
   const unknown = !!inviteId && !invite;
 
   const retry = React.useCallback(() => {
@@ -315,18 +319,17 @@ function useInviteLookup(inviteId: string | undefined) {
 
   const asked = React.useRef(false);
   React.useEffect(() => {
-    if (!unknown || asked.current) return;
+    if (!unknown || error || asked.current) return;
     asked.current = true;
     retry();
-  }, [unknown, retry]);
+  }, [unknown, error, retry]);
 
-  const settled = unknown && readOnce && !reading;
   return {
     invite,
     error,
-    reading: unknown && (reading || !readOnce),
-    failed: settled && !!error,
-    missing: settled && !error,
+    reading: unknown && (reading || (!readOnce && !error)),
+    failed: unknown && !reading && !!error,
+    missing: unknown && readOnce && !reading && !error,
     retry,
   };
 }
@@ -437,8 +440,10 @@ function RemoveWorkerDialog({
     setError(null);
     setInviteError(null);
     let target = inviteToDelete;
+    // A retry of the invite delete alone leaves the workers list as it is.
+    const removing = !accepted;
     try {
-      if (!accepted) {
+      if (removing) {
         target =
           reusable && alsoDeleteInvite && invite
             ? { id: invite.id, kind: invite.kind }
@@ -454,7 +459,7 @@ function RemoveWorkerDialog({
       rereadWorkers();
       return;
     }
-    rereadWorkers();
+    if (removing) rereadWorkers();
     if (target) {
       try {
         await deleteInvite(target.id);
