@@ -1242,19 +1242,25 @@ func TestService_SendTestHideChannelErrors(t *testing.T) {
 	t.Parallel()
 
 	const token = "123456:telegram-secret-token"
-	telegram := notificationmodel.Target{
-		ID:       "telegram-1",
-		Name:     "Ops Telegram",
-		Type:     notificationmodel.ProviderTelegram,
-		Enabled:  true,
-		Telegram: &notificationmodel.TelegramTarget{BotToken: token, ChatID: "12345"},
+	// Normalize rewrites a target's provider config in place, so each
+	// parallel subtest builds its own.
+	telegram := func() notificationmodel.Target {
+		return notificationmodel.Target{
+			ID:       "telegram-1",
+			Name:     "Ops Telegram",
+			Type:     notificationmodel.ProviderTelegram,
+			Enabled:  true,
+			Telegram: &notificationmodel.TelegramTarget{BotToken: token, ChatID: "12345"},
+		}
 	}
 	// The address is public, so the template fails before any request.
-	badTemplate := notificationmodel.Target{
-		ID:      "hook-1",
-		Type:    notificationmodel.ProviderWebhook,
-		Enabled: true,
-		Webhook: &notificationmodel.WebhookTarget{URL: "https://93.184.216.34/hook", BodyTemplate: "not json"},
+	badTemplate := func() notificationmodel.Target {
+		return notificationmodel.Target{
+			ID:      "hook-1",
+			Type:    notificationmodel.ProviderWebhook,
+			Enabled: true,
+			Webhook: &notificationmodel.WebhookTarget{URL: "https://93.184.216.34/hook", BodyTemplate: "not json"},
+		}
 	}
 	refused := func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("connection refused")
@@ -1268,13 +1274,13 @@ func TestService_SendTestHideChannelErrors(t *testing.T) {
 	}{
 		{
 			name:    "RequestFailed",
-			target:  telegram,
+			target:  telegram(),
 			respond: refused,
 			want:    `delivery to telegram target "Ops Telegram" failed: Post "http...sage": connection refused; see the server log`,
 		},
 		{
 			name:   "HTTPStatus",
-			target: telegram,
+			target: telegram(),
 			respond: func(req *http.Request) (*http.Response, error) {
 				return &http.Response{
 					StatusCode: http.StatusUnauthorized,
@@ -1287,13 +1293,13 @@ func TestService_SendTestHideChannelErrors(t *testing.T) {
 		},
 		{
 			name:    "BodyTemplate",
-			target:  badTemplate,
+			target:  badTemplate(),
 			respond: refused,
 			want:    `delivery to webhook target "hook-1" failed: webhook body template did not render valid JSON; see the server log`,
 		},
 		{
 			name:       "ProjectsOn",
-			target:     badTemplate,
+			target:     badTemplate(),
 			projectsOn: true,
 			respond:    refused,
 			want:       `delivery to webhook target "hook-1" failed; see the server log`,
