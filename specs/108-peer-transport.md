@@ -1312,8 +1312,9 @@ The Workers page is the list of workers on System status.
   neutral line with no alert. A worker without `connection` shows
   `Connection not reported`.
 - **Remove** is on `certificate` workers with a `certificateId`. A worker
-  without `connection` gets no Remove and no line. When the list has a
-  `tls` or `plaintext` worker, a line below the list says that Remove
+  without `connection` gets no Remove and no line. On the local node, when
+  the list has a `tls` or `plaintext` worker, a line below the list says
+  that Remove
   applies only to workers that joined with an invite. The same line says
   that a `tls` or `plaintext` worker, which includes a worker on its own
   certificates, has no Remove, and how to stop one: on its host, or by
@@ -1350,7 +1351,8 @@ The Workers page is the list of workers on System status.
   `Removing (<n> runs left)`, or `Removing (1 run left)`, and
   **Stop runs now** while it has runs. Once the list shows no runs, an
   open **Stop runs now** says none remain and sends nothing. Once the list
-  no longer shows the worker, its runs are unknown: **Stop runs now** says
+  no longer shows the worker, or its latest read failed, its runs are
+  unknown: **Stop runs now** says
   so and sends nothing, and the confirmation sends `finish`. The count
   comes from the page's existing `/workers` refresh.
 - For a worker on a reusable invite that is still active, the confirmation
@@ -1391,8 +1393,10 @@ The Workers page is the list of workers on System status.
   credentials this server uses for that node lack admin access there. Only
   the last read of a node shows its list or its failure.
 - On a remote node, the page lists the invites and the workers but offers
-  no **Delete**, **Remove**, or **Stop runs now**, since the server does not
-  forward them, and says to open the Dagu UI of that node to use them.
+  no **Delete**, **Remove**, or **Stop runs now**, since the server refuses
+  them for a remote node. Above the invites, and below the workers when one
+  of them would have Remove or is removing, a line says to open the Dagu
+  UI of that node to use them.
 - A refused call shows its cause and the change to make, chosen by the
   `details.reason` of a 409 or a 503, else by the HTTP status. For
   `coordinator_refused` and for a reason the page does not know, whose

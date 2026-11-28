@@ -92,20 +92,25 @@ const StartActionContext = React.createContext<
  * WorkerActionsHost holds the Remove and Stop runs now confirmations of the
  * workers list it wraps. A confirmation stays open, with its outcome, until
  * the admin closes it, also when a refresh drops its row, its button, or
- * the whole list. `workers` is the page's latest workers list.
+ * the whole list. `workers` is the page's latest workers list, and
+ * `available` false when the latest read of it failed: no row is current
+ * then, as if the list had dropped it.
  */
 export function WorkerActionsHost({
   workers,
+  available = true,
   children,
 }: {
   workers: Worker[];
+  available?: boolean;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = React.useState<OpenAction | null>(null);
   const requests = React.useRef(0);
-  const listed = open
-    ? workers.find((candidate) => candidate.id === open.worker.id)
-    : undefined;
+  const listed =
+    open && available
+      ? workers.find((candidate) => candidate.id === open.worker.id)
+      : undefined;
   // The open confirmation keeps the row as last listed, so a row the list
   // drops later shows its latest runs, not those from the click.
   React.useEffect(() => {
@@ -546,7 +551,13 @@ function RemoveWorkerDialog({
 
             {tasks.length === 0 ? (
               <p>
-                <I18nText text="It has no running runs." />
+                <I18nText
+                  text={
+                    listed
+                      ? 'It has no running runs.'
+                      : 'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
+                  }
+                />
               </p>
             ) : (
               <fieldset className="min-w-0 space-y-2">

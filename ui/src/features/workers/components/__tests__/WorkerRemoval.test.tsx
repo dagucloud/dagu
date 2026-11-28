@@ -1,7 +1,14 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -67,13 +74,21 @@ function Page({
 function LivePage() {
   const list = useWorkersList('local', false);
   return (
-    <WorkerActionsHost workers={list.workers || []}>
-      <WorkersSummary
+    <>
+      <button type="button" onClick={() => void list.mutate()}>
+        Refresh workers
+      </button>
+      <WorkerActionsHost
         workers={list.workers || []}
-        isLoading={list.isLoading}
-        errors={list.errors}
-      />
-    </WorkerActionsHost>
+        available={list.available}
+      >
+        <WorkersSummary
+          workers={list.workers || []}
+          isLoading={list.isLoading}
+          errors={list.errors}
+        />
+      </WorkerActionsHost>
+    </>
   );
 }
 
@@ -867,8 +882,8 @@ describe('Remove', () => {
   });
 
   // Runs that all end take the stop choice with them. A row the list drops
-  // afterwards shows as last listed, with no runs, so the confirmation
-  // cannot bring the stop choice back from the row at the click.
+  // afterwards leaves its runs unknown, and the confirmation says so
+  // instead of claiming none, and cannot bring the stop choice back.
   it('sends finish after the runs end and the row goes away', async () => {
     const { update } = renderPage([
       worker('worker-a1', { runningTasks: [task('etl', 'run-1')] }),
@@ -881,7 +896,10 @@ describe('Remove', () => {
     update([worker('worker-a1')]);
     await within(dialog).findByText('It has no running runs.');
     update([]);
-    expect(dialog).toHaveTextContent('It has no running runs.');
+    expect(dialog).toHaveTextContent(
+      'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
+    );
+    expect(dialog).not.toHaveTextContent('It has no running runs.');
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'Remove' })
     );
@@ -1128,6 +1146,85 @@ describe('Remove', () => {
     expect(
       within(dialog).getByRole('radio', { name: /Stop its runs and remove/ })
     ).toBeDisabled();
+    expect(
+      within(dialog).getByRole('radio', {
+        name: /Remove after its runs finish/,
+      })
+    ).toBeChecked();
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+    await waitFor(() => expect(removals()).toHaveLength(1));
+    expect(removals()[0]?.query.get('runs')).toBe('finish');
+  });
+
+  // A failed refresh hides the rows, so no row is current: both dialogs
+  // treat the runs as unknown, as for a row the list dropped.
+  const rows = [
+    worker('worker-a1', {
+      removing: true,
+      runningTasks: [task('etl', 'run-1')],
+    }),
+    worker('worker-b1', { runningTasks: [task('etl', 'run-2')] }),
+  ];
+  it.each([
+    [
+      'a failed read',
+      { status: 503, body: { code: 'internal_error', message: 'down' } },
+    ],
+    // The rows still come back, but the list is incomplete.
+    [
+      'coordinator errors',
+      { status: 200, body: { workers: rows, errors: ['raw words'] } },
+    ],
+  ])('stops nothing after %s of the workers list', async (_name, failed) => {
+    const listed = { status: 200, body: { workers: rows, errors: [] } };
+    const answers = [listed, failed, listed, failed];
+    server.workers = () => answers.shift()! as never;
+    render(<LivePage />, { wrapper: Providers });
+
+    // Stop runs now on a removing worker.
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Stop runs now on worker-a1' })
+    );
+    let dialog = screen.getByRole('dialog');
+    // The open dialog blocks the pointer; this stands in for the page's refresh.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Refresh workers', hidden: true })
+    );
+    expect(
+      await within(dialog).findByText(
+        'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
+      )
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Stop runs' })
+    ).toBeDisabled();
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Cancel' })
+    );
+
+    // Remove with the stop choice made before the refresh.
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Refresh workers' })
+    );
+    const [remove] = await screen.findAllByRole('button', {
+      name: 'Remove worker-b1',
+    });
+    await userEvent.click(remove!);
+    dialog = screen.getByRole('dialog');
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /Stop its runs and remove/ })
+    );
+    // The open dialog blocks the pointer; this stands in for the page's refresh.
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Refresh workers', hidden: true })
+    );
+    expect(
+      await within(dialog).findByText(
+        'The list no longer shows this worker, so its runs are not known and cannot be stopped from here.'
+      )
+    ).toBeInTheDocument();
     expect(
       within(dialog).getByRole('radio', {
         name: /Remove after its runs finish/,

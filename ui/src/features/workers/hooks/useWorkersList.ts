@@ -31,6 +31,9 @@ export function useWorkersList(remoteNode: string, live: boolean) {
   );
   return {
     workers: data?.workers,
+    // Whether the latest read listed every worker. After a failed read, or
+    // one with errors, the rows shown before are no longer current.
+    available: !!data && !error && !data.errors?.length,
     errors: error
       ? [
           ts(

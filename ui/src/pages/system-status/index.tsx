@@ -265,7 +265,10 @@ function SystemStatus() {
         className="card-obsidian flex max-h-[60vh] flex-col overflow-hidden"
         style={{ minHeight: '200px' }}
       >
-        <WorkerActionsHost workers={workersList.workers || []}>
+        <WorkerActionsHost
+          workers={workersList.workers || []}
+          available={workersList.available}
+        >
           <WorkersSummary
             workers={workersList.workers || []}
             isLoading={workersList.isLoading}
