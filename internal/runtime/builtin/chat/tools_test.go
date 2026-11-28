@@ -279,7 +279,7 @@ func TestNewToolRegistryRelativeSchema(t *testing.T) {
 		[]byte(`{"type":"object","properties":{"Q":{"type":"string"}}}`), 0o600))
 	file := filepath.Join(dir, "lookup.yaml")
 	require.NoError(t, os.WriteFile(file,
-		[]byte("name: lookup\nparams:\n  schema: ./schema.json\nsteps:\n  - run: echo \"$Q\"\n"), 0o600))
+		[]byte("name: lookup\nparams:\n  schema: ./schema.json\nsteps:\n  - run: echo ok\n"), 0o600))
 	tool, err := spec.Load(context.Background(), file)
 	require.NoError(t, err)
 	parent := &ir.DAG{Name: "parent", LocalDAGs: map[string]*ir.DAG{"lookup": tool}}
