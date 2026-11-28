@@ -305,8 +305,11 @@ describe('AddWorker', () => {
   // names the prerequisite and the README instead of a snippet.
   it('states the Service requirement in Kubernetes', async () => {
     await open(loopback({ environment: HostEnvironment.kubernetes }));
+    // The chart path names both settings helm template needs together.
     expect(
-      screen.getByText(/set persistence.existingClaim to it before you upgrade/)
+      screen.getByText(
+        /^Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload.*persistence.accessMode to ReadWriteMany/
+      )
     ).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'README' })).toHaveAttribute(
       'href',
@@ -378,11 +381,7 @@ describe('AddWorker', () => {
       /Set peer.token on this server/,
     ],
     [503, WorkerAccessReason.peer_token_mismatch, /same peer.token on both/],
-    [
-      503,
-      WorkerAccessReason.require_tls,
-      /set peer.ca_cert_file to the coordinator's CA/,
-    ],
+    [503, WorkerAccessReason.require_tls, /no usable CA certificate/],
     [503, WorkerAccessReason.coordinator_refused, /Its log names the reason/],
     [409, WorkerAccessReason.coordinator_conflict, /present state/],
     [503, WorkerAccessReason.retry_later, /Try again in a moment/],

@@ -6,11 +6,11 @@ import { defineMessages } from '@/features/workflow-workspace/messages/define';
 /** The static messages of the Add worker dialog. */
 export const addWorkerMessages = defineMessages({
   en: {
+    "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
+      "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.",
+    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file). If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
+      "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file). If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.",
     'Copy the change': 'Copy the change',
-    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. That mode needs a ReadWriteMany volume, and an existing ReadWriteOnce claim cannot change its access mode: move its data to a ReadWriteMany claim and set persistence.existingClaim to it before you upgrade.':
-      'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. That mode needs a ReadWriteMany volume, and an existing ReadWriteOnce claim cannot change its access mode: move its data to a ReadWriteMany claim and set persistence.existingClaim to it before you upgrade.',
-    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), and if it cannot read the coordinator's data directory, set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.":
-      "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), and if it cannot read the coordinator's data directory, set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.",
     'Check again': 'Check again',
     'The coordinator cannot do this yet. Try again in a moment.':
       'The coordinator cannot do this yet. Try again in a moment.',
@@ -91,11 +91,11 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Shown after steps 1 and 2',
   },
   'zh-CN': {
+    "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
+      '在协调器的工作负载上将 DAGU_COORDINATOR_HOST 设为 0.0.0.0，然后重启它。在独立 Pod 中运行的协调器需要所有 Dagu Pod 都能写入的存储。使用 Helm Chart 时，请使用 deploymentMode: distributed，它会设置该变量。将数据迁移到 ReadWriteMany 声明，然后在升级前将 persistence.existingClaim 设为该声明，并将 persistence.accessMode 设为 ReadWriteMany。',
+    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file). If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
+      '协调器要求 TLS。请在此服务器上删除所有 peer.insecure: true（--peer.insecure 参数、DAGU_PEER_INSECURE 变量或配置文件）。如果此服务器没有协调器可用的 CA 证书，请将其 peer.ca_cert_file 设为协调器的 CA 证书。然后重启它。',
     'Copy the change': '复制修改内容',
-    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. That mode needs a ReadWriteMany volume, and an existing ReadWriteOnce claim cannot change its access mode: move its data to a ReadWriteMany claim and set persistence.existingClaim to it before you upgrade.':
-      '以分布式模式运行 Chart，其协调器监听 0.0.0.0。该模式需要 ReadWriteMany 卷，而现有的 ReadWriteOnce 声明无法更改访问模式：请在升级前将其数据迁移到 ReadWriteMany 声明，并将 persistence.existingClaim 设为该声明。',
-    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), and if it cannot read the coordinator's data directory, set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.":
-      '协调器要求 TLS。请在此服务器上删除所有 peer.insecure: true（--peer.insecure 参数、DAGU_PEER_INSECURE 变量或配置文件）；如果它无法读取协调器的数据目录，请将 peer.ca_cert_file 设为协调器的 CA 证书。然后重启它。',
     'Check again': '重新检查',
     'The coordinator cannot do this yet. Try again in a moment.':
       '协调器暂时无法执行此操作。请稍后重试。',
@@ -175,11 +175,11 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': '完成步骤 1 和 2 后显示',
   },
   ja: {
+    "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
+      'コーディネーターのワークロードで DAGU_COORDINATOR_HOST を 0.0.0.0 にし、再起動してください。独自の Pod で動くコーディネーターには、すべての Dagu Pod が書き込めるストレージが必要です。Helm チャートでは deploymentMode: distributed を使ってください。これがこの変数を設定します。データを ReadWriteMany のクレームに移し、アップグレードの前に persistence.existingClaim をそのクレームに、persistence.accessMode を ReadWriteMany にしてください。',
+    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file). If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
+      'コーディネーターは TLS を必要とします。このサーバーで peer.insecure: true をすべて削除してください (--peer.insecure フラグ、DAGU_PEER_INSECURE 変数、設定ファイル)。このサーバーにコーディネーター用の使える CA 証明書がない場合は、peer.ca_cert_file をコーディネーターの CA 証明書にしてください。その後再起動してください。',
     'Copy the change': '変更をコピー',
-    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. That mode needs a ReadWriteMany volume, and an existing ReadWriteOnce claim cannot change its access mode: move its data to a ReadWriteMany claim and set persistence.existingClaim to it before you upgrade.':
-      'チャートを分散モードで実行してください。そのコーディネーターは 0.0.0.0 で待ち受けます。このモードには ReadWriteMany のボリュームが必要で、既存の ReadWriteOnce のクレームはアクセスモードを変更できません。アップグレードの前にデータを ReadWriteMany のクレームに移し、persistence.existingClaim をそのクレームにしてください。',
-    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), and if it cannot read the coordinator's data directory, set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.":
-      'コーディネーターは TLS を必要とします。このサーバーで peer.insecure: true をすべて削除し (--peer.insecure フラグ、DAGU_PEER_INSECURE 変数、設定ファイル)、コーディネーターのデータディレクトリを読めない場合は peer.ca_cert_file をコーディネーターの CA 証明書にしてください。その後再起動してください。',
     'Check again': '再確認',
     'The coordinator cannot do this yet. Try again in a moment.':
       'コーディネーターはまだこれを実行できません。少し待ってからもう一度試してください。',
@@ -261,11 +261,11 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'ステップ 1 と 2 の後に表示',
   },
   de: {
+    "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
+      'Setzen Sie DAGU_COORDINATOR_HOST auf dem Workload des Koordinators auf 0.0.0.0 und starten Sie ihn neu. Ein Koordinator in einem eigenen Pod braucht Speicher, in den jeder Dagu-Pod schreiben kann. Mit dem Helm-Chart nutzen Sie deploymentMode: distributed, das die Variable setzt. Verschieben Sie die Daten in einen ReadWriteMany-Claim und setzen Sie vor dem Upgrade persistence.existingClaim darauf und persistence.accessMode auf ReadWriteMany.',
+    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file). If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
+      'Der Koordinator verlangt TLS. Entfernen Sie auf diesem Server jedes peer.insecure: true (das Flag --peer.insecure, die Variable DAGU_PEER_INSECURE oder die Konfigurationsdatei). Hat dieser Server kein nutzbares CA-Zertifikat für den Koordinator, setzen Sie peer.ca_cert_file auf das CA-Zertifikat des Koordinators. Starten Sie ihn dann neu.',
     'Copy the change': 'Änderung kopieren',
-    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. That mode needs a ReadWriteMany volume, and an existing ReadWriteOnce claim cannot change its access mode: move its data to a ReadWriteMany claim and set persistence.existingClaim to it before you upgrade.':
-      'Betreiben Sie das Chart im verteilten Modus, dessen Koordinator auf 0.0.0.0 lauscht. Dieser Modus braucht ein ReadWriteMany-Volume, und ein bestehender ReadWriteOnce-Claim kann seinen Zugriffsmodus nicht ändern: Verschieben Sie seine Daten vor dem Upgrade in einen ReadWriteMany-Claim und setzen Sie persistence.existingClaim darauf.',
-    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), and if it cannot read the coordinator's data directory, set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.":
-      'Der Koordinator verlangt TLS. Entfernen Sie auf diesem Server jedes peer.insecure: true (das Flag --peer.insecure, die Variable DAGU_PEER_INSECURE oder die Konfigurationsdatei), und setzen Sie peer.ca_cert_file auf das CA-Zertifikat des Koordinators, falls der Server dessen Datenverzeichnis nicht lesen kann. Starten Sie ihn dann neu.',
     'Check again': 'Erneut prüfen',
     'The coordinator cannot do this yet. Try again in a moment.':
       'Der Koordinator kann dies noch nicht tun. Versuchen Sie es gleich noch einmal.',
@@ -348,11 +348,11 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Erscheint nach Schritt 1 und 2',
   },
   fr: {
+    "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
+      'Définissez DAGU_COORDINATOR_HOST à 0.0.0.0 sur la charge de travail du coordinateur, puis redémarrez-la. Un coordinateur dans son propre pod a besoin d’un stockage que chaque pod Dagu peut écrire. Avec le chart Helm, utilisez deploymentMode : distributed, qui définit la variable. Déplacez les données vers une demande ReadWriteMany, puis définissez persistence.existingClaim sur celle-ci et persistence.accessMode à ReadWriteMany avant la mise à jour.',
+    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file). If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
+      'Le coordinateur exige TLS. Sur ce serveur, retirez tout peer.insecure : true (l’option --peer.insecure, la variable DAGU_PEER_INSECURE ou le fichier de configuration). Si ce serveur n’a pas de certificat de CA utilisable pour le coordinateur, définissez peer.ca_cert_file sur le certificat de CA du coordinateur. Puis redémarrez-le.',
     'Copy the change': 'Copier la modification',
-    'Run the chart in distributed mode, whose coordinator listens on 0.0.0.0. That mode needs a ReadWriteMany volume, and an existing ReadWriteOnce claim cannot change its access mode: move its data to a ReadWriteMany claim and set persistence.existingClaim to it before you upgrade.':
-      'Exécutez le chart en mode distribué, dont le coordinateur écoute sur 0.0.0.0. Ce mode nécessite un volume ReadWriteMany, et une demande ReadWriteOnce existante ne peut pas changer de mode d’accès : déplacez ses données vers une demande ReadWriteMany et définissez persistence.existingClaim sur celle-ci avant la mise à jour.',
-    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file), and if it cannot read the coordinator's data directory, set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.":
-      'Le coordinateur exige TLS. Sur ce serveur, retirez tout peer.insecure : true (l’option --peer.insecure, la variable DAGU_PEER_INSECURE ou le fichier de configuration) et, s’il ne peut pas lire le répertoire de données du coordinateur, définissez peer.ca_cert_file sur le certificat de CA du coordinateur. Puis redémarrez-le.',
     'Check again': 'Revérifier',
     'The coordinator cannot do this yet. Try again in a moment.':
       'Le coordinateur ne peut pas encore le faire. Réessayez dans un instant.',

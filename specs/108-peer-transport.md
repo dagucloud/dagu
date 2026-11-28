@@ -1253,12 +1253,13 @@ and prints the message:
   below is the reported `port`:
   - While `loopbackOnly`, the change for how Dagu was started:
     - in Kubernetes: for `hostSource` `env` or `flag`, the change below;
-      otherwise the chart's `deploymentMode: distributed`, whose
-      coordinator Deployment sets `DAGU_COORDINATOR_HOST` to `0.0.0.0`, and
-      the `ReadWriteMany` storage that mode needs. An existing
+      otherwise `DAGU_COORDINATOR_HOST=0.0.0.0` on the coordinator's
+      workload, which needs storage that every Dagu pod can write. With the
+      Helm chart, that is `deploymentMode: distributed`: an existing
       `ReadWriteOnce` claim cannot change its access mode, so its data moves
-      to a `ReadWriteMany` claim named in `persistence.existingClaim` before
-      the upgrade, as the chart's README describes
+      to a `ReadWriteMany` claim, and `persistence.existingClaim` and
+      `persistence.accessMode: ReadWriteMany` are set before the upgrade, as
+      the chart's README describes
     - in a container: recreate it with `-p <port>:<port>`, and with
       `-e <variable>=0.0.0.0`, where `<variable>` is the `hostSource`
       variable or `DAGU_COORDINATOR_HOST`. A flag wins over a variable, and
@@ -1291,8 +1292,8 @@ and prints the message:
 - Step 2 is a required address field. It starts with `lastInviteAddress`, or
   with `advertise`, or empty. It suggests `addresses`, and none in a
   container, where it asks for the address of the machine that runs the
-  container. It never fills in a host name, a container ID, or the
-  browser's host.
+  container. It never guesses a host from the machine's name, a container
+  ID, or the browser's host; an explicit `advertise` may be a DNS name.
 - The field holds `host:port`, trimmed of surrounding white space as the
   MCP action trims it, and keeps a pasted line break, which the rule below
   refuses inside the address. Its starting value and each suggestion pass the rule
