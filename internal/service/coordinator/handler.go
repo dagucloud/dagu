@@ -1938,14 +1938,13 @@ func (h *Handler) RunHeartbeat(ctx context.Context, req *coordinatorv1.RunHeartb
 			}
 			return nil, err
 		}
-		if err := h.refreshRunLease(ctx, task.AttemptKey, observedAt); err != nil {
+		if err := h.refreshRunLeaseAndRepair(ctx, req.WorkerId, task, observedAt); err != nil {
 			if errors.Is(err, dispatch.ErrDAGRunLeaseNotFound) || errors.Is(err, persis.ErrCorrupt) {
 				cancelledRuns = appendCancelledRunIfMissing(cancelledRuns, task.AttemptKey)
 				continue
 			}
 			return nil, status.Error(codes.Internal, "failed to refresh run lease: "+err.Error())
 		}
-		h.repairStaleLeaseFailureFromRunHeartbeat(ctx, req.WorkerId, task, observedAt)
 	}
 
 	cancelledRuns = appendCancelledRuns(cancelledRuns, h.getCancelledRunsForWorker(ctx, &coordinatorv1.WorkerStats{
@@ -1954,15 +1953,52 @@ func (h *Handler) RunHeartbeat(ctx context.Context, req *coordinatorv1.RunHeartb
 	return &coordinatorv1.RunHeartbeatResponse{CancelledRuns: cancelledRuns}, nil
 }
 
-func (h *Handler) refreshRunLease(ctx context.Context, attemptKey string, observedAt time.Time) error {
-	lease, err := h.dagRunLeaseStore.Get(ctx, attemptKey)
+// refreshRunLeaseAndRepair records a run heartbeat and undoes a stale-run
+// failure that was recorded while the lease was still fresh. It holds the run
+// lock that the zombie detector holds while it fails a run and deletes its
+// lease, so a heartbeat sees either the leased run or the failed run, never
+// the failed run still leased.
+func (h *Handler) refreshRunLeaseAndRepair(
+	ctx context.Context,
+	workerID string,
+	task *coordinatorv1.RunningTask,
+	observedAt time.Time,
+) error {
+	held := h.runLocks.lock(task.DagRunId)
+	defer h.runLocks.unlock(task.DagRunId, held)
+
+	leaseWasFresh, err := h.refreshRunLease(ctx, task, observedAt)
 	if err != nil {
 		return err
 	}
-	if lease != nil && observedAt.Before(lease.LastHeartbeatTime().Add(h.leaseRefreshWriteInterval())) {
-		return nil
+	// A lease that expired before this heartbeat justifies a stale-run
+	// failure, so the failure stands and the worker is told to stop.
+	if leaseWasFresh {
+		h.repairStaleLeaseFailureFromRunHeartbeat(ctx, workerID, task, observedAt)
 	}
-	return h.dagRunLeaseStore.Touch(ctx, attemptKey, observedAt)
+	return nil
+}
+
+// refreshRunLease records a run heartbeat on the lease and reports whether
+// the lease was still fresh when the heartbeat arrived. An expired lease of a
+// run that has already ended stays expired, so a later heartbeat cannot
+// treat it as fresh.
+func (h *Handler) refreshRunLease(ctx context.Context, task *coordinatorv1.RunningTask, observedAt time.Time) (bool, error) {
+	lease, err := h.dagRunLeaseStore.Get(ctx, task.AttemptKey)
+	if err != nil {
+		return false, err
+	}
+	fresh := lease != nil && lease.IsFresh(observedAt, h.staleLeaseThreshold)
+	if !fresh {
+		_, runStatus, err := h.resolveLatestAttemptForRunningTask(ctx, task)
+		if err == nil && runStatus != nil && runStatus.Status.IsTerminal() {
+			return false, nil
+		}
+	}
+	if lease != nil && observedAt.Before(lease.LastHeartbeatTime().Add(h.leaseRefreshWriteInterval())) {
+		return fresh, nil
+	}
+	return fresh, h.dagRunLeaseStore.Touch(ctx, task.AttemptKey, observedAt)
 }
 
 func (h *Handler) repairStaleLeaseFailureFromRunHeartbeat(
@@ -3458,7 +3494,7 @@ func (h *Handler) reconcileLease(ctx context.Context, lease dispatch.DAGRunLease
 		return
 	}
 
-	reconciledStatus, repaired, err := h.repairStaleRun(ctx, runStatus, attemptID, workerID)
+	reconciledStatus, repaired, err := h.repairStaleRun(ctx, runStatus, attemptID, workerID, lease.AttemptKey)
 	if err != nil {
 		logger.Error(ctx, "Failed to confirm stale distributed run from lease reconciliation",
 			tag.DAG(lease.DAGRun.Name),
@@ -3469,10 +3505,6 @@ func (h *Handler) reconcileLease(ctx context.Context, lease dispatch.DAGRunLease
 		return
 	}
 	if repaired {
-		ownership.deleteTracking(ctx, context.WithoutCancel(ctx), lease.DAGRun, lease.AttemptKey,
-			"Failed to delete stale distributed lease after confirmed failure",
-			"Failed to delete active distributed run after confirmed failure",
-		)
 		logger.Warn(ctx, "Marked stale distributed run as FAILED",
 			tag.DAG(lease.DAGRun.Name),
 			tag.RunID(lease.DAGRun.ID),
@@ -3500,6 +3532,7 @@ func (h *Handler) repairStaleRun(
 	status *ir.DAGRunStatus,
 	fallbackAttemptID string,
 	fallbackWorkerID string,
+	attemptKey string,
 ) (*ir.DAGRunStatus, bool, error) {
 	repairCtx := context.WithoutCancel(ctx)
 	if status != nil && status.DAGRunID != "" {
@@ -3513,13 +3546,22 @@ func (h *Handler) repairStaleRun(
 		h.closeCachedAttemptForRun(ctx, repairCtx, status.DAGRunID, attemptID)
 	}
 
-	return runtime.RepairStaleRemoteRun(repairCtx, runtime.StaleRunRepairConfig{
+	reconciledStatus, repaired, err := runtime.RepairStaleRemoteRun(repairCtx, runtime.StaleRunRepairConfig{
 		DAGRunRepository:              h.dagRunRepository,
 		DAGRunLeaseStore:              h.dagRunLeaseStore,
 		WorkerHeartbeatStore:          h.workerHeartbeatStore,
 		StaleLeaseThreshold:           h.staleLeaseThreshold,
 		StaleWorkerHeartbeatThreshold: h.staleHeartbeatThreshold,
 	}, status, fallbackAttemptID, fallbackWorkerID)
+	if err == nil && repaired {
+		// The lease goes in the same critical section as the failure, so a
+		// run heartbeat never finds the failed run still leased.
+		h.attemptOwnership().deleteTracking(ctx, repairCtx, status.DAGRun(), attemptKey,
+			"Failed to delete stale distributed lease after confirmed failure",
+			"Failed to delete active distributed run after confirmed failure",
+		)
+	}
+	return reconciledStatus, repaired, err
 }
 
 func (h *Handler) reconcileRemoteStatuses(ctx context.Context, now time.Time) {
@@ -3550,7 +3592,7 @@ func (h *Handler) reconcileRemoteStatuses(ctx context.Context, now time.Time) {
 			continue
 		}
 
-		reconciledStatus, repaired, err := h.repairStaleRun(ctx, status, leaseState.attemptID, status.WorkerID)
+		reconciledStatus, repaired, err := h.repairStaleRun(ctx, status, leaseState.attemptID, status.WorkerID, leaseState.attemptKey)
 		if err != nil {
 			logger.Error(ctx, "Failed to confirm stale orphaned distributed run",
 				tag.DAG(status.Name),
@@ -3561,10 +3603,6 @@ func (h *Handler) reconcileRemoteStatuses(ctx context.Context, now time.Time) {
 			continue
 		}
 		if repaired {
-			ownership.deleteTracking(ctx, context.WithoutCancel(ctx), status.DAGRun(), leaseState.attemptKey,
-				"Failed to delete orphaned distributed lease after confirmed failure",
-				"Failed to delete orphaned active distributed run after confirmed failure",
-			)
 			continue
 		}
 		if reconciledStatus == nil {
@@ -3654,7 +3692,7 @@ func (h *Handler) reconcileActiveRuns(ctx context.Context, now time.Time) {
 			continue
 		}
 
-		reconciledStatus, repaired, err := h.repairStaleRun(ctx, runStatus, record.AttemptID, workerID)
+		reconciledStatus, repaired, err := h.repairStaleRun(ctx, runStatus, record.AttemptID, workerID, record.AttemptKey)
 		if err != nil {
 			logger.Error(ctx, "Failed to confirm stale indexed distributed run",
 				tag.DAG(record.DAGRun.Name),
@@ -3665,10 +3703,6 @@ func (h *Handler) reconcileActiveRuns(ctx context.Context, now time.Time) {
 			continue
 		}
 		if repaired {
-			ownership.deleteTracking(ctx, context.WithoutCancel(ctx), record.DAGRun, record.AttemptKey,
-				"Failed to delete stale indexed distributed lease after confirmed failure",
-				"Failed to delete stale indexed active distributed run after confirmed failure",
-			)
 			continue
 		}
 		if reconciledStatus == nil {
