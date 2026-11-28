@@ -1,0 +1,10 @@
+working_dir: .
+env:
+  - TZ=Asia/Kathmandu
+steps:
+  - action: js.run
+    stdout: result.out
+    with:
+      script: |
+        const d = new Date(Date.UTC(2026, 10, 12, 18, 30));
+        return d.getHours() + ":" + d.getMinutes() + " " + d.getTimezoneOffset();
