@@ -170,8 +170,9 @@ This spec adds these transitions to Spec 107, for the grants `api_key` and
 | `needs_reconnect` | `connected` | The key is rotated |
 
 - A 401 causes no refresh and no retry, since a key has no refresh. It
-  changes the status only when the rejected key is still the stored key,
-  so a late 401 for a rotated key changes nothing.
+  changes the status only when the rejected key, with its URLs and auth,
+  is still the stored one, so a late 401 from before a change does
+  nothing.
 - A 403 changes no status. It can deny one model and allow others.
 - For a connection on a shared key, the 401 sets the app's status to
   `invalid` in place of the connection's, and a rotation of the app sets
@@ -211,7 +212,7 @@ This spec adds these transitions to Spec 107, for the grants `api_key` and
 - Spec 107 [Binding](107-connections.md#binding) applies to the gateway
   and to the models reader, with one exception: a local-model preset or
   `custom` sends the key over `http` to a base URL that a person entered.
-- A redirect from a request that carries the key fails the request.
+- A redirect from a model request fails the request.
 - A loopback base URL names the Dagu host. A run on a worker fails
   admission with such a connection, since its gateway is not there.
 - On a connection or a shared key that holds a key, a change that adds

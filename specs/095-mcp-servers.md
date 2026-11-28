@@ -120,7 +120,7 @@ fixed headers.
 | `needs_reconnect` | `connected` | A rotation lists the tools |
 
 - A 401 causes no refresh and no retry. It changes the status only when
-  the rejected values are still the stored ones.
+  the rejected values, with their `resource`, are still the stored ones.
 - The change to `needs_reconnect` records the event
   `connection.needs_attention` of Spec 107, once. The UI calls this
   status "Credential rejected". The event points to Rotate credentials on

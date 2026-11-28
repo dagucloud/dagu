@@ -257,7 +257,8 @@ A worker has neither.
 | `holder` | `local`. `cloud` is reserved and refused |
 
 - A metadata change by a person never changes token state, except a
-  change of `subject`, as [Status Transitions](#status-transitions) states.
+  change of `subject`, as [Status Transitions](#status-transitions) states,
+  and a URL change that Specs 093 and 095 pair with a new credential.
   A token refresh never changes metadata.
 
 #### Token State
