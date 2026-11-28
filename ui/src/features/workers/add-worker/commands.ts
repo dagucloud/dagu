@@ -79,9 +79,10 @@ function labelRuleBroken(key: string, value: string): boolean {
 /**
  * Checks the labels field as a worker checks its labels at start. Each
  * comma-separated entry is one `key` or `key=value` label, and empty text
- * is no label. Valid labels go into the commands trimmed, as the MCP
- * action parses them. A problem names a
- * label by its position, never by its text, which may be a pasted invite.
+ * is no label. Valid labels go into the commands as canonical `key` or
+ * `key=value`, without the space or line breaks around the key and value,
+ * as the MCP action writes them. A problem names a label by its position,
+ * never by its text, which may be a pasted invite.
  */
 export function normalizeLabels(
   text: string
@@ -125,7 +126,7 @@ export function normalizeLabels(
       );
     }
     keys.add(lower);
-    labels.push(trimmed);
+    labels.push(eq < 0 ? key : `${key}=${value}`);
   }
   return { labels: labels.join(',') };
 }
@@ -300,10 +301,11 @@ export function checkCommand(
     '--check',
     `--worker.coordinators=${input.address}`,
   ];
-  // An empty data directory and no invite, so the check dials on a host
-  // where the worker already joined. A subshell keeps the unset local.
+  // An empty data directory and no inherited DAGU_* variable, such as
+  // either spelling of the invite or a data directory, so the check dials
+  // on a host where the worker already joined.
   if (tab === WorkerTab.linux) {
-    return `(unset DAGU_WORKER_INVITE; DAGU_HOME="$(mktemp -d)" ${shellCommand(args)})`;
+    return `env -i PATH="$PATH" HOME="$HOME" DAGU_HOME="$(mktemp -d)" ${shellCommand(args)}`;
   }
   if (!input.image) return undefined;
   return shellCommand(['docker', 'run', '--rm', input.image, ...args]);

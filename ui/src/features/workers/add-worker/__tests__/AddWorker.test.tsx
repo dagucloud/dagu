@@ -942,7 +942,7 @@ describe('AddWorker', () => {
     });
     const command =
       "dagu worker '--worker.coordinators=[fd00::20]:50055' " +
-      `'--worker.labels=gpu = true,team=data/eng' --worker.invite=${INVITE}`;
+      `--worker.labels=gpu=true,team=data/eng --worker.invite=${INVITE}`;
     expect(shownCommand()).toBe(command);
     fireEvent.click(screen.getByRole('button', { name: 'Copy the command' }));
     await settle();
@@ -1210,10 +1210,12 @@ describe('AddWorker', () => {
   // The check reports how the host reaches the coordinator; it does not
   // read the invite yet.
   it.each([
-    // An empty data directory, so it dials after the worker joined too.
+    // An empty data directory and none of the shell's DAGU_* variables,
+    // such as DAGU_WORKER.INVITE or DAGU_DATA_DIR, so it dials after the
+    // worker joined too.
     [
       'Linux',
-      '(unset DAGU_WORKER_INVITE; DAGU_HOME="$(mktemp -d)" dagu worker --check --worker.coordinators=192.168.1.20:50055)',
+      'env -i PATH="$PATH" HOME="$HOME" DAGU_HOME="$(mktemp -d)" dagu worker --check --worker.coordinators=192.168.1.20:50055',
     ],
     [
       'Docker',
@@ -1248,12 +1250,12 @@ describe('AddWorker', () => {
   });
 
   // The field keeps line breaks as MCP reads them: one next to = is
-  // trimmed off the key or value and kept in the command, and one inside a
-  // value is refused. vectors.test.ts holds the exact commands.
+  // trimmed off the key or value, so the command is one line, and one
+  // inside a value is refused. vectors.test.ts holds the exact commands.
   it.each([
-    ['gpu=\ntrue', "'--worker.labels=gpu=\ntrue'"],
+    ['gpu=\ntrue', ' --worker.labels=gpu=true '],
     ['zone=a\nb', undefined],
-  ])('keeps a line break in the labels %j', async (labels, argument) => {
+  ])('reads a line break in the labels %j', async (labels, argument) => {
     await open(readiness());
     typeAddress('192.168.1.20:50055');
     fireEvent.change(screen.getByLabelText('Labels (optional)'), {

@@ -1346,8 +1346,9 @@ and prints the message:
   its own host. A label entry holds no comma. A refusal names the label by
   its position, the later one for a repeated key, never by its text. A
   line break inside a label breaks the rules. The commands carry the
-  address and each label without the space and line breaks around them,
-  which the worker drops.
+  address without the space and line breaks around it, and each label in
+  canonical form, `key` or `key=value`, with the space and line breaks
+  around its key and value removed, as the worker drops them.
 - Step 3 shows only after steps 1 and 2, and not while a reading of step
   1 runs, as after a restart. Its tab sets the invite kind:
 
@@ -1388,7 +1389,10 @@ and prints the message:
 - When no worker arrives within 60 seconds, it lists the usual causes (a
   firewall or security group closes the port, a container does not
   publish it, the address is not reachable from the worker) and suggests
-  `dagu worker --check` on the worker host.
+  `dagu worker --check` on the worker host. On Linux it runs under
+  `env -i` with only `PATH`, `HOME`, and a new empty `DAGU_HOME`, so no
+  inherited invite, data directory, or other `DAGU_*` setting stops it
+  before it dials.
 
 #### Workers Page
 
