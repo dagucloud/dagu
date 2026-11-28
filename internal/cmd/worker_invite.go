@@ -4,11 +4,13 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"math"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +22,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
@@ -64,7 +67,6 @@ var coordinatorFailures = map[string]bool{
 var refusalCodes = map[codes.Code]bool{
 	codes.InvalidArgument:    true,
 	codes.FailedPrecondition: true,
-	codes.Unauthenticated:    true,
 	codes.PermissionDenied:   true,
 }
 
@@ -166,13 +168,25 @@ func runWorkerInvite(ctx *Context, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create the invite: %s", callFailure("the coordinator", err))
 	}
-	printInvite(ctx.Command.OutOrStdout(), opts.address, resp)
+	if err := printInvite(ctx.Command.OutOrStdout(), opts.address, resp); err != nil {
+		return discardUnprinted(ctx, coordinators, resp.Record.GetId())
+	}
 	return nil
+}
+
+// discardUnprinted deletes the invite id that could not be printed, since
+// no one may have its secret and no command lists it. It fails either way,
+// naming the invite only by its ID.
+func discardUnprinted(ctx *Context, invites coordinator.InviteClient, id string) error {
+	if err := invites.DeleteInvite(ctx, id); err != nil {
+		return fmt.Errorf("failed to print invite %s, and failed to delete it: %s; delete it before it is used", id, callFailure("the coordinator", err))
+	}
+	return fmt.Errorf("failed to print invite %s, so it was deleted: run the command again", id)
 }
 
 // newInviteClient returns a client for the coordinators of
 // worker.coordinators when set, else those in the service registry of the
-// data directory.
+// data directory, as listed when it is called.
 func newInviteClient(ctx *Context) (coordinator.Client, error) {
 	clientConfig, err := worker.CoordinatorClientConfig(ctx.Config, ctx.serverStores.ServiceRegistry)
 	if err != nil {
@@ -185,7 +199,22 @@ func newInviteClient(ctx *Context) (coordinator.Client, error) {
 			return nil, err
 		}
 	}
-	return coordinator.New(registry, clientConfig), nil
+	members, err := registry.GetServiceMembers(ctx, serviceregistry.ServiceNameCoordinator)
+	if err != nil || len(members) == 0 {
+		return nil, errNoInviteCoordinator
+	}
+	return coordinator.New(&snapshotRegistry{ServiceRegistry: registry, members: members}, clientConfig), nil
+}
+
+// snapshotRegistry lists the coordinators read once, so the create reaches
+// only coordinators whose join readiness was read.
+type snapshotRegistry struct {
+	serviceregistry.ServiceRegistry
+	members []serviceregistry.HostInfo
+}
+
+func (r *snapshotRegistry) GetServiceMembers(context.Context, serviceregistry.ServiceName) ([]serviceregistry.HostInfo, error) {
+	return slices.Clone(r.members), nil
 }
 
 func parseInviteOptions(cmd *cobra.Command) (inviteOptions, error) {
@@ -198,6 +227,11 @@ func parseInviteOptions(cmd *cobra.Command) (inviteOptions, error) {
 	// valid UTF-8.
 	if !utf8.ValidString(address) {
 		return opts, fmt.Errorf("--%s must be valid UTF-8 text", inviteAddressFlag.name)
+	}
+	// The printed --worker.coordinators value is a comma-separated list
+	// whose entries lose surrounding spaces.
+	if strings.Contains(address, ",") || strings.TrimSpace(address) != address {
+		return opts, fmt.Errorf("--%s must be one host:port, without commas or surrounding spaces", inviteAddressFlag.name)
 	}
 	if opts.address, err = normalizeHostPort(address); err != nil {
 		return opts, fmt.Errorf("--%s must be host:port, such as 192.168.1.20:50055 or [2001:db8::1]:50055", inviteAddressFlag.name)
@@ -257,6 +291,9 @@ func callFailure(subject string, err error) string {
 	st := carrier.GRPCStatus()
 	code := st.Code()
 	switch {
+	case code == codes.Unauthenticated:
+		// The coordinator's own words also cover processes on its host.
+		return "the coordinator refused this host's peer token, or its lack of one: set the same peer.token on this host"
 	case refusalCodes[code]:
 		return st.Message()
 	case code == codes.Unimplemented:
@@ -327,8 +364,8 @@ func builtinTLSChange(reason coordinatorv1.BuiltinTLSReason) string {
 }
 
 // printInvite prints the invite of resp and the command that joins a worker
-// host with it through address.
-func printInvite(w io.Writer, address string, resp *coordinatorv1.CreateInviteResponse) {
+// host with it through address, in one write.
+func printInvite(w io.Writer, address string, resp *coordinatorv1.CreateInviteResponse) error {
 	kind := "single use"
 	if resp.Record.GetKind() == coordinatorv1.InviteKind_INVITE_KIND_REUSABLE {
 		kind = "reusable"
@@ -337,8 +374,9 @@ func printInvite(w io.Writer, address string, resp *coordinatorv1.CreateInviteRe
 	if expiresAt := resp.Record.GetExpiresAt(); expiresAt > 0 {
 		expiry = "expires " + time.Unix(expiresAt, 0).UTC().Format(time.RFC3339)
 	}
-	_, _ = fmt.Fprintf(w, "Invite (%s, %s):\n  %s\n", kind, expiry, resp.Invite)
-	_, _ = fmt.Fprintf(w, "Run on the worker host:\n  "+workerJoinCommandFormat+"\n", shellQuote(address), resp.Invite)
+	_, err := fmt.Fprintf(w, "Invite (%s, %s):\n  %s\nRun on the worker host:\n  "+workerJoinCommandFormat+"\n",
+		kind, expiry, resp.Invite, shellQuote(address), resp.Invite)
+	return err
 }
 
 // shellQuote returns s as one word of a POSIX shell command: as it is when

@@ -160,6 +160,14 @@ func checkArgs(home string) []string {
 // of home until the test ends. Each address gets its own entry.
 func registerCoordinator(t *testing.T, home, addr string) {
 	t.Helper()
+	require.NoError(t, coordinatorRegistration(t, home, addr)())
+}
+
+// coordinatorRegistration returns a function that lists the coordinator at
+// addr in the service registry of home until the test ends. It may run on
+// any goroutine.
+func coordinatorRegistration(t *testing.T, home, addr string) func() error {
+	t.Helper()
 	command := cmd.CmdWorker()
 	command.SetContext(t.Context())
 	require.NoError(t, command.ParseFlags(checkArgs(home)))
@@ -171,10 +179,12 @@ func registerCoordinator(t *testing.T, home, addr string) {
 	port, err := strconv.Atoi(portText)
 	require.NoError(t, err)
 	registry := file.NewServiceRegistry(ctx.Config)
-	require.NoError(t, registry.Register(t.Context(), serviceregistry.ServiceNameCoordinator, serviceregistry.HostInfo{
-		ID: "coordinator-" + portText, Host: host, Port: port, Status: serviceregistry.ServiceStatusActive,
-	}))
 	t.Cleanup(func() { registry.Unregister(context.Background()) })
+	return func() error {
+		return registry.Register(t.Context(), serviceregistry.ServiceNameCoordinator, serviceregistry.HostInfo{
+			ID: "coordinator-" + portText, Host: host, Port: port, Status: serviceregistry.ServiceStatusActive,
+		})
+	}
 }
 
 // startCheckCoordinator starts a coordinator on h2c that serves the health

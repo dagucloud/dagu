@@ -930,7 +930,8 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
 - The command calls the coordinator with the peer token, so it runs on any
   host whose processes have the peer token. It calls the coordinators of
   `worker.coordinators` when set, else those in the service registry of its
-  data directory.
+  data directory, as listed once when it starts. The create reaches only
+  coordinators whose join readiness it read.
 - `--expires` is a positive Go duration of at most `2562047h47m16s`. An
   empty value fails like any other that is not a duration.
 - It first reads join readiness. While a coordinator is not ready, it
@@ -938,12 +939,16 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
   creates no invite, and exits with code 1. For `loopbackOnly`, the change
   follows `hostSource`, and without `builtinTLS`, it follows
   `builtinTLSReason`, as the dialog's step 1 does.
-- A failed call prints the coordinator's refusal. A coordinator that fails
-  to generate or store the invite gets that failure and its log as the
-  place to look. Any other failure gets only its kind and that
-  `dagu worker --check` on the calling host shows why.
-- `--address` must be valid UTF-8 and `host:port`, with an IPv6 host in
-  brackets.
+- A failed call prints the coordinator's refusal, except that a refusal for
+  the peer token says to set the same `peer.token` on the calling host. A
+  coordinator that fails to generate or store the invite gets that failure
+  and its log as the place to look. Any other failure gets only its kind
+  and that `dagu worker --check` on the calling host shows why.
+- `--address` must be valid UTF-8 and one `host:port`, with an IPv6 host in
+  brackets, and without a comma or surrounding spaces, which would change
+  how the worker reads the printed `--worker.coordinators`.
+- When the output cannot be written, it deletes the invite it created, and
+  exits with code 1, naming the invite by its ID only.
 - On success it prints the invite kind and expiry, the invite, and the
   command to run on the worker host, and exits with code 0. The command
   quotes an address that a POSIX shell would change, such as an IPv6
