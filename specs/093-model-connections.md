@@ -359,6 +359,8 @@ A CLI step takes the first of these that applies:
 - A project's base config sets `llm` for every DAG of the project, as
   Spec 102 [Base Config](102-projects.md#base-config) states. So
   `llm.connection` in the base config is the project's default model.
+  It does not configure the decision loop of an agent DAG, which keeps
+  the model keys of Spec 032.
 - `chat.completion` with `connection` rejects `provider`, `base_url`, and
   `api_key_name`. The connection's protocol decides the request. For
   `agent.run` and `harness.run`, `provider` names the CLI and stays.
@@ -581,7 +583,7 @@ This spec adds to the routes of Spec 107:
 | `POST /oauth-apps/{id}/shares` | Share a shared key with projects, or with all projects |
 | `GET /connections/{name}/models` | The catalog. It calls no provider |
 | `POST /connections/{name}/models/reload` | Read the models now, and answer with the catalog |
-| `GET /model-choices?project=<name>&dag=<name>&provider=<cli>` | The connections that a step of the DAG can use, with models, display names, effort levels, aliases, and the reason a connection is disabled. It resolves and authorizes the DAG in `project`, as Spec 102 states |
+| `GET /model-choices?project=<name>&dag=<name>&consumer=<name>` | The connections that a step of the DAG can use, with models, display names, effort levels, aliases, and the reason a connection is disabled. `consumer` is a CLI or `chat.completion`, as in [Choosing the Protocol](#choosing-the-protocol). It resolves and authorizes the DAG in `project`, as Spec 102 states |
 
 - No response holds a key or a value derived from it. A response holds
   `keySet` and `keyUpdatedAt`.

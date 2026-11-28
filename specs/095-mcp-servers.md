@@ -181,9 +181,9 @@ step "triage": harness provider "pi" cannot use mcp_servers: Dagu has no MCP ada
   the proxy credential, so the proxy MUST allow the server's host only
   with that credential (`--allow-with-credential` of Spec 105). The agent
   cannot use the proxy credential, so it cannot reach the server past
-  the gateway. The deployment keeps an MCP server off every proxy route
-  that an agent can use without that credential, such as `--allow`
-  hosts on a shared listener and the `--upstream` route.
+  the gateway. The deployment makes the server reachable from the agent
+  only through the gateway: not through any proxy route the agent can
+  use, such as `--allow` hosts and `--upstream`, and not directly.
 
 ## User Interface
 
