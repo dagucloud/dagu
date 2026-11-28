@@ -1928,6 +1928,29 @@ func TestEnrollmentAroundConnectedRemoval(t *testing.T) {
 	})
 }
 
+// A worker on certificate X ran as node-a and now runs as node-b. A removal
+// of node-a makes X removing for node-b while another coordinator enrolls
+// node-b. The removal names X only, so the enrollment of node-b succeeds
+// (Spec 108 §Removal).
+func TestEnrollmentDuringRemovalOfHeldCertificate(t *testing.T) {
+	f := newRemovalFixture(t)
+	moved := f.enroll(t, "node-a")
+	f.heartbeat(t, f.h, moved)
+	f.heartbeatAs(t, moved, "node-b", removalStart.Add(2*time.Minute))
+	f.now = removalStart.Add(time.Hour)
+	f.heartbeatAs(t, moved, "node-b", f.now)
+	other := f.coordinator(t)
+	other.workerCertificates = &beforeCreate{WorkerCertificateStore: f.certs, hook: func() {
+		resp := f.remove(t, removalWorker{id: "node-a"})
+		assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVING, resp.State)
+	}}
+	req, tlsCtx := f.enrollCall(t, "node-b")
+
+	_, err := other.Enroll(tlsCtx, req)
+	require.NoError(t, err)
+	assert.Equal(t, persis.WorkerCertificateRemoving, f.state(t, moved))
+}
+
 // A worker on certificate X ran as node-a and now runs as node-b, and
 // another worker took node-a on certificate Y. A removal of node-a removes
 // Y and leaves X, which node-b still connects with, active (Spec 108

@@ -228,7 +228,12 @@ func (h *Handler) RemoveWorker(ctx context.Context, req *coordinatorv1.RemoveWor
 	if !connected {
 		return h.revokeWorker(ctx, req.WorkerId, hb, now)
 	}
-	resp, removals, err := h.startRemoval(ctx, hb.CertificateID, req.WorkerId)
+	removals, err := h.workerCertificates.BeginWorkerRemoval(ctx, req.WorkerId)
+	if err != nil {
+		logger.Error(ctx, "Failed to begin a worker's removal", tag.WorkerID(req.WorkerId), tag.Error(err))
+		return nil, status.Error(codes.Internal, "failed to remove the worker")
+	}
+	resp, err := h.startRemoval(ctx, hb.CertificateID, req.WorkerId)
 	if err != nil {
 		return nil, err
 	}
@@ -241,25 +246,21 @@ func (h *Handler) RemoveWorker(ctx context.Context, req *coordinatorv1.RemoveWor
 }
 
 // startRemoval marks the certificate certID removing for the connected
-// worker workerID, and returns how many removals of workerID began.
-func (h *Handler) startRemoval(ctx context.Context, certID, workerID string) (*coordinatorv1.RemoveWorkerResponse, int64, error) {
-	removals, err := h.workerCertificates.BeginWorkerRemoval(ctx, workerID)
-	if err != nil {
-		logger.Error(ctx, "Failed to begin a worker's removal", tag.WorkerID(workerID), tag.Error(err))
-		return nil, 0, status.Error(codes.Internal, "failed to remove the worker")
-	}
+// worker workerID. It removes that certificate only, so it leaves the
+// enrollments of workerID alone.
+func (h *Handler) startRemoval(ctx context.Context, certID, workerID string) (*coordinatorv1.RemoveWorkerResponse, error) {
 	// The removal names the worker as it connects now: a worker ID that
 	// changed at a restart may not have reached the record yet.
 	cert, err := h.workerCertificates.MarkRemoving(ctx, certID, workerID, h.clock)
 	if errors.Is(err, persis.ErrWorkerCertificateNotFound) {
 		// A worker back after its record was pruned connects before its
 		// heartbeat writes the record again, within a minute.
-		return nil, 0, status.Error(codes.Unavailable, "the worker's certificate record is being written again; try again in a minute")
+		return nil, status.Error(codes.Unavailable, "the worker's certificate record is being written again; try again in a minute")
 	}
 	if err != nil {
 		logger.Error(ctx, "Failed to mark a worker certificate removing",
 			tag.WorkerID(workerID), slog.String("certificate-id", certID), tag.Error(err))
-		return nil, 0, status.Error(codes.Internal, "failed to remove the worker")
+		return nil, status.Error(codes.Internal, "failed to remove the worker")
 	}
 	h.removals.apply(removalOf(cert))
 	resp := &coordinatorv1.RemoveWorkerResponse{
@@ -268,10 +269,10 @@ func (h *Handler) startRemoval(ctx context.Context, certID, workerID string) (*c
 	}
 	if cert.State == persis.WorkerCertificateRevoked {
 		resp.State = coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED
-		return resp, removals, nil
+		return resp, nil
 	}
 	logger.Info(ctx, "Worker removal started", tag.WorkerID(workerID), slog.String("certificate-id", cert.ID))
-	return resp, removals, nil
+	return resp, nil
 }
 
 // revokeWorker revokes every certificate that names the worker workerID,
@@ -323,7 +324,7 @@ func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatc
 		if !ok {
 			continue
 		}
-		removing, _, err := h.startRemoval(ctx, cert.ID, holder)
+		removing, err := h.startRemoval(ctx, cert.ID, holder)
 		if err != nil {
 			return nil, err
 		}

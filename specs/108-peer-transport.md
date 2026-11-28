@@ -864,6 +864,8 @@ or `stop`:
 - A removal that names a worker ID whose heartbeat is stale, while a worker
   under another ID connects with the same certificate, as after a restart,
   makes the certificate `removing` for that worker instead of revoking it.
+  It removes that certificate only: the enrollments of that worker's ID
+  and its other certificates stay as they are.
 - A worker on the peer token cannot be removed. The removal fails and says
   to stop the worker on its host, or to change the peer token.
 - A fresh heartbeat that a coordinator predating the certificate ID in
