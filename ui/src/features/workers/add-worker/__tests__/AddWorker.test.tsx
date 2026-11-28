@@ -356,15 +356,23 @@ describe('AddWorker', () => {
     expect(worker()).toBeNull();
   });
 
-  // The chosen placement's hint wins over a container listed before or
-  // after the pod.
+  // Either placement's hint wins over a container listed before or after
+  // the pod. Inside names the namespace-qualified Service address.
   it.each([
-    ['a container, then a pod', [box, pod]],
-    ['a pod, then a container', [pod, box]],
-  ])('shows the outside hint for %s', async (_, reports) => {
+    ['Outside the cluster', 'a container, then a pod', [box, pod]],
+    ['Outside the cluster', 'a pod, then a container', [pod, box]],
+    ['Inside this cluster', 'a container, then a pod', [box, pod]],
+    ['Inside this cluster', 'a pod, then a container', [pod, box]],
+  ])('shows the hint for %s with %s', async (name, _, reports) => {
     await open(readings(...reports));
-    fireEvent.click(screen.getByRole('radio', { name: 'Outside the cluster' }));
-    expect(screen.getByText(/assigned node port/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('radio', { name }));
+    expect(
+      screen.getByText(
+        name === 'Outside the cluster'
+          ? /assigned node port/
+          : /dagu-coordinator\.<namespace>\.svc:50055/
+      )
+    ).toBeInTheDocument();
     expect(screen.queryByText(/runs the container/)).toBeNull();
   });
 

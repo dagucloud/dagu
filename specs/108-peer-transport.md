@@ -1299,9 +1299,12 @@ and prints the message:
 - In Kubernetes, step 2 first asks where the workers run, with neither
   answer chosen, since an advertised address is often a Service name that
   only pods in the cluster resolve. Inside this cluster keeps the starting
-  address. Outside the cluster empties the field and asks for the load
-  balancer's address, or a node's address and the assigned node port.
-  Step 3 waits for the answer.
+  address and says that workers in another namespace need the Service's
+  namespace-qualified name, such as `dagu-coordinator.<namespace>.svc:50055`.
+  Outside the cluster empties the field and asks for the load balancer's
+  address, or a node's address and the assigned node port. Either answer's
+  hint replaces the container hint of a container that reports beside the
+  pod. Step 3 waits for the answer.
 - The field holds `host:port`, trimmed of surrounding white space as the
   MCP action trims it, and keeps a pasted line break, which the rule below
   refuses inside the address. Its starting value and each suggestion pass the rule

@@ -286,10 +286,14 @@ function AddressFields({
   const id = React.useId();
   const environment = coordinatorEnvironment(data);
   const suggestions = suggestedAddresses(data);
+  // A Kubernetes answer outranks a container that reports beside the pod.
   let hint: string | undefined;
   if (placement === Placement.outside) {
     hint =
       "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.";
+  } else if (placement === Placement.inside) {
+    hint =
+      "Workers in the coordinator's namespace can use the Service's short name below. Workers in another namespace need its namespace-qualified name, such as dagu-coordinator.<namespace>.svc:50055.";
   } else if (environment === HostEnvironment.container) {
     hint =
       'Enter the address of the machine that runs the container. Dagu cannot see it from inside the container.';
