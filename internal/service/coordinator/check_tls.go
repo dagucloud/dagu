@@ -93,7 +93,7 @@ func checkHandshake(ctx context.Context, config *Config, plan connectionPlan, co
 	case errors.Is(err, ErrInviteCAMismatch):
 		handshake.Err = ErrInviteCAMismatch
 	case errors.Is(err, errNotBuiltinCertificate):
-		handshake.Err = errors.New("the coordinator serves TLS with its own certificates, so this worker cannot join it with an invite")
+		handshake.Err = errors.New("the coordinator serves TLS with its own certificates, not built-in TLS")
 	default:
 		handshake.Err = err
 	}
@@ -119,13 +119,21 @@ func handshakeConfig(config *Config, plan connectionPlan, host string) (*tls.Con
 }
 
 // builtinTLSConfig returns the TLS configuration of a built-in TLS
-// connection on plan. It checks the name every coordinator certificate
-// carries, not the dialed address, and presents the worker certificate of
-// plan, if any.
+// connection on plan, for the client's connections and for the check alike.
+// It checks the name every coordinator certificate carries, not the dialed
+// address, and presents the worker certificate of plan, if any.
 func builtinTLSConfig(plan connectionPlan) *tls.Config {
 	tlsConfig := &tls.Config{RootCAs: plan.roots, MinVersion: tls.VersionTLS13, ServerName: coordinatorCertName}
 	if plan.cert != nil {
 		tlsConfig.Certificates = []tls.Certificate{*plan.cert}
+		// The worker's CA can also sign own certificates, which are no
+		// coordinator of built-in TLS.
+		tlsConfig.VerifyConnection = func(state tls.ConnectionState) error {
+			if len(state.PeerCertificates) == 0 || !isCoordinatorCertificate(state.PeerCertificates[0]) {
+				return errNotBuiltinCertificate
+			}
+			return nil
+		}
 	}
 	if plan.pin != "" {
 		// verifyPinnedChain checks the chain against the pin instead.

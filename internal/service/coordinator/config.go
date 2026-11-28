@@ -51,10 +51,9 @@ type Config struct {
 	// returned.
 	workerCert *tls.Certificate
 	workerCA   *x509.Certificate
-
-	// OnWorkerRemoved, when set, is called each time a coordinator refuses
-	// the worker certificate as revoked, whatever the call.
-	OnWorkerRemoved func()
+	// onRemoved, when set, is called each time a coordinator refuses
+	// workerCert as revoked, whatever the call.
+	onRemoved func()
 
 	// Peer token sent on every call: Token when set, otherwise the content of
 	// TokenFile when this process can read it.
@@ -113,7 +112,7 @@ func ConfigFromPeer(peer appconfig.Peer) *Config {
 func (c *Config) WithInvite(invite Invite) *Config {
 	clone := *c
 	clone.invite = &invite
-	clone.workerCert, clone.workerCA = nil, nil
+	clone.workerCert, clone.workerCA, clone.onRemoved = nil, nil, nil
 	return &clone
 }
 
@@ -121,10 +120,13 @@ func (c *Config) WithInvite(invite Invite) *Config {
 // cert, its worker certificate and key: its connections use built-in TLS,
 // present cert in place of the peer token, verify coordinators against ca,
 // the CA certificate that enrollment returned, and never fall back to h2c.
-func (c *Config) WithWorkerCertificate(cert tls.Certificate, ca *x509.Certificate) *Config {
+// The client calls onRemoved, unless nil, each time a coordinator refuses
+// cert as revoked, on any call.
+func (c *Config) WithWorkerCertificate(cert tls.Certificate, ca *x509.Certificate, onRemoved func()) *Config {
 	clone := *c
 	clone.invite = nil
 	clone.workerCert, clone.workerCA = &cert, ca
+	clone.onRemoved = onRemoved
 	return &clone
 }
 

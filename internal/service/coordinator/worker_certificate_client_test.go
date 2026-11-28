@@ -4,17 +4,26 @@
 package coordinator_test
 
 import (
+	"context"
 	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"fmt"
+	"io"
+	"math/big"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/status"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/backoff"
@@ -23,11 +32,40 @@ import (
 )
 
 // workerCertConfig is the configuration of a worker that holds cert and key
-// from the peer CA of server.
-func workerCertConfig(server peerTLSServer, key *ecdsa.PrivateKey, cert *x509.Certificate) *coordinator.Config {
+// from the peer CA of server, and calls onRemoved, unless nil, on a refusal
+// as revoked.
+func workerCertConfig(server peerTLSServer, key *ecdsa.PrivateKey, cert *x509.Certificate, onRemoved func()) *coordinator.Config {
 	config := coordinator.DefaultConfig()
 	config.DialTimeout = 5 * time.Second
-	return config.WithWorkerCertificate(tls.Certificate{Certificate: [][]byte{cert.Raw}, PrivateKey: key, Leaf: cert}, server.caCert)
+	return config.WithWorkerCertificate(tls.Certificate{Certificate: [][]byte{cert.Raw}, PrivateKey: key, Leaf: cert}, server.caCert, onRemoved)
+}
+
+// startOwnCertServer starts a coordinator that serves TLS with its own
+// certificate for coordinatorCertName, signed by the peer CA of server but
+// not one that a coordinator issues itself for built-in TLS.
+func startOwnCertServer(t *testing.T, server peerTLSServer) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(3),
+		Subject:      pkix.Name{CommonName: "own"},
+		DNSNames:     []string{coordinatorCertName},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, server.caCert, key.Public(), server.caKey)
+	require.NoError(t, err)
+	own, addr := startMockServerWithHealth(t, coordinator.NewHandler(coordinator.HandlerConfig{}), health.NewServer(),
+		grpc.Creds(credentials.NewTLS(&tls.Config{
+			Certificates: []tls.Certificate{{Certificate: [][]byte{der, server.caCert.Raw}, PrivateKey: key}},
+			ClientAuth:   tls.RequestClientCert,
+			MinVersion:   tls.VersionTLS13,
+		})))
+	t.Cleanup(own.Stop)
+	return addr
 }
 
 // A worker that holds a certificate asks the coordinator about it before it
@@ -39,7 +77,7 @@ func TestConfirmWorkerCertificate(t *testing.T) {
 	server := startPeerTLSServer(t, certHosts)
 	other := startPeerTLSServer(t, certHosts)
 	key, cert, _ := server.enrolled(t)
-	config := workerCertConfig(server, key, cert)
+	config := workerCertConfig(server, key, cert, nil)
 
 	require.NoError(t, coordinator.ConfirmWorkerCertificate(t.Context(), config, server.addr))
 	assert.ErrorIs(t, coordinator.ConfirmWorkerCertificate(t.Context(), config, other.addr), coordinator.ErrOtherDagu)
@@ -65,9 +103,8 @@ func TestClientReportsRemoval(t *testing.T) {
 	t.Parallel()
 	server := startPeerTLSServer(t, certHosts)
 	key, cert, _ := server.enrolled(t)
-	config := workerCertConfig(server, key, cert)
 	var refusals atomic.Int32
-	config.OnWorkerRemoved = func() { refusals.Add(1) }
+	config := workerCertConfig(server, key, cert, func() { refusals.Add(1) })
 	registry, err := coordinator.NewStaticRegistry([]string{server.addr})
 	require.NoError(t, err)
 	client := coordinator.New(registry, config)
@@ -103,7 +140,7 @@ func TestCheckWorkerCertificate(t *testing.T) {
 	t.Parallel()
 	server := startPeerTLSServer(t, certHosts)
 	key, cert, invite := server.enrolled(t)
-	config := workerCertConfig(server, key, cert)
+	config := workerCertConfig(server, key, cert, nil)
 
 	result := coordinator.Check(t.Context(), config, checkMember(t, server.addr))
 	require.True(t, result.Passed(), "%+v", result)
@@ -149,4 +186,52 @@ func TestCheckInvite(t *testing.T) {
 	require.NotNil(t, result.TLS)
 	assert.ErrorIs(t, result.TLS.Err, coordinator.ErrInviteCAMismatch)
 	assert.Empty(t, result.TLS.Fallback, "an invite worker never falls back to h2c")
+}
+
+// A log stream that the coordinator refuses before its first send reports
+// the refusal from the failed send, since the log writers drop a stream whose
+// send failed. The caller still reads the refusal (Spec 108 §Removed Worker).
+func TestStreamRefusalReportsRemoval(t *testing.T) {
+	t.Parallel()
+	server := startPeerTLSServer(t, certHosts)
+	key, cert, _ := server.enrolled(t)
+	var refusals atomic.Int32
+	config := workerCertConfig(server, key, cert, func() { refusals.Add(1) })
+	registry, err := coordinator.NewStaticRegistry([]string{server.addr})
+	require.NoError(t, err)
+	client := coordinator.New(registry, config)
+	t.Cleanup(func() { _ = client.Cleanup(t.Context()) })
+	server.remove(t, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	stream, err := client.StreamLogs(ctx)
+	require.NoError(t, err)
+	// Sends succeed until the refusal arrives, as they are buffered.
+	var sendErr error
+	for sendErr == nil && ctx.Err() == nil {
+		sendErr = stream.Send(&coordinatorv1.LogChunk{DagRunId: "run-1"})
+	}
+	require.ErrorIs(t, sendErr, io.EOF)
+	assert.Equal(t, int32(1), refusals.Load(), "the refusal is reported without a receive")
+	_, err = stream.CloseAndRecv()
+	assert.True(t, coordinator.IsWorkerRemoved(err), "%v", err)
+	assert.Equal(t, int32(1), refusals.Load())
+}
+
+// The client's connections and the check refuse a coordinator that serves its
+// own certificate signed by the worker's CA, since it is no coordinator
+// certificate of built-in TLS (Spec 108 §Worker Side).
+func TestOwnCertificateOnWorkerCA(t *testing.T) {
+	t.Parallel()
+	server := startPeerTLSServer(t, certHosts)
+	key, cert, _ := server.enrolled(t)
+	config := workerCertConfig(server, key, cert, nil)
+	addr := startOwnCertServer(t, server)
+
+	assert.Error(t, coordinator.ConfirmWorkerCertificate(t.Context(), config, addr))
+	result := coordinator.Check(t.Context(), config, checkMember(t, addr))
+	assert.False(t, result.Passed())
+	require.NotNil(t, result.TLS)
+	assert.EqualError(t, result.TLS.Err, "the coordinator serves TLS with its own certificates, not built-in TLS")
 }
