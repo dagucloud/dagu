@@ -218,6 +218,29 @@ func TestWorkerCertificateStore_MarkRemovingNamesHeartbeatWorker(t *testing.T) {
 	assert.Equal(t, "worker-b", named(), "the revoked record keeps the named worker")
 }
 
+// The worker a removal names joins the removal record's worker IDs, and a
+// newer heartbeat's IDs join the certificate record's. Reads and later
+// writes of the removal keep both histories (Spec 108 §Removal).
+func TestWorkerCertificateStore_RemovalKeepsBothWorkerIDHistories(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s, _ := newWorkerCertificateStore(t)
+	createCertificate(t, s, workerCertificate("cert-1"))
+	removingAt := enrolledAt.Add(time.Hour)
+	_, err := s.MarkRemoving(ctx, "cert-1", "worker-holder", clockAt(removingAt))
+	require.NoError(t, err)
+	beat := workerCertificate("cert-1")
+	beat.WorkerID = "worker-new"
+	beat.LastHeartbeatAt = removingAt.Add(time.Minute)
+	recordHeartbeat(t, s, beat)
+
+	want := []string{"worker-cert-1", "worker-holder", "worker-new"}
+	assert.Equal(t, want, seenIDs(getCertificate(t, s, "cert-1")))
+	_, err = s.MarkRemoving(ctx, "cert-1", "worker-holder", clockAt(removingAt.Add(2*time.Minute)))
+	require.NoError(t, err)
+	assert.Equal(t, want, seenIDs(setState(t, s, "cert-1", persis.WorkerCertificateRevoked)))
+}
+
 // A removal that cannot be read fails the read, so a revoked certificate is
 // never taken for an active one.
 func TestWorkerCertificateStore_ListRemovalsFailsOnUnreadableRecord(t *testing.T) {

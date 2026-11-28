@@ -132,6 +132,8 @@ func (r *workerRemovals) addLocked(removals []persis.WorkerCertificateRemoval) {
 				}
 				r.removingSeen[removal.ID] = now()
 			}
+		case persis.WorkerCertificateActive:
+			// The copy holds only certificates in removal.
 		}
 	}
 }

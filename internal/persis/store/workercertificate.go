@@ -243,9 +243,11 @@ func (s *WorkerCertificateStore) listRemoved(ctx context.Context) ([]persis.Work
 // withHeartbeat returns the removed certificate with the heartbeat fields of
 // its certificate record, when those are newer.
 func withHeartbeat(removed, cert persis.WorkerCertificate) persis.WorkerCertificate {
+	// The removal record may name a holder the certificate record has not
+	// seen, so both histories are kept.
+	removed.WorkerIDs = mergeWorkerIDs(removed.WorkerIDs, cert.WorkerIDs)
 	if cert.LastHeartbeatAt.After(removed.LastHeartbeatAt) {
 		removed.WorkerID = cert.WorkerID
-		removed.WorkerIDs = cert.WorkerIDs
 		removed.Host = cert.Host
 		removed.Environment = cert.Environment
 		removed.LastHeartbeatAt = cert.LastHeartbeatAt
@@ -334,6 +336,32 @@ func knownWorkerIDs(cert persis.WorkerCertificate) []persis.WorkerIDSeen {
 		return nil
 	}
 	return []persis.WorkerIDSeen{{ID: cert.WorkerID, SeenAt: cert.LastHeartbeatAt}}
+}
+
+// mergeWorkerIDs returns the worker IDs of a and b, each at its latest
+// sighting, the least recently seen first, and at most the
+// workerCertificateWorkerIDs most recently seen.
+func mergeWorkerIDs(a, b []persis.WorkerIDSeen) []persis.WorkerIDSeen {
+	latest := make(map[string]time.Time, len(a)+len(b))
+	for _, seen := range slices.Concat(a, b) {
+		if at, ok := latest[seen.ID]; !ok || seen.SeenAt.After(at) {
+			latest[seen.ID] = seen.SeenAt
+		}
+	}
+	merged := make([]persis.WorkerIDSeen, 0, len(latest))
+	for id, at := range latest {
+		merged = append(merged, persis.WorkerIDSeen{ID: id, SeenAt: at})
+	}
+	slices.SortStableFunc(merged, func(x, y persis.WorkerIDSeen) int {
+		return cmp.Or(x.SeenAt.Compare(y.SeenAt), cmp.Compare(x.ID, y.ID))
+	})
+	if extra := len(merged) - workerCertificateWorkerIDs; extra > 0 {
+		merged = merged[extra:]
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
 }
 
 // seeWorkerID returns ids with id seen at at, the most recently seen last,
