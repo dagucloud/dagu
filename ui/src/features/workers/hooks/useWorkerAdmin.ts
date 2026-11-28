@@ -217,6 +217,17 @@ const ACCESS_REASONS: ReasonAdvice = {
       { command: 'dagu worker --check' }
     ),
   }),
+  [WorkerAccessReason.coordinator_conflict]: (ts) => ({
+    cause: ts('The coordinator could not do this in its current state.'),
+    change: ts(
+      'Check the coordinator log for the reason, or run {command} on this host, then try again.',
+      { command: 'dagu worker --check' }
+    ),
+  }),
+  [WorkerAccessReason.retry_later]: (ts) => ({
+    cause: ts('The coordinator answered but cannot do this yet.'),
+    change: ts('Wait a moment, then try again.'),
+  }),
   [WorkerAccessReason.older_coordinator]: (ts) => ({
     cause: ts(
       'The coordinator runs an earlier Dagu release without worker invites.'

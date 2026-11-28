@@ -76,6 +76,11 @@ export const workerAdminMessages = defineMessages({
     'Check that it runs a Dagu release with worker invites.':
       'Check that it runs a Dagu release with worker invites.',
     'Server message: “{message}”': 'Server message: “{message}”',
+    'The coordinator could not do this in its current state.':
+      'The coordinator could not do this in its current state.',
+    'The coordinator answered but cannot do this yet.':
+      'The coordinator answered but cannot do this yet.',
+    'Wait a moment, then try again.': 'Wait a moment, then try again.',
   },
   'zh-CN': {
     'Only admins can manage workers and invites.':
@@ -145,6 +150,11 @@ export const workerAdminMessages = defineMessages({
     'Check that it runs a Dagu release with worker invites.':
       '请确认它运行的 Dagu 版本支持 Worker 邀请。',
     'Server message: “{message}”': '服务器消息：“{message}”',
+    'The coordinator could not do this in its current state.':
+      'Coordinator 在当前状态下无法执行此操作。',
+    'The coordinator answered but cannot do this yet.':
+      'Coordinator 已响应，但暂时无法执行此操作。',
+    'Wait a moment, then try again.': '请稍候，然后重试。',
   },
   ja: {
     'Only admins can manage workers and invites.':
@@ -217,6 +227,12 @@ export const workerAdminMessages = defineMessages({
     'Check that it runs a Dagu release with worker invites.':
       'ワーカー招待に対応した Dagu を動かしているか確認してください。',
     'Server message: “{message}”': 'サーバーのメッセージ：「{message}」',
+    'The coordinator could not do this in its current state.':
+      'コーディネーターは現在の状態ではこの操作を行えません。',
+    'The coordinator answered but cannot do this yet.':
+      'コーディネーターは応答しましたが、まだこの操作を行えません。',
+    'Wait a moment, then try again.':
+      'しばらく待ってから、もう一度お試しください。',
   },
   de: {
     'Only admins can manage workers and invites.':
@@ -289,6 +305,12 @@ export const workerAdminMessages = defineMessages({
     'Check that it runs a Dagu release with worker invites.':
       'Prüfen Sie, ob er eine Dagu-Version mit Worker-Einladungen ausführt.',
     'Server message: “{message}”': 'Servermeldung: „{message}“',
+    'The coordinator could not do this in its current state.':
+      'Der Coordinator konnte dies in seinem aktuellen Zustand nicht ausführen.',
+    'The coordinator answered but cannot do this yet.':
+      'Der Coordinator hat geantwortet, kann dies aber noch nicht ausführen.',
+    'Wait a moment, then try again.':
+      'Warten Sie einen Moment und versuchen Sie es dann erneut.',
   },
   fr: {
     'Only admins can manage workers and invites.':
@@ -361,5 +383,10 @@ export const workerAdminMessages = defineMessages({
     'Check that it runs a Dagu release with worker invites.':
       'Vérifiez qu’il exécute une version de Dagu avec les invitations de workers.',
     'Server message: “{message}”': 'Message du serveur : « {message} »',
+    'The coordinator could not do this in its current state.':
+      'Le coordinateur n’a pas pu le faire dans son état actuel.',
+    'The coordinator answered but cannot do this yet.':
+      'Le coordinateur a répondu mais ne peut pas encore le faire.',
+    'Wait a moment, then try again.': 'Patientez un instant, puis réessayez.',
   },
 });

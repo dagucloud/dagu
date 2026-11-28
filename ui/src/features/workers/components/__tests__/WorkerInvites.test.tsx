@@ -327,6 +327,16 @@ describe('WorkerInvites', () => {
       'The coordinator runs an earlier Dagu release without worker invites.',
       'Upgrade the coordinator.',
     ],
+    [
+      'coordinator_conflict',
+      'The coordinator could not do this in its current state.',
+      'Check the coordinator log for the reason, or run dagu worker --check on this host, then try again.',
+    ],
+    [
+      'retry_later',
+      'The coordinator answered but cannot do this yet.',
+      'Wait a moment, then try again.',
+    ],
   ])(
     'explains why the invites cannot be listed: %s',
     async (reason, cause, change) => {
