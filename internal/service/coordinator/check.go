@@ -112,8 +112,8 @@ type Credential struct {
 	enrolls bool
 }
 
-// String says what the client presents to the coordinator.
-func (c Credential) String() string {
+// credentialText says what the client presents to the coordinator.
+func credentialText(c Credential) string {
 	switch {
 	case c.certificateID != "":
 		return fmt.Sprintf("worker certificate %s, from invite %s; no peer token", c.certificateID, c.inviteID)
@@ -125,7 +125,7 @@ func (c Credential) String() string {
 	case PeerTokenConfigured:
 		token = "peer token from peer.token"
 	case PeerTokenDataDir:
-		token = "peer token from the coordinator's data directory"
+		token = "the peer token that the coordinator generated"
 	case PeerTokenNone:
 		token = "no peer token"
 	}
@@ -185,9 +185,15 @@ func (r CheckResult) Passed() bool {
 		(r.TLS == nil || r.TLS.Err == nil || r.TLS.Fallback != "") && r.AnswerErr == nil
 }
 
-// Answer says what the coordinator answered the client's calls, once the
-// check reached them.
-func (r CheckResult) Answer() string {
+// Describe returns the check's lines about the client's credential: what
+// the client presents to the coordinator, and what the coordinator answered
+// its calls, once the check reached them.
+func (r CheckResult) Describe() (credential, answer string) {
+	return credentialText(r.Credential), answerText(r)
+}
+
+// answerText says what the coordinator answered the client's calls.
+func answerText(r CheckResult) string {
 	switch {
 	case r.AnswerErr != nil:
 		return r.AnswerErr.Error()

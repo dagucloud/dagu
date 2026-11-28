@@ -19,15 +19,30 @@ import (
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
 
-// removedWorkerCheckAnswer is what dagu worker --check prints for a worker
-// certificate refused as revoked, in the words of Spec 108 §Messages.
-const removedWorkerCheckAnswer = "This worker was removed from the coordinator\n  Get a new command from \"Add worker\" to add it again."
+// removedWorkerCheckAnswer and removedWorkerCheckAnswerKubernetes are what
+// dagu worker --check prints for a worker certificate refused as revoked, in
+// the words of Spec 108 §Messages.
+const (
+	removedWorkerCheckAnswer           = "This worker was removed from the coordinator\n  Get a new command from \"Add worker\" to add it again."
+	removedWorkerCheckAnswerKubernetes = "This worker was removed from the coordinator\n  Scale its Deployment down to stop it, or get a new command from \"Add worker\" to add it again."
+)
 
 // removedWorkerError is the check's answer for a worker certificate refused
-// as revoked.
+// as revoked, with the next step for where the worker runs.
 type removedWorkerError struct{}
 
-func (removedWorkerError) Error() string { return removedWorkerCheckAnswer }
+func (removedWorkerError) Error() string {
+	return removedWorkerAnswer(ProcessEnvironment())
+}
+
+// removedWorkerAnswer is the check's answer for a worker certificate
+// refused as revoked, for a worker in environment.
+func removedWorkerAnswer(environment coordinatorv1.HostEnvironment) string {
+	if environment == coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES {
+		return removedWorkerCheckAnswerKubernetes
+	}
+	return removedWorkerCheckAnswer
+}
 
 // isWorkerRemoved reports whether err is a coordinator's refusal of a worker
 // certificate as revoked, also when an error wraps it.
@@ -54,6 +69,13 @@ func isWorkerRemoved(err error) bool {
 // belongs to another Dagu, with otherDagu naming the first of them. While no
 // coordinator answers, it returns the client, whose calls retry.
 func NewWorkerClient(ctx context.Context, addresses []string, config *Config, onRemoved func()) (client Client, otherDagu string, err error) {
+	return newWorkerClient(ctx, addresses, config, onRemoved, confirmWorkerCertificate)
+}
+
+// newWorkerClient is NewWorkerClient with confirm in place of the
+// confirmation of the certificate with one coordinator.
+func newWorkerClient(ctx context.Context, addresses []string, config *Config, onRemoved func(),
+	confirm func(context.Context, *Config, string) (bool, error)) (Client, string, error) {
 	if config.workerCert == nil {
 		return nil, "", errors.New("a worker client needs a worker certificate")
 	}
@@ -63,8 +85,12 @@ func NewWorkerClient(ctx context.Context, addresses []string, config *Config, on
 	}
 	clientConfig := *config
 	clientConfig.onRemoved = onRemoved
-	for _, address := range addresses {
-		authenticated, err := confirmWorkerCertificate(ctx, &clientConfig, address)
+	var otherDagu string
+	// The registry's addresses, as the client dials them, in the order of
+	// addresses.
+	for _, member := range registry.coordinators {
+		address := coordinatorAddress(member)
+		authenticated, err := confirm(ctx, &clientConfig, address)
 		switch {
 		case err == nil:
 			return New(registry, &clientConfig), "", nil

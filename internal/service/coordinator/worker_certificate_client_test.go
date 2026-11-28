@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -30,10 +31,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
-
-// removedAnswer is what the check answers for a certificate refused as
-// revoked.
-const removedAnswer = "This worker was removed from the coordinator\n  Get a new command from \"Add worker\" to add it again."
 
 // workerCertConfig is the configuration of a worker that holds cert and key
 // from the peer CA of server.
@@ -238,8 +235,9 @@ func TestCheckWorkerCertificate(t *testing.T) {
 	assert.Equal(t, "built-in TLS (from worker certificate)", result.Transport)
 	assert.True(t, result.TLS.Verified)
 	assert.True(t, result.Credential.CertSent)
-	assert.Equal(t, "worker certificate "+cert.Subject.CommonName+", from invite "+invite.Record.Id+"; no peer token", result.Credential.String())
-	assert.Equal(t, "serving, and it accepted the worker certificate", result.Answer())
+	credential, answer := result.Describe()
+	assert.Equal(t, "worker certificate "+cert.Subject.CommonName+", from invite "+invite.Record.Id+"; no peer token", credential)
+	assert.Equal(t, "serving, and it accepted the worker certificate", answer)
 
 	// A coordinator of another Dagu is named as such, not as an untrusted CA.
 	other := startPeerTLSServer(t, certHosts)
@@ -250,7 +248,8 @@ func TestCheckWorkerCertificate(t *testing.T) {
 	server.remove(t, coordinatorv1.RemoveWorkerRuns_REMOVE_WORKER_RUNS_FINISH)
 	result = coordinator.Check(t.Context(), config, checkMember(t, server.addr))
 	assert.False(t, result.Passed())
-	assert.Equal(t, removedAnswer, result.Answer())
+	_, answer = result.Describe()
+	assert.True(t, strings.HasPrefix(answer, "This worker was removed from the coordinator\n"), answer)
 }
 
 // The check of a worker that enrolls verifies the coordinator against the
@@ -267,8 +266,9 @@ func TestCheckInvite(t *testing.T) {
 	require.True(t, result.Passed(), "%+v", result)
 	assert.Equal(t, "built-in TLS (from worker.invite)", result.Transport)
 	assert.True(t, result.TLS.Verified)
-	assert.Equal(t, "the invite of worker.invite, which only enrollment uses; no peer token", result.Credential.String())
-	assert.Equal(t, "serving; the worker enrolls with its invite when it starts", result.Answer())
+	credential, answer := result.Describe()
+	assert.Equal(t, "the invite of worker.invite, which only enrollment uses; no peer token", credential)
+	assert.Equal(t, "serving; the worker enrolls with its invite when it starts", answer)
 	assert.Equal(t, 0, server.inviteUses(t, created.Record.Id), "the check never enrolls")
 
 	result = coordinator.Check(t.Context(), config, checkMember(t, other.addr))

@@ -4,6 +4,8 @@
 package coordinator
 
 import (
+	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"testing"
@@ -62,4 +64,32 @@ func TestStreamReportsAfterContextEnd(t *testing.T) {
 	assert.Error(t, s.RecvMsg(&emptypb.Empty{}))
 	assert.Equal(t, 1, refusals)
 	assert.Zero(t, link.inflight, "the stream ends on its link once")
+}
+
+// The start confirmation asks the coordinators at the addresses the client
+// dials, in their configured order, with the default port filled in, and
+// names another Dagu by the address it dialed (Spec 108 §Worker Start).
+func TestNewWorkerClientProbesRegistryAddresses(t *testing.T) {
+	t.Parallel()
+	config := DefaultConfig().WithWorkerCertificate(tls.Certificate{}, nil)
+	var probed []string
+	_, otherDagu, err := newWorkerClient(t.Context(), []string{"127.0.0.1", "coordinator-b:50056"}, config, func() {},
+		func(_ context.Context, _ *Config, address string) (bool, error) {
+			probed = append(probed, address)
+			return false, ErrInviteCAMismatch
+		})
+	assert.ErrorIs(t, err, ErrInviteCAMismatch)
+	assert.Equal(t, []string{"127.0.0.1:50055", "coordinator-b:50056"}, probed)
+	assert.Equal(t, "127.0.0.1:50055", otherDagu)
+}
+
+// The check's answer for a certificate refused as revoked gives the next
+// step for where the worker runs, as the worker's own exit does (Spec 108
+// §Messages).
+func TestRemovedWorkerCheckAnswer(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, removedWorkerCheckAnswer, removedWorkerAnswer(coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_HOST))
+	assert.Equal(t, removedWorkerCheckAnswer, removedWorkerAnswer(coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_CONTAINER))
+	assert.Equal(t, removedWorkerCheckAnswerKubernetes, removedWorkerAnswer(coordinatorv1.HostEnvironment_HOST_ENVIRONMENT_KUBERNETES))
+	assert.Equal(t, removedWorkerAnswer(ProcessEnvironment()), removedWorkerError{}.Error())
 }
