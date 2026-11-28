@@ -5,6 +5,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -257,18 +258,37 @@ func TestNewToolRegistryRefusesEvaluatedInput(t *testing.T) {
 			t.Parallel()
 			tool, err := spec.LoadYAML(context.Background(), []byte("name: tool\n"+tc.body))
 			require.NoError(t, err)
-			parent := &ir.DAG{Name: "parent", LocalDAGs: map[string]*ir.DAG{"tool": tool}}
-			ctx := runctx.NewContext(context.Background(), parent, "run-1", "/tmp/log")
-			_, err = NewToolRegistry(ctx, []string{"tool"})
-			if tc.want == "" {
-				assert.NoError(t, err)
-				return
+			// A queued, retried or restarted run reads its local DAGs back from
+			// the run snapshot, which keeps fewer fields than a fresh load.
+			for _, form := range []struct {
+				name string
+				dag  *ir.DAG
+			}{{"Loaded", tool}, {"Snapshot", snapshotOf(t, tool)}} {
+				parent := &ir.DAG{Name: "parent", LocalDAGs: map[string]*ir.DAG{"tool": form.dag}}
+				ctx := runctx.NewContext(context.Background(), parent, "run-1", "/tmp/log")
+				_, err := NewToolRegistry(ctx, []string{"tool"})
+				if tc.want == "" {
+					assert.NoError(t, err, form.name)
+					continue
+				}
+				if assert.Error(t, err, form.name) {
+					assert.Contains(t, err.Error(), `tool DAG "tool": `, form.name)
+					assert.Contains(t, err.Error(), tc.want, form.name)
+				}
 			}
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), `tool DAG "tool": `)
-			assert.Contains(t, err.Error(), tc.want)
 		})
 	}
+}
+
+// snapshotOf returns dag as a run snapshot holds it: written as JSON and read
+// back.
+func snapshotOf(t *testing.T, dag *ir.DAG) *ir.DAG {
+	t.Helper()
+	data, err := json.Marshal(dag)
+	require.NoError(t, err)
+	var restored ir.DAG
+	require.NoError(t, json.Unmarshal(data, &restored))
+	return &restored
 }
 
 // A params schema next to the tool DAG file resolves without a working_dir.
