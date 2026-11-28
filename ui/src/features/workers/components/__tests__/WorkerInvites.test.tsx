@@ -364,6 +364,31 @@ describe('WorkerInvites', () => {
     }
   );
 
+  // A non-admin gets 403 before the request is checked, a bad ID included.
+  // The page shows its own admin text and never the server's words.
+  it('shows only the admin text for a 403 on delete', async () => {
+    server.invites = invitesAnswer([invite('inv-1')]);
+    server.del = () => refused(403, 'Insufficient permissions', 'forbidden');
+
+    render(
+      <QueryFeedback>
+        <WorkerInvites workers={[worker('worker-a')]} live refreshes={0} />
+      </QueryFeedback>,
+      { wrapper: Providers }
+    );
+    await userEvent.click(
+      await screen.findByRole('button', { name: /^Delete invite inv-1/ })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    const alert = await within(screen.getByRole('dialog')).findByRole('alert');
+    expect(alert).toHaveTextContent(
+      'Only admins can manage workers and invites.'
+    );
+    expect(document.body).not.toHaveTextContent('Insufficient permissions');
+    expect(screen.queryByText(/Server message/)).not.toBeInTheDocument();
+  });
+
   // A bad ID is refused before any coordinator call. The words of that
   // refusal appear nowhere, in the dialog or in a page notice.
   it('keeps the words of a refused bad ID off the page', async () => {
