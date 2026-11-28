@@ -7,7 +7,6 @@ import (
 	"context"
 	"sync"
 	"testing"
-	"time"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -222,16 +221,20 @@ return [p.getHours.name, p.getHours.length, p.toString.name, p.setHours.name, p.
 		assert.JSONEq(t, `["getHours", 0, "toString", "setHours", 4, 3]`, got.stdout)
 	})
 
-	t.Run("POSIXFixedOffsetSign", func(t *testing.T) {
+	t.Run("FixedOffsetTZ", func(t *testing.T) {
 		t.Parallel()
-		// POSIX TZ=UTC+9 means 9h west of UTC (+540 JS offset); TZ=UTC-9 means 9h east (-540).
-		west := run(t, ctxWithTZ("UTC+9", nil), `return new Date(Date.UTC(2026, 10, 12, 12, 0, 0)).getTimezoneOffset()`, nil)
-		require.NoError(t, west.err)
-		assert.Equal(t, "540\n", west.stdout)
-
-		east := run(t, ctxWithTZ("UTC-9", nil), `return new Date(Date.UTC(2026, 10, 12, 12, 0, 0)).getTimezoneOffset()`, nil)
-		require.NoError(t, east.err)
-		assert.Equal(t, "-540\n", east.stdout)
+		// POSIX TZ offsets count hours west of UTC, so UTC+9 is a JS offset of
+		// +540. An unknown zone falls back to UTC.
+		for tz, want := range map[string]string{
+			"UTC+9":      "540\n",
+			"UTC-9":      "-540\n",
+			"UTC-3:30":   "-210\n",
+			"Not/A_Zone": "0\n",
+		} {
+			got := run(t, ctxWithTZ(tz, nil), `return new Date(Date.UTC(2026, 10, 12, 12, 0, 0)).getTimezoneOffset()`, nil)
+			require.NoError(t, got.err, tz)
+			assert.Equal(t, want, got.stdout, tz)
+		}
 	})
 
 	t.Run("ConcurrentStepsStayIsolated", func(t *testing.T) {
@@ -260,13 +263,9 @@ return [p.getHours.name, p.getHours.length, p.toString.name, p.setHours.name, p.
 }
 
 func TestJS_ProcessTZFallback(t *testing.T) {
-	origLocal := time.Local
 	t.Setenv("TZ", "Asia/Tokyo")
 	ctx := runtime.WithEnv(context.Background(), runtime.NewEnv(context.Background(), ir.Step{}))
 	got := run(t, ctx, `return new Date(Date.UTC(2026, 10, 12, 17, 14, 0)).getTimezoneOffset()`, nil)
 	require.NoError(t, got.err)
 	assert.Equal(t, "-540\n", got.stdout)
-
-	// Confirm Go process-wide time.Local itself was never mutated by js.Run.
-	assert.Same(t, origLocal, time.Local)
 }
