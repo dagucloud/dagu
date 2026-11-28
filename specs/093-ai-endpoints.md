@@ -527,6 +527,8 @@ The check is skipped, and the step goes on, in these cases:
 - The endpoint has no models URL. The preset Custom with no `models_url` is this case.
 - The list was never read, or the last read failed and no good list exists.
 - The list is empty.
+- The list lacks the model, and the read that made it stopped at a limit: 5000 names or 10 pages. Such a
+  list does not show that the model is unknown.
 - The model is empty after resolution. An `agent.run` step of the provider `claude` MUST name a model, so only a reference can give an empty value.
 - The process holds no models store, for example a coordinator that cannot open the data directory. The log
   of the process says it.
