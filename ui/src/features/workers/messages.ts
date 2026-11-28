@@ -95,6 +95,53 @@ export const workerAdminMessages = defineMessages({
       'The credentials this server uses for the selected node lack admin access there.',
     'Give those credentials the admin role on the selected node.':
       'Give those credentials the admin role on the selected node.',
+    'Remove {worker}': 'Remove {worker}',
+    'Removing (1 run left)': 'Removing (1 run left)',
+    'Removing ({count} runs left)': 'Removing ({count} runs left)',
+    'Stop runs now': 'Stop runs now',
+    'Stop runs now on {worker}': 'Stop runs now on {worker}',
+    'A worker on TLS or Plaintext has no certificate and no Remove, since it would connect again at once. To stop one, stop it on its host, or change the peer token if the coordinator requires one.':
+      'A worker on TLS or Plaintext has no certificate and no Remove, since it would connect again at once. To stop one, stop it on its host, or change the peer token if the coordinator requires one.',
+    'This worker is no longer listed.': 'This worker is no longer listed.',
+    'It may be removed already. The list shows its state.':
+      'It may be removed already. The list shows its state.',
+    'Stop its runs and remove': 'Stop its runs and remove',
+    'Its certificate is revoked, and it stays out across restarts until it gets a new invite.':
+      'Its certificate is revoked, and it stays out across restarts until it gets a new invite.',
+    'It has no running runs.': 'It has no running runs.',
+    'It has 1 running run:': 'It has 1 running run:',
+    'It has {count} running runs:': 'It has {count} running runs:',
+    'Remove after its runs finish': 'Remove after its runs finish',
+    'It gets no new runs, and is removed when its last run ends.':
+      'It gets no new runs, and is removed when its last run ends.',
+    'Each run is stopped as with Stop, and the worker is removed once they end.':
+      'Each run is stopped as with Stop, and the worker is removed once they end.',
+    'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.':
+      'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.',
+    'Other workers on this invite: {workers}':
+      'Other workers on this invite: {workers}',
+    'Also delete the invite': 'Also delete the invite',
+    'Workers that joined with it keep their certificates.':
+      'Workers that joined with it keep their certificates.',
+    'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.':
+      'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.',
+    'A replacement pod can join with the invite while it is active, so delete the invite first.':
+      'A replacement pod can join with the invite while it is active, so delete the invite first.',
+    'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
+      'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.',
+    'Stop the runs of {worker}': 'Stop the runs of {worker}',
+    'Remove and Stop runs now work on the local server only. Switch to it to use them.':
+      'Remove and Stop runs now work on the local server only. Switch to it to use them.',
+    'Stop runs': 'Stop runs',
+    'Its run gets a stop request, as with Stop. The worker is removed once it ends.':
+      'Its run gets a stop request, as with Stop. The worker is removed once it ends.',
+    'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.':
+      'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.',
+    'This worker now connects with another certificate. Close this dialog and confirm again for it.':
+      'This worker now connects with another certificate. Close this dialog and confirm again for it.',
+    'The invite it joined with no longer exists, so it lets no new worker join.':
+      'The invite it joined with no longer exists, so it lets no new worker join.',
+    'The invite was deleted.': 'The invite was deleted.',
     'Invite {id} was not deleted.': 'Invite {id} was not deleted.',
     'The selected node has no peer token for its coordinator.':
       'The selected node has no peer token for its coordinator.',
@@ -202,6 +249,53 @@ export const workerAdminMessages = defineMessages({
       '此服务器用于所选节点的凭据在该节点上没有管理员权限。',
     'Give those credentials the admin role on the selected node.':
       '请在所选节点上为这些凭据授予管理员角色。',
+    'Remove {worker}': '移除 {worker}',
+    'Removing (1 run left)': '正在移除（剩余 1 个运行）',
+    'Removing ({count} runs left)': '正在移除（剩余 {count} 个运行）',
+    'Stop runs now': '立即停止运行',
+    'Stop runs now on {worker}': '立即停止 {worker} 上的运行',
+    'A worker on TLS or Plaintext has no certificate and no Remove, since it would connect again at once. To stop one, stop it on its host, or change the peer token if the coordinator requires one.':
+      '使用 TLS 或明文连接的 Worker 没有证书，也没有“移除”操作，因为它会立即重新连接。要停止它，请在其主机上停止；如果 Coordinator 要求 peer token，也可以更换 peer token。',
+    'This worker is no longer listed.': '此 Worker 已不在列表中。',
+    'It may be removed already. The list shows its state.':
+      '它可能已被移除。列表显示其当前状态。',
+    'Stop its runs and remove': '停止其运行并移除',
+    'Its certificate is revoked, and it stays out across restarts until it gets a new invite.':
+      '其证书将被吊销，在获得新邀请之前，重启后也无法重新加入。',
+    'It has no running runs.': '它没有正在进行的运行。',
+    'It has 1 running run:': '它有 1 个正在进行的运行：',
+    'It has {count} running runs:': '它有 {count} 个正在进行的运行：',
+    'Remove after its runs finish': '在其运行结束后移除',
+    'It gets no new runs, and is removed when its last run ends.':
+      '它不再获得新的运行，并在最后一个运行结束时被移除。',
+    'Each run is stopped as with Stop, and the worker is removed once they end.':
+      '每个运行都会像“停止”一样被停止，运行结束后移除该 Worker。',
+    'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.':
+      '它通过可重复使用的邀请加入，该邀请仍允许新的 Worker 加入，包括替代它的 Worker。',
+    'Other workers on this invite: {workers}':
+      '使用此邀请的其他 Worker：{workers}',
+    'Also delete the invite': '同时删除该邀请',
+    'Workers that joined with it keep their certificates.':
+      '已通过它加入的 Worker 保留其证书。',
+    'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.':
+      '它运行在 Kubernetes 中：在其 Deployment 缩容之前，其 Pod 会不断重启。',
+    'A replacement pod can join with the invite while it is active, so delete the invite first.':
+      '邀请有效期间，替代的 Pod 可以通过它加入，因此请先删除邀请。',
+    'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
+      '无法读取它加入时使用的邀请，因此无法确定该邀请是否仍允许新的 Worker 加入。仍可以移除。',
+    'Stop the runs of {worker}': '停止 {worker} 的运行',
+    'Remove and Stop runs now work on the local server only. Switch to it to use them.':
+      '移除和立即停止运行仅适用于本地服务器。请切换到本地服务器后使用。',
+    'Stop runs': '停止运行',
+    'Its run gets a stop request, as with Stop. The worker is removed once it ends.':
+      '其运行会像“停止”一样收到停止请求。运行结束后移除该 Worker。',
+    'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.':
+      '其 {count} 个运行都会像“停止”一样收到停止请求。运行结束后移除该 Worker。',
+    'This worker now connects with another certificate. Close this dialog and confirm again for it.':
+      '此 Worker 现在使用另一个证书连接。请关闭此对话框，并为它重新确认。',
+    'The invite it joined with no longer exists, so it lets no new worker join.':
+      '它加入时使用的邀请已不存在，因此不会再有新的 Worker 通过它加入。',
+    'The invite was deleted.': '邀请已删除。',
     'Invite {id} was not deleted.': '邀请 {id} 未被删除。',
     'The selected node has no peer token for its coordinator.':
       '所选节点没有其 Coordinator 的 peer token。',
@@ -313,6 +407,53 @@ export const workerAdminMessages = defineMessages({
       'このサーバーが選択中のノードに使う認証情報には、そのノードの管理者権限がありません。',
     'Give those credentials the admin role on the selected node.':
       '選択中のノードで、その認証情報に管理者ロールを付与してください。',
+    'Remove {worker}': '{worker} を削除',
+    'Removing (1 run left)': '削除中（残り 1 件の実行）',
+    'Removing ({count} runs left)': '削除中（残り {count} 件の実行）',
+    'Stop runs now': '今すぐ実行を停止',
+    'Stop runs now on {worker}': '{worker} の実行を今すぐ停止',
+    'A worker on TLS or Plaintext has no certificate and no Remove, since it would connect again at once. To stop one, stop it on its host, or change the peer token if the coordinator requires one.':
+      'TLS または平文で接続するワーカーには証明書がなく、すぐに再接続するため「削除」はありません。停止するには、そのホストで停止するか、コーディネーターが peer token を要求する場合はそれを変更してください。',
+    'This worker is no longer listed.': 'このワーカーはもう一覧にありません。',
+    'It may be removed already. The list shows its state.':
+      'すでに削除された可能性があります。一覧に現在の状態が表示されます。',
+    'Stop its runs and remove': '実行を停止して削除',
+    'Its certificate is revoked, and it stays out across restarts until it gets a new invite.':
+      '証明書が失効し、新しい招待を受け取るまで再起動しても参加できません。',
+    'It has no running runs.': '実行中の実行はありません。',
+    'It has 1 running run:': '実行中の実行が 1 件あります：',
+    'It has {count} running runs:': '実行中の実行が {count} 件あります：',
+    'Remove after its runs finish': '実行の終了後に削除',
+    'It gets no new runs, and is removed when its last run ends.':
+      '新しい実行を受け取らず、最後の実行が終わると削除されます。',
+    'Each run is stopped as with Stop, and the worker is removed once they end.':
+      '各実行は「停止」と同じく停止され、終わるとワーカーが削除されます。',
+    'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.':
+      '再利用可能な招待で参加しています。この招待では、このワーカーの代わりを含め、今後も新しいワーカーが参加できます。',
+    'Other workers on this invite: {workers}':
+      'この招待を使う他のワーカー：{workers}',
+    'Also delete the invite': '招待も削除',
+    'Workers that joined with it keep their certificates.':
+      '参加済みのワーカーは証明書を保持します。',
+    'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.':
+      'Kubernetes で動いています。Deployment をスケールダウンするまで Pod は再起動を続けます。',
+    'A replacement pod can join with the invite while it is active, so delete the invite first.':
+      '招待が有効な間は代わりの Pod がそれで参加できるため、先に招待を削除してください。',
+    'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
+      '参加に使った招待を読み込めなかったため、その招待で今も新しいワーカーが参加できるかは分かりません。削除はできます。',
+    'Stop the runs of {worker}': '{worker} の実行を停止',
+    'Remove and Stop runs now work on the local server only. Switch to it to use them.':
+      '削除と今すぐ実行を停止はローカルサーバーでのみ使えます。ローカルサーバーに切り替えてから使ってください。',
+    'Stop runs': '実行を停止',
+    'Its run gets a stop request, as with Stop. The worker is removed once it ends.':
+      '実行に「停止」と同じ停止要求を送ります。終わるとワーカーが削除されます。',
+    'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.':
+      '{count} 件の実行それぞれに「停止」と同じ停止要求を送ります。終わるとワーカーが削除されます。',
+    'This worker now connects with another certificate. Close this dialog and confirm again for it.':
+      'このワーカーは別の証明書で接続しています。このダイアログを閉じて、改めて確認してください。',
+    'The invite it joined with no longer exists, so it lets no new worker join.':
+      '参加に使った招待はもう存在しないため、新しいワーカーはそれで参加できません。',
+    'The invite was deleted.': '招待は削除されました。',
     'Invite {id} was not deleted.': '招待 {id} は削除されませんでした。',
     'The selected node has no peer token for its coordinator.':
       '選択したノードには、そのコーディネーターの peer token がありません。',
@@ -424,6 +565,54 @@ export const workerAdminMessages = defineMessages({
       'Die Zugangsdaten, die dieser Server für den ausgewählten Knoten nutzt, haben dort keine Admin-Rechte.',
     'Give those credentials the admin role on the selected node.':
       'Geben Sie diesen Zugangsdaten auf dem ausgewählten Knoten die Admin-Rolle.',
+    'Remove {worker}': '{worker} entfernen',
+    'Removing (1 run left)': 'Wird entfernt (1 Lauf übrig)',
+    'Removing ({count} runs left)': 'Wird entfernt ({count} Läufe übrig)',
+    'Stop runs now': 'Läufe jetzt stoppen',
+    'Stop runs now on {worker}': 'Läufe auf {worker} jetzt stoppen',
+    'A worker on TLS or Plaintext has no certificate and no Remove, since it would connect again at once. To stop one, stop it on its host, or change the peer token if the coordinator requires one.':
+      'Ein Worker über TLS oder Klartext hat kein Zertifikat und kein Entfernen, da er sich sofort wieder verbinden würde. Um ihn zu stoppen, stoppen Sie ihn auf seinem Host, oder ändern Sie das Peer-Token, wenn der Coordinator eines verlangt.',
+    'This worker is no longer listed.':
+      'Dieser Worker ist nicht mehr gelistet.',
+    'It may be removed already. The list shows its state.':
+      'Er ist vielleicht schon entfernt. Die Liste zeigt seinen Zustand.',
+    'Stop its runs and remove': 'Läufe stoppen und entfernen',
+    'Its certificate is revoked, and it stays out across restarts until it gets a new invite.':
+      'Sein Zertifikat wird widerrufen, und er bleibt auch nach Neustarts ausgeschlossen, bis er eine neue Einladung erhält.',
+    'It has no running runs.': 'Er hat keine laufenden Läufe.',
+    'It has 1 running run:': 'Er hat 1 laufenden Lauf:',
+    'It has {count} running runs:': 'Er hat {count} laufende Läufe:',
+    'Remove after its runs finish': 'Nach Ende seiner Läufe entfernen',
+    'It gets no new runs, and is removed when its last run ends.':
+      'Er erhält keine neuen Läufe und wird entfernt, wenn sein letzter Lauf endet.',
+    'Each run is stopped as with Stop, and the worker is removed once they end.':
+      'Jeder Lauf wird wie mit Stoppen gestoppt, und der Worker wird entfernt, sobald sie enden.',
+    'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.':
+      'Er ist mit einer wiederverwendbaren Einladung beigetreten, mit der weiterhin neue Worker beitreten können, auch ein Ersatz für ihn.',
+    'Other workers on this invite: {workers}':
+      'Andere Worker mit dieser Einladung: {workers}',
+    'Also delete the invite': 'Auch die Einladung löschen',
+    'Workers that joined with it keep their certificates.':
+      'Worker, die damit beigetreten sind, behalten ihre Zertifikate.',
+    'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.':
+      'Er läuft in Kubernetes: Sein Pod startet immer wieder neu, bis sein Deployment herunterskaliert wird.',
+    'A replacement pod can join with the invite while it is active, so delete the invite first.':
+      'Ein Ersatz-Pod kann mit der Einladung beitreten, solange sie aktiv ist. Löschen Sie daher zuerst die Einladung.',
+    'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
+      'Die Einladung, mit der er beigetreten ist, konnte nicht gelesen werden. Daher ist unklar, ob mit ihr noch neue Worker beitreten können. Entfernen funktioniert trotzdem.',
+    'Stop the runs of {worker}': 'Läufe von {worker} stoppen',
+    'Remove and Stop runs now work on the local server only. Switch to it to use them.':
+      'Entfernen und Läufe jetzt stoppen funktionieren nur auf dem lokalen Server. Wechseln Sie zu ihm, um sie zu nutzen.',
+    'Stop runs': 'Läufe stoppen',
+    'Its run gets a stop request, as with Stop. The worker is removed once it ends.':
+      'Sein Lauf erhält eine Stoppanfrage wie mit Stoppen. Der Worker wird entfernt, sobald er endet.',
+    'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.':
+      'Jeder seiner {count} Läufe erhält eine Stoppanfrage wie mit Stoppen. Der Worker wird entfernt, sobald sie enden.',
+    'This worker now connects with another certificate. Close this dialog and confirm again for it.':
+      'Dieser Worker verbindet sich jetzt mit einem anderen Zertifikat. Schließen Sie diesen Dialog und bestätigen Sie für ihn erneut.',
+    'The invite it joined with no longer exists, so it lets no new worker join.':
+      'Die Einladung, mit der er beigetreten ist, gibt es nicht mehr, daher kann kein neuer Worker damit beitreten.',
+    'The invite was deleted.': 'Die Einladung wurde gelöscht.',
     'Invite {id} was not deleted.': 'Die Einladung {id} wurde nicht gelöscht.',
     'The selected node has no peer token for its coordinator.':
       'Der ausgewählte Knoten hat kein Peer-Token für seinen Coordinator.',
@@ -534,6 +723,55 @@ export const workerAdminMessages = defineMessages({
       'Les identifiants que ce serveur utilise pour le nœud sélectionné n’y ont pas les droits d’admin.',
     'Give those credentials the admin role on the selected node.':
       'Donnez à ces identifiants le rôle admin sur le nœud sélectionné.',
+    'Remove {worker}': 'Supprimer {worker}',
+    'Removing (1 run left)': 'Retrait en cours (1 exécution restante)',
+    'Removing ({count} runs left)':
+      'Retrait en cours ({count} exécutions restantes)',
+    'Stop runs now': 'Arrêter les exécutions maintenant',
+    'Stop runs now on {worker}':
+      'Arrêter les exécutions maintenant sur {worker}',
+    'A worker on TLS or Plaintext has no certificate and no Remove, since it would connect again at once. To stop one, stop it on its host, or change the peer token if the coordinator requires one.':
+      'Un worker en TLS ou en clair n’a ni certificat ni retrait, car il se reconnecterait aussitôt. Pour l’arrêter, arrêtez-le sur son hôte, ou changez le jeton de pair si le coordinateur en exige un.',
+    'This worker is no longer listed.': 'Ce worker n’est plus listé.',
+    'It may be removed already. The list shows its state.':
+      'Il est peut-être déjà retiré. La liste montre son état.',
+    'Stop its runs and remove': 'Arrêter ses exécutions et le retirer',
+    'Its certificate is revoked, and it stays out across restarts until it gets a new invite.':
+      'Son certificat est révoqué et il reste exclu après chaque redémarrage, jusqu’à ce qu’il reçoive une nouvelle invitation.',
+    'It has no running runs.': 'Il n’a aucune exécution en cours.',
+    'It has 1 running run:': 'Il a 1 exécution en cours :',
+    'It has {count} running runs:': 'Il a {count} exécutions en cours :',
+    'Remove after its runs finish': 'Retirer après la fin de ses exécutions',
+    'It gets no new runs, and is removed when its last run ends.':
+      'Il ne reçoit plus de nouvelles exécutions et il est retiré à la fin de la dernière.',
+    'Each run is stopped as with Stop, and the worker is removed once they end.':
+      'Chaque exécution est arrêtée comme avec Arrêter, et le worker est retiré une fois qu’elles sont terminées.',
+    'It joined with a reusable invite, which still lets new workers join, a replacement for this one included.':
+      'Il a rejoint avec une invitation réutilisable, qui laisse encore rejoindre de nouveaux workers, y compris un remplaçant pour celui-ci.',
+    'Other workers on this invite: {workers}':
+      'Autres workers de cette invitation : {workers}',
+    'Also delete the invite': 'Supprimer aussi l’invitation',
+    'Workers that joined with it keep their certificates.':
+      'Les workers qui l’ont utilisée gardent leurs certificats.',
+    'It runs in Kubernetes: its pod keeps restarting until its Deployment is scaled down.':
+      'Il tourne dans Kubernetes : son pod redémarre sans cesse tant que son Deployment n’est pas réduit à zéro.',
+    'A replacement pod can join with the invite while it is active, so delete the invite first.':
+      'Un pod de remplacement peut rejoindre avec l’invitation tant qu’elle est active. Supprimez donc d’abord l’invitation.',
+    'The invite it joined with could not be read, so this cannot say whether the invite still lets new workers join. Remove still works.':
+      'L’invitation qu’il a utilisée n’a pas pu être lue, on ne peut donc pas dire si elle laisse encore rejoindre de nouveaux workers. Le retrait reste possible.',
+    'Stop the runs of {worker}': 'Arrêter les exécutions de {worker}',
+    'Remove and Stop runs now work on the local server only. Switch to it to use them.':
+      'Le retrait et l’arrêt immédiat des exécutions ne fonctionnent que sur le serveur local. Passez-y pour les utiliser.',
+    'Stop runs': 'Arrêter les exécutions',
+    'Its run gets a stop request, as with Stop. The worker is removed once it ends.':
+      'Son exécution reçoit une demande d’arrêt, comme avec Arrêter. Le worker est retiré une fois qu’elle est terminée.',
+    'Each of its {count} runs gets a stop request, as with Stop. The worker is removed once they end.':
+      'Chacune de ses {count} exécutions reçoit une demande d’arrêt, comme avec Arrêter. Le worker est retiré une fois qu’elles sont terminées.',
+    'This worker now connects with another certificate. Close this dialog and confirm again for it.':
+      'Ce worker se connecte maintenant avec un autre certificat. Fermez cette boîte de dialogue et confirmez à nouveau pour lui.',
+    'The invite it joined with no longer exists, so it lets no new worker join.':
+      'L’invitation qu’il a utilisée n’existe plus, aucun nouveau worker ne peut donc rejoindre avec elle.',
+    'The invite was deleted.': 'L’invitation a été supprimée.',
     'Invite {id} was not deleted.': 'L’invitation {id} n’a pas été supprimée.',
     'The selected node has no peer token for its coordinator.':
       'Le nœud sélectionné n’a pas de jeton de pair pour son coordinateur.',

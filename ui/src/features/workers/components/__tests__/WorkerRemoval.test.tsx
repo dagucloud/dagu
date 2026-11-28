@@ -1,0 +1,666 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { act, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import React from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  HostEnvironment,
+  WorkerConnection,
+  WorkerInviteKind,
+  type components,
+} from '@/api/v1/schema';
+import { useIsAdmin } from '@/contexts/AuthContext';
+import WorkersSummary from '@/features/dashboard/components/WorkersSummary';
+import { useQuery } from '@/hooks/api';
+import WorkerInvites from '../WorkerInvites';
+import {
+  Providers,
+  installServer,
+  invite,
+  invitesAnswer,
+  refused,
+  requests,
+  server,
+  setTabVisible,
+  task,
+  worker,
+} from './workerAdminFixtures';
+
+type Worker = components['schemas']['Worker'];
+
+vi.mock('@/hooks/api', async () =>
+  (await import('./workerAdminFixtures')).realApiModule()
+);
+vi.mock('@/contexts/AuthContext', () => ({ useIsAdmin: vi.fn() }));
+
+// System status renders the workers list and the invites list side by
+// side; both read through one cache. The page also reads /workers, which a
+// removal reads again.
+function Page({ workers }: { workers: Worker[] }) {
+  useQuery('/workers', { params: { query: { remoteNode: 'local' } } });
+  return (
+    <>
+      <WorkersSummary workers={workers} isLoading={false} />
+      <WorkerInvites workers={workers} live refreshes={0} />
+    </>
+  );
+}
+
+function renderPage(workers: Worker[]) {
+  const view = render(<Page workers={workers} />, { wrapper: Providers });
+  return {
+    ...view,
+    update: (next: Worker[]) => view.rerender(<Page workers={next} />),
+  };
+}
+
+// The list renders the Remove action twice, as an icon in its own column
+// and as a text button under the worker ID, and its width shows one.
+function removeButtons(workerId: string) {
+  return screen.queryAllByRole('button', { name: `Remove ${workerId}` });
+}
+
+async function openRemove(workerId: string) {
+  await screen.findByRole('heading', { name: 'Invites' });
+  const buttons = removeButtons(workerId);
+  expect(buttons).toHaveLength(2);
+  await userEvent.click(buttons[0]!);
+  return screen.getByRole('dialog');
+}
+
+function removals() {
+  return server.requests.filter(
+    (request) =>
+      request.method === 'DELETE' && request.path.endsWith('/certificate')
+  );
+}
+
+describe('Remove', () => {
+  beforeEach(() => {
+    installServer();
+    server.del = () => ({ status: 200, body: { state: 'removing' } });
+    setTabVisible(true);
+    vi.mocked(useIsAdmin).mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('is not offered to non-admins', () => {
+    vi.mocked(useIsAdmin).mockReturnValue(false);
+
+    renderPage([worker('worker-a1')]);
+
+    expect(removeButtons('worker-a1')).toHaveLength(0);
+  });
+
+  // Remove revokes the certificate the coordinator reported. Without its ID
+  // there is nothing the removal can name.
+  // An older coordinator reports neither the certificate ID nor the
+  // removal: nothing is offered or claimed from what it leaves out.
+  it('is not offered without a certificate ID', () => {
+    renderPage([
+      worker('worker-a1', { certificateId: undefined, removing: undefined }),
+    ]);
+
+    expect(removeButtons('worker-a1')).toHaveLength(0);
+    expect(screen.queryByText(/^Removing/)).not.toBeInTheDocument();
+  });
+
+  // The server removes workers on its own coordinators only.
+  it('offers no Remove or Stop runs now on a remote node', async () => {
+    server.node = 'node-b';
+    renderPage([
+      worker('worker-a1'),
+      worker('worker-b1', {
+        removing: true,
+        runningTasks: [task('etl', 'run-1')],
+      }),
+    ]);
+    await screen.findByText('No invites');
+
+    expect(removeButtons('worker-a1')).toHaveLength(0);
+    expect(screen.getByText('Removing (1 run left)')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /^Stop runs now/ })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Remove and Stop runs now work on the local server only. Switch to it to use them.'
+      )
+    ).toBeInTheDocument();
+  });
+
+  // A narrow list shows Remove as text under the ID, so the ID keeps the
+  // row's width; a wide one shows it as an icon in a column of its own.
+  it('puts Remove under the ID of a narrow list', () => {
+    renderPage([worker('worker-a1')]);
+
+    const [text, icon] = removeButtons('worker-a1');
+    expect(icon?.parentElement).toHaveClass('hidden', '@5xl:block');
+    expect(text).toHaveTextContent('Remove');
+    expect(text?.parentElement).toHaveClass('@5xl:hidden');
+  });
+
+  it('removes a worker without runs after one confirmation', async () => {
+    renderPage([worker('worker-a1')]);
+
+    const dialog = await openRemove('worker-a1');
+    expect(dialog).toHaveTextContent('It has no running runs.');
+    expect(dialog).toHaveTextContent(
+      'it stays out across restarts until it gets a new invite'
+    );
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    );
+    expect(removals()).toHaveLength(1);
+    expect(removals()[0]?.path).toBe('/api/v1/workers/worker-a1/certificate');
+    expect(removals()[0]?.query.get('certificateId')).toBe('cert-worker-a1');
+    expect(removals()[0]?.query.get('runs')).toBe('finish');
+    expect(removals()[0]?.query.has('remoteNode')).toBe(false);
+  });
+
+  // A certificate revoked before, as by a removal whose answer was lost,
+  // answers removed.
+  it('closes when the certificate was already removed', async () => {
+    server.del = () => ({ status: 200, body: { state: 'removed' } });
+    renderPage([worker('worker-a1')]);
+
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    );
+  });
+
+  // The removal names the certificate the admin confirmed. A worker that
+  // joined again holds another one: it is not removed, the dialog says why,
+  // the list is read again, and the explanation stays when the refreshed
+  // row shows the new certificate.
+  it('says when the worker no longer holds the confirmed certificate', async () => {
+    server.del = () =>
+      refused(409, 'certificate changed', 'conflict', 'certificate_changed');
+    const { update } = renderPage([worker('worker-a1')]);
+    await waitFor(() => expect(requests('GET', '/workers')).toHaveLength(1));
+
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+    const alert = await within(dialog).findByRole('alert');
+    await waitFor(() => expect(requests('GET', '/workers')).toHaveLength(2));
+    update([worker('worker-a1', { certificateId: 'cert-new' })]);
+
+    expect(alert).toBeInTheDocument();
+    expect(alert).toHaveTextContent(
+      'This worker no longer holds the certificate the list showed, as after it joined again.'
+    );
+    expect(alert).toHaveTextContent('The worker was not removed.');
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      'This worker now connects with another certificate.'
+    );
+  });
+
+  // The invite delete went through even though the removal did not: the
+  // dialog says both.
+  it('reports a deleted invite when the removal after it fails', async () => {
+    server.invites = invitesAnswer([
+      invite('inv-r', { kind: WorkerInviteKind.reusable }),
+    ]);
+    server.del = (request) =>
+      request.path.endsWith('/certificate')
+        ? refused(409, 'certificate changed', 'conflict', 'certificate_changed')
+        : { status: 204 };
+    renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
+    await screen.findByText('Reusable');
+
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('checkbox', { name: /Also delete the invite/ })
+    );
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+
+    expect(await within(dialog).findByRole('status')).toHaveTextContent(
+      'The invite was deleted.'
+    );
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(
+      'The worker was not removed.'
+    );
+    expect(within(dialog).getByRole('alert')).not.toHaveTextContent('Nothing');
+  });
+
+  // The admin sees which runs the removal affects, and the default lets them
+  // finish.
+  it('lists the running runs and lets them finish by default', async () => {
+    renderPage([
+      worker('worker-a1', {
+        runningTasks: [task('etl', 'run-1'), task('report', 'run-2')],
+      }),
+    ]);
+
+    const dialog = await openRemove('worker-a1');
+    expect(dialog).toHaveTextContent('It has 2 running runs:');
+    expect(within(dialog).getByText('etl')).toBeInTheDocument();
+    expect(within(dialog).getByText('run-2')).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('radio', {
+        name: /Remove after its runs finish/,
+      })
+    ).toBeChecked();
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+
+    await waitFor(() => expect(removals()).toHaveLength(1));
+    expect(removals()[0]?.query.get('runs')).toBe('finish');
+  });
+
+  it('stops the runs when the admin chooses so', async () => {
+    renderPage([worker('worker-a1', { runningTasks: [task('etl', 'run-1')] })]);
+
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /Stop its runs and remove/ })
+    );
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Stop its runs and remove' })
+    );
+
+    await waitFor(() => expect(removals()).toHaveLength(1));
+    expect(removals()[0]?.query.get('runs')).toBe('stop');
+  });
+
+  // The stop choice applies to the runs on screen. Once the refresh shows
+  // none, the button reads Remove, and a run handed out meanwhile must not
+  // be canceled by a stop the admin no longer sees.
+  it('sends finish once the runs the admin chose to stop are gone', async () => {
+    const { update } = renderPage([
+      worker('worker-a1', { runningTasks: [task('etl', 'run-1')] }),
+    ]);
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('radio', { name: /Stop its runs and remove/ })
+    );
+
+    update([worker('worker-a1')]);
+    await userEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', {
+        name: 'Remove',
+      })
+    );
+
+    await waitFor(() => expect(removals()).toHaveLength(1));
+    expect(removals()[0]?.query.get('runs')).toBe('finish');
+  });
+
+  // The count rides on the page's refresh of /workers: a new list shows the
+  // new count with no reload and no request of its own.
+  it('shows the runs left while removing', async () => {
+    const removing = (tasks: number) =>
+      worker('worker-a1', {
+        removing: true,
+        runningTasks: Array.from({ length: tasks }, (_, i) =>
+          task('etl', `run-${i}`)
+        ),
+      });
+    const { update } = renderPage([removing(2)]);
+    await screen.findByText('No invites');
+
+    expect(screen.getByText('Removing (2 runs left)')).toBeInTheDocument();
+    expect(removeButtons('worker-a1')).toHaveLength(0);
+
+    update([removing(1)]);
+
+    expect(screen.getByText('Removing (1 run left)')).toBeInTheDocument();
+    expect(server.requests.filter((r) => r.method !== 'GET')).toHaveLength(0);
+  });
+
+  it('stops the runs of a removing worker with Stop runs now', async () => {
+    renderPage([
+      worker('worker-a1', {
+        removing: true,
+        runningTasks: [task('etl', 'run-1'), task('report', 'run-2')],
+      }),
+      worker('worker-b1', {
+        removing: true,
+        runningTasks: [task('etl', 'run-3')],
+      }),
+    ]);
+
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop runs now on worker-a1' })
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('Each of its 2 runs gets a stop request');
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Stop runs' })
+    );
+
+    await waitFor(() => expect(removals()).toHaveLength(1));
+    expect(removals()[0]?.path).toBe('/api/v1/workers/worker-a1/certificate');
+    expect(removals()[0]?.query.get('runs')).toBe('stop');
+  });
+
+  // A reusable invite still lets new hosts join, so the confirmation says
+  // so, names the workers that share it, and deletes it before the removal.
+  it('warns about a reusable invite and deletes it first when asked', async () => {
+    server.invites = invitesAnswer([
+      invite('inv-r', { kind: WorkerInviteKind.reusable, useCount: 2 }),
+    ]);
+    renderPage([
+      worker('worker-a1', { inviteId: 'inv-r' }),
+      worker('worker-b1', { inviteId: 'inv-r' }),
+      worker('worker-c1', { inviteId: 'inv-other' }),
+    ]);
+    await screen.findByText('Reusable');
+
+    const dialog = await openRemove('worker-a1');
+    expect(dialog).toHaveTextContent(
+      'It joined with a reusable invite, which still lets new workers join'
+    );
+    expect(dialog).toHaveTextContent('Other workers on this invite: worker-b1');
+    expect(dialog).not.toHaveTextContent('worker-c1');
+    await userEvent.click(
+      within(dialog).getByRole('checkbox', { name: /Also delete the invite/ })
+    );
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+
+    await waitFor(() => expect(removals()).toHaveLength(1));
+    const changes = server.requests
+      .filter((request) => request.method === 'DELETE')
+      .map((request) => request.path);
+    expect(changes).toEqual([
+      '/api/v1/workers/invites/inv-r',
+      '/api/v1/workers/worker-a1/certificate',
+    ]);
+  });
+
+  // The invites list already read the invites; the confirmation uses them
+  // from the same cache instead of reading again.
+  it('reads the invites once for the list and the confirmation', async () => {
+    server.invites = invitesAnswer([
+      invite('inv-r', { kind: WorkerInviteKind.reusable }),
+    ]);
+    renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
+    await screen.findByText('Reusable');
+
+    const dialog = await openRemove('worker-a1');
+
+    expect(dialog).toHaveTextContent('reusable invite');
+    expect(requests('GET', '/workers/invites')).toHaveLength(1);
+  });
+
+  it('keeps the invite unless the admin asks to delete it', async () => {
+    server.invites = invitesAnswer([
+      invite('inv-r', { kind: WorkerInviteKind.reusable }),
+    ]);
+    renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
+    await screen.findByText('Reusable');
+
+    const dialog = await openRemove('worker-a1');
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+
+    await waitFor(() => expect(removals()).toHaveLength(1));
+    expect(requests('DELETE', '/workers/invites/inv-r')).toHaveLength(0);
+  });
+
+  // The dialog acts on the certificate the admin confirmed. Once the worker
+  // joined again with another one, it asks for a fresh confirmation and
+  // sends nothing.
+  it('asks for a fresh confirmation when the worker joins again', async () => {
+    const { update } = renderPage([worker('worker-a1')]);
+    const dialog = await openRemove('worker-a1');
+
+    update([worker('worker-a1', { certificateId: 'cert-new' })]);
+
+    expect(dialog).toHaveTextContent(
+      'This worker now connects with another certificate. Close this dialog and confirm again for it.'
+    );
+    expect(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    ).toBeDisabled();
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+    expect(removals()).toHaveLength(0);
+  });
+
+  it('stops no runs of a certificate the admin did not confirm', async () => {
+    const removing = (certificateId: string) =>
+      worker('worker-b1', {
+        certificateId,
+        removing: true,
+        runningTasks: [task('etl', 'run-1')],
+      });
+    const { update } = renderPage([removing('cert-1')]);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Stop runs now on worker-b1' })
+    );
+    const dialog = screen.getByRole('dialog');
+
+    update([removing('cert-2')]);
+
+    expect(dialog).toHaveTextContent(
+      'This worker now connects with another certificate.'
+    );
+    expect(
+      within(dialog).getByRole('button', { name: 'Stop runs' })
+    ).toBeDisabled();
+    expect(removals()).toHaveLength(0);
+  });
+
+  // The list's cached read can predate the worker's join, so an invite it
+  // lacks is read once more before Remove is offered.
+  it('reads an invite the cache lacks before offering Remove', async () => {
+    server.invites = invitesAnswer([invite('inv-old')]);
+    renderPage([worker('worker-a1', { inviteId: 'inv-new' })]);
+    await screen.findByText('Single use');
+    server.invites = invitesAnswer([
+      invite('inv-old'),
+      invite('inv-new', { kind: WorkerInviteKind.reusable }),
+    ]);
+
+    const dialog = await openRemove('worker-a1');
+
+    await waitFor(() =>
+      expect(dialog).toHaveTextContent('It joined with a reusable invite')
+    );
+    expect(requests('GET', '/workers/invites')).toHaveLength(2);
+    expect(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    ).toBeEnabled();
+  });
+
+  it('says when the invite it joined with no longer exists', async () => {
+    server.invites = invitesAnswer([invite('inv-old')]);
+    renderPage([worker('worker-a1', { inviteId: 'inv-gone' })]);
+    await screen.findByText('Single use');
+
+    const dialog = await openRemove('worker-a1');
+
+    await waitFor(() =>
+      expect(dialog).toHaveTextContent(
+        'The invite it joined with no longer exists, so it lets no new worker join.'
+      )
+    );
+  });
+
+  // A single-use invite ended at its use and admits no one else.
+  it('gives no invite warning for a single-use invite', async () => {
+    server.invites = invitesAnswer([invite('inv-s', { useCount: 1 })]);
+    renderPage([worker('worker-a1', { inviteId: 'inv-s' })]);
+    await screen.findByText('Single use');
+
+    const dialog = await openRemove('worker-a1');
+
+    expect(dialog).not.toHaveTextContent('reusable invite');
+    expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  // Without the invite, the confirmation cannot say whether it still admits
+  // new workers. It says so and lets the admin read it again.
+  it('says when the invite cannot be read and reads it again on request', async () => {
+    server.invites = refused(503, '', 'internal_error', 'no_coordinator');
+    renderPage([worker('worker-a1', { inviteId: 'inv-r' })]);
+    await screen.findByText(/Start the coordinator/);
+    const before = requests('GET', '/workers/invites').length;
+
+    const dialog = await openRemove('worker-a1');
+    await waitFor(() =>
+      expect(dialog).toHaveTextContent(
+        'The invite it joined with could not be read'
+      )
+    );
+    expect(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    ).toBeEnabled();
+
+    server.invites = invitesAnswer([
+      invite('inv-r', { kind: WorkerInviteKind.reusable }),
+    ]);
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Try again' })
+    );
+
+    await waitFor(() =>
+      expect(dialog).toHaveTextContent('It joined with a reusable invite')
+    );
+    expect(requests('GET', '/workers/invites').length).toBeGreaterThan(before);
+  });
+
+  it('says a Kubernetes pod keeps restarting until it is scaled down', async () => {
+    server.invites = invitesAnswer([
+      invite('inv-r', { kind: WorkerInviteKind.reusable }),
+    ]);
+    renderPage([
+      worker('worker-k1', {
+        inviteId: 'inv-r',
+        environment: HostEnvironment.kubernetes,
+      }),
+    ]);
+    await screen.findByText('Reusable');
+
+    const dialog = await openRemove('worker-k1');
+
+    expect(dialog).toHaveTextContent(
+      'its pod keeps restarting until its Deployment is scaled down'
+    );
+    expect(dialog).toHaveTextContent(
+      'A replacement pod can join with the invite while it is active, so delete the invite first.'
+    );
+  });
+
+  // A worker on TLS or plaintext would connect again at once after a
+  // removal.
+  it('says how to stop a worker without a certificate', async () => {
+    renderPage([
+      worker('worker-t1', { connection: WorkerConnection.tls }),
+      worker('worker-p1', { connection: WorkerConnection.plaintext }),
+    ]);
+    await screen.findByText('No invites');
+
+    expect(
+      screen.queryByRole('button', { name: /^Remove/ })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /no Remove, since it would connect again at once\. To stop one, stop it on its host/
+      )
+    ).toBeInTheDocument();
+  });
+
+  // An older coordinator reports no connection: nothing says the worker is on
+  // the peer token.
+  it('says nothing about a worker whose connection is not reported', async () => {
+    renderPage([
+      worker('worker-a1'),
+      worker('worker-o1', { connection: undefined, certificateId: undefined }),
+    ]);
+    await screen.findByText('No invites');
+
+    expect(screen.queryByText(/peer token/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [
+      refused(403, 'insufficient role', 'forbidden'),
+      'Only admins can manage workers and invites.',
+      'Sign in with an admin account, or ask an admin.',
+    ],
+    [
+      refused(404, 'no worker has the ID', 'not_found'),
+      'This worker is no longer listed.',
+      'It may be removed already. The list shows its state.',
+    ],
+    [
+      refused(409, 'peer token worker', 'conflict', 'peer_token_worker'),
+      'This worker connects with the peer token, so it would connect again at once.',
+      'Stop it on its host, or change the peer token.',
+    ],
+    [
+      refused(503, 'no coordinator', 'internal_error', 'no_coordinator'),
+      'No coordinator is running or reachable.',
+      'Start the coordinator, or check that this server can reach it, then try again.',
+    ],
+    // The server's own words for a missing token name where it runs; the
+    // dialog names the setting only.
+    [
+      refused(
+        503,
+        "the coordinator refused the server: set peer.token, or run the server where it reads the coordinator's data directory",
+        'internal_error',
+        'peer_token_missing'
+      ),
+      'This server has no peer token for the coordinator.',
+      'Set peer.token on this server to the peer token of the coordinator.',
+    ],
+  ])(
+    'announces the cause and the change of a refused removal: %o',
+    async (answer, cause, change) => {
+      server.del = () => answer;
+      renderPage([worker('worker-a1')]);
+
+      const dialog = await openRemove('worker-a1');
+      await userEvent.click(
+        within(dialog).getByRole('button', { name: 'Remove' })
+      );
+
+      const alert = await within(dialog).findByRole('alert');
+      expect(alert).toHaveTextContent(cause);
+      expect(alert).toHaveTextContent(change);
+      expect(alert).not.toHaveTextContent('data directory');
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    }
+  );
+
+  // A plain removal changes no invite, so only the workers are read again.
+  it('rereads the workers, not the invites, after a removal', async () => {
+    renderPage([worker('worker-a1')]);
+    const dialog = await openRemove('worker-a1');
+    const before = requests('GET', '/workers/invites').length;
+
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Remove' })
+    );
+    await waitFor(() => expect(removals()).toHaveLength(1));
+    await act(() => Promise.resolve());
+
+    expect(requests('GET', '/workers/invites')).toHaveLength(before);
+  });
+});

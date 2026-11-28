@@ -6,6 +6,11 @@ import { cn } from '../../../lib/utils';
 import WorkerHealth from '../../workers/components/WorkerHealth';
 import { countWorkersBehind } from '../../workers/components/WorkerVersion';
 import { WorkerConnection } from '../../workers/components/WorkerConnection';
+import {
+  WorkerActionsNote,
+  WorkerRemovalProgress,
+  WorkerRemoveAction,
+} from '../../workers/components/WorkerRemoval';
 import { useRemoteNode } from '../../../contexts/RemoteNodeContext';
 import { buildRunningTaskURL } from '../../dag-runs/lib/dagRunUrls';
 import { useOpenPage } from '../../dag-runs/lib/useOpenPage';
@@ -174,12 +179,20 @@ function WorkersSummary({ workers, isLoading, errors }: WorkersSummaryProps) {
                     {/* Labels take at most half of this column so the ID stays visible. */}
                     <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
                       <div className="min-w-0 sm:flex-1">
-                        <div className="font-mono text-sm truncate">
+                        {/* A phone-width list has no room for a long ID on
+                            one line, so it wraps there instead of cutting. */}
+                        <div className="font-mono text-sm break-all @xl:truncate">
                           {worker.id}
                         </div>
                         <div className="@5xl:hidden">
                           <WorkerConnection worker={worker} />
                         </div>
+                        <WorkerRemovalProgress worker={worker} />
+                        <WorkerRemoveAction
+                          worker={worker}
+                          workers={workers}
+                          layout="inline"
+                        />
                       </div>
 
                       <div className="flex min-w-0 flex-wrap gap-1 sm:max-w-[50%] sm:justify-end">
@@ -228,6 +241,12 @@ function WorkersSummary({ workers, isLoading, errors }: WorkersSummaryProps) {
                       fallback="Never"
                       compact
                     />
+
+                    <WorkerRemoveAction
+                      worker={worker}
+                      workers={workers}
+                      layout="column"
+                    />
                   </div>
 
                   {isExpanded && hasRunningTasks && (
@@ -240,6 +259,7 @@ function WorkersSummary({ workers, isLoading, errors }: WorkersSummaryProps) {
                 </div>
               );
             })}
+            <WorkerActionsNote workers={workers} />
           </div>
         )}
       </div>

@@ -152,6 +152,10 @@ export function worker(id: string, extra: Partial<Worker> = {}): Worker {
   };
 }
 
+export function task(dagName: string, dagRunId: string) {
+  return { dagName, dagRunId, startedAt: new Date().toISOString() };
+}
+
 export function invite(
   id: string,
   extra: Partial<WorkerInvite> = {}
