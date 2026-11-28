@@ -304,7 +304,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a worker invite
-         * @description Deletes an invite, so it lets no further worker join. Workers that joined with it keep their certificates. A retry of a delete whose answer was lost succeeds. Admin only, and not forwarded to a remote node.
+         * @description Deletes an invite, so it lets no further worker join. Workers that joined with it keep their certificates. When a coordinator deletes the invite and its answer is lost, the server confirms from the invites, within this same request, that the invite is gone, and answers 204. A later delete of the same ID answers 404. Admin only, and not forwarded to a remote node.
          */
         delete: operations["deleteWorkerInvite"];
         options?: never;
