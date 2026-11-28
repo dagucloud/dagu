@@ -215,18 +215,28 @@ func (r *testReport) writeCase(c caseResult) {
 	switch c.result() {
 	case resultInvalid:
 		r.printf("INVALID %s: %s\n", c.file, c.name)
+	case resultFail:
+		r.printf("FAIL %s: %s (%.2fs)\n", c.file, c.name, c.duration.Seconds())
+	default:
+		r.printf("PASS %s: %s (%.2fs)\n", c.file, c.name, c.duration.Seconds())
+	}
+	r.writeCaseDetails(c)
+}
+
+// writeCaseDetails writes the lines that follow the case's line in the text
+// report.
+func (r *testReport) writeCaseDetails(c caseResult) {
+	switch c.result() {
+	case resultInvalid:
 		for _, err := range c.errors {
 			r.printf("  %s\n", err)
 		}
 		r.writeFix("fix, ready to paste:", c.fix)
 		r.writeFix("fix for the test file, ready to paste:", c.fileFix)
 	case resultFail:
-		r.printf("FAIL %s: %s (%.2fs)\n", c.file, c.name, c.duration.Seconds())
 		for _, failure := range c.failures {
 			r.printf("  %s\n", failure)
 		}
-	default:
-		r.printf("PASS %s: %s (%.2fs)\n", c.file, c.name, c.duration.Seconds())
 	}
 	if len(c.defaultMocked) > 0 {
 		r.printf("  default mock: %s\n", strings.Join(c.defaultMocked, ", "))

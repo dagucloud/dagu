@@ -143,9 +143,8 @@ func (r *junitTestReport) write(out io.Writer) error {
 // report, indented as there.
 func caseDetails(c caseResult) string {
 	var text strings.Builder
-	(&testReport{out: &text}).writeCase(c)
-	_, details, _ := strings.Cut(text.String(), "\n")
-	return details
+	(&testReport{out: &text}).writeCaseDetails(c)
+	return text.String()
 }
 
 func firstLine[T fmt.Stringer](items []T) string {

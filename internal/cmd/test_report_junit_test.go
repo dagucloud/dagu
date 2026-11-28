@@ -68,6 +68,25 @@ func TestJUnitReport(t *testing.T) {
 	require.NoError(t, xml.Unmarshal(out.Bytes(), &doc))
 }
 
+// The details of a case whose name spans lines hold only the lines after
+// the case's line.
+func TestJUnitMultilineName(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	report := &testReport{out: &out, junit: newJUnitTestReport()}
+	report.writeCase(caseResult{
+		file: "release.test.yaml", name: "a failed build\nstops the deploy",
+		failures: []caseFailure{{field: failureStatus, expected: "succeeded", actual: "failed"}},
+	})
+	require.NoError(t, report.writeSummary())
+
+	var doc junitTestSuites
+	require.NoError(t, xml.Unmarshal(out.Bytes(), &doc))
+	require.NotNil(t, doc.Suites[0].Cases[0].Failure)
+	assert.Equal(t, "  status: expected succeeded, got failed\n", doc.Suites[0].Cases[0].Failure.Text)
+}
+
 func TestTestFormatJUnit(t *testing.T) {
 	t.Parallel()
 
