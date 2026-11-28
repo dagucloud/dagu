@@ -1068,38 +1068,94 @@ func TestDispatchTaskStore_ListBundleDigestsDuringTransitions(t *testing.T) {
 	}
 }
 
-func TestDispatchTaskStore_ReleaseClaimDeletesPendingWhenClaimDeleteConflicts(t *testing.T) {
+// beforeFirstWrite runs hook once, right before the first write.
+type beforeFirstWrite struct {
+	persis.Collection
+	hook  func()
+	armed atomic.Bool
+}
+
+func (c *beforeFirstWrite) write() {
+	if c.armed.CompareAndSwap(true, false) {
+		c.hook()
+	}
+}
+
+func (c *beforeFirstWrite) CompareAndSwap(ctx context.Context, id string, expected, next []byte) error {
+	c.write()
+	return c.Collection.CompareAndSwap(ctx, id, expected, next)
+}
+
+func (c *beforeFirstWrite) Put(ctx context.Context, rec *persis.Record) error {
+	c.write()
+	return c.Collection.Put(ctx, rec)
+}
+
+func (c *beforeFirstWrite) Create(ctx context.Context, rec *persis.Record) error {
+	c.write()
+	return c.Collection.Create(ctx, rec)
+}
+
+// A coordinator reads a claim to release it, and another coordinator's
+// expiry of the same claim runs in full before the release writes. The task
+// is queued once, and the release finds the claim gone (Spec 108 §Removal).
+func TestDispatchTaskStore_ReleaseAfterExpiry(t *testing.T) {
 	t.Parallel()
-
 	ctx := context.Background()
-	baseCol := testutil.NewMemoryBackend().Collection("dispatch_tasks")
-	col := &conflictingClaimDeleteCollection{Collection: baseCol}
-	s := store.NewDispatchTaskStore(col)
-
-	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{
-		DAGRunID:   "run-release-conflict",
-		Target:     "dag-release-conflict",
-		AttemptID:  "attempt-release-conflict",
-		AttemptKey: "attempt-key-release-conflict",
+	base := testutil.NewMemoryBackend().Collection("dispatch_tasks")
+	expiring := store.NewDispatchTaskStore(base, store.WithDispatchReservationTTL(50*time.Millisecond))
+	col := &beforeFirstWrite{Collection: base}
+	releasing := store.NewDispatchTaskStore(col)
+	require.NoError(t, expiring.Enqueue(ctx, &dispatch.DispatchTask{
+		DAGRunID: "run-a", Target: "dag-a", AttemptID: "attempt-a", AttemptKey: "attempt-key-a", TargetWorkerID: "worker-1",
 	}))
-	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{
-		WorkerID: "worker-1",
-		PollerID: "poller-1",
-		Owner:    dispatch.CoordinatorEndpoint{ID: "coord-a"},
-	})
+	claimed, err := expiring.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-1", PollerID: "poller-1"})
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
+	time.Sleep(100 * time.Millisecond)
+	col.hook = func() {
+		// worker-2 cannot take the task, so the pass only expires the claim.
+		taken, err := expiring.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-2", PollerID: "poller-2"})
+		require.NoError(t, err)
+		require.Nil(t, taken)
+	}
+	col.armed.Store(true)
 
-	err = s.ReleaseClaim(ctx, claimed.ClaimToken)
-	require.ErrorIs(t, err, persis.ErrConflict)
-	assert.True(t, col.conflicted.Load())
+	err = releasing.ReleaseClaim(ctx, claimed.ClaimToken)
+	assert.ErrorIs(t, err, dispatch.ErrDispatchTaskNotFound)
+	pending, err := base.List(ctx, persis.ListQuery{Prefix: "pending/"})
+	require.NoError(t, err)
+	assert.Len(t, pending.Records, 1, "the task is queued once")
+	claims, err := base.List(ctx, persis.ListQuery{Prefix: "claims/"})
+	require.NoError(t, err)
+	assert.Empty(t, claims.Records)
+}
 
-	pending, err := baseCol.List(ctx, persis.ListQuery{Prefix: "pending/"})
+// An acceptance marks a claim after a release read it. The release finds
+// the claim no longer its own and queues nothing, so the acceptance keeps
+// the task.
+func TestDispatchTaskStore_ReleaseLosesToAcceptance(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	base := testutil.NewMemoryBackend().Collection("dispatch_tasks")
+	marker := store.NewDispatchTaskStore(base)
+	var token string
+	col := &markBeforeExpiry{Collection: base, mark: func() { require.NoError(t, marker.MarkClaimLeasing(ctx, token)) }}
+	s := store.NewDispatchTaskStore(col)
+	require.NoError(t, s.Enqueue(ctx, &dispatch.DispatchTask{DAGRunID: "run-a", Target: "dag-a", AttemptID: "attempt-a", AttemptKey: "attempt-key-a"}))
+	claimed, err := s.ClaimNext(ctx, dispatch.DispatchTaskClaim{WorkerID: "worker-1", PollerID: "poller-1"})
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	token = claimed.ClaimToken
+	col.armed.Store(true)
+
+	err = s.ReleaseClaim(ctx, token)
+	assert.ErrorIs(t, err, dispatch.ErrDispatchTaskNotFound)
+	pending, err := base.List(ctx, persis.ListQuery{Prefix: "pending/"})
 	require.NoError(t, err)
 	assert.Empty(t, pending.Records)
-	claims, err := baseCol.List(ctx, persis.ListQuery{Prefix: "claims/"})
-	require.NoError(t, err)
-	assert.Len(t, claims.Records, 1)
+	_, err = s.GetClaim(ctx, token)
+	assert.NoError(t, err, "the acceptance keeps its claim")
 }
 
 func TestDispatchTaskStore_GetClaimReturnsClaimedTask(t *testing.T) {
@@ -2765,18 +2821,6 @@ type conflictingPendingDeleteCollection struct {
 
 func (c *conflictingPendingDeleteCollection) CompareAndDelete(ctx context.Context, expected *persis.Record) error {
 	if strings.HasPrefix(expected.ID, "pending/") && c.conflicted.CompareAndSwap(false, true) {
-		return persis.ErrConflict
-	}
-	return c.Collection.CompareAndDelete(ctx, expected)
-}
-
-type conflictingClaimDeleteCollection struct {
-	persis.Collection
-	conflicted atomic.Bool
-}
-
-func (c *conflictingClaimDeleteCollection) CompareAndDelete(ctx context.Context, expected *persis.Record) error {
-	if strings.HasPrefix(expected.ID, "claims/") && c.conflicted.CompareAndSwap(false, true) {
 		return persis.ErrConflict
 	}
 	return c.Collection.CompareAndDelete(ctx, expected)

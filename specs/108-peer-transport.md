@@ -820,7 +820,9 @@ or `stop`:
     task can be claimed again, so an acceptance that marks the claim either
     comes first and keeps the task, or finds the claim gone and is
     refused. A coordinator that stops between the two leaves the decision,
-    and the next pass returns the task.
+    and the next pass returns the task. A coordinator that takes a task
+    back from a worker in removal decides on the claim the same way, so it
+    and the claim's expiry return the task once between them.
   - The certificate is held by the worker the removal names and by each
     worker whose fresh heartbeat carries it, so a worker ID that changes at
     a restart is still waited for.

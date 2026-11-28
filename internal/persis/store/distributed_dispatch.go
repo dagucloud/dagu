@@ -120,9 +120,10 @@ type dispatchTaskPayload struct {
 	// LeasingAt is when an acceptance of the claim began writing the
 	// attempt's lease, in Unix milliseconds, or zero.
 	LeasingAt int64 `json:"leasingAt,omitempty"`
-	// ExpiredAt is when the claim's expiry decided to return the task to
-	// the queue, in Unix milliseconds, or zero. A claim with it set is gone
-	// for every reader but the expiry, which finishes returning the task.
+	// ExpiredAt is when the claim's expiry or release decided to return the
+	// task to the queue, in Unix milliseconds, or zero. A claim with it set
+	// is gone for every reader but the expiry, which finishes returning the
+	// task.
 	ExpiredAt int64 `json:"expiredAt,omitempty"`
 }
 
@@ -802,21 +803,31 @@ func (s *DispatchTaskStore) ReleaseClaim(ctx context.Context, claimToken string)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	rec, err := s.col.Get(ctx, claimDispatchRecordID(claimToken))
-	if err != nil {
-		if errors.Is(err, persis.ErrNotFound) {
+	err := retryConflict(ctx, func(ctx context.Context) error {
+		rec, err := s.col.Get(ctx, claimDispatchRecordID(claimToken))
+		if err != nil {
+			return err
+		}
+		payload, err := dispatchTaskPayloadFromRecord(rec)
+		if err != nil {
+			return err
+		}
+		// A claim that its expiry decided on, or that an acceptance marked,
+		// is no longer this release's.
+		if payload.Task == nil || payload.ClaimToken == "" || payload.ClaimToken != claimToken || payload.ClaimedAt == 0 ||
+			payload.ExpiredAt != 0 || payload.LeasingAt != 0 {
 			return dispatch.ErrDispatchTaskNotFound
 		}
-		return err
-	}
-	payload, err := dispatchTaskPayloadFromRecord(rec)
-	if err != nil {
-		return err
-	}
-	if payload.Task == nil || payload.ClaimToken == "" || payload.ClaimToken != claimToken || payload.ClaimedAt == 0 || payload.ExpiredAt != 0 {
+		// The release decides on the claim as its expiry does, so the two
+		// never both queue the task and never both drop it.
+		return s.withClaimTransition(ctx, payload, func(ctx context.Context) error {
+			return s.expireClaim(ctx, rec, payload, time.Now().UTC())
+		})
+	})
+	if errors.Is(err, persis.ErrNotFound) {
 		return dispatch.ErrDispatchTaskNotFound
 	}
-	return s.releaseClaim(ctx, rec, payload, time.Now().UTC())
+	return err
 }
 
 func (s *DispatchTaskStore) DeleteClaim(ctx context.Context, claimToken string) error {
@@ -1223,7 +1234,8 @@ func (s *DispatchTaskStore) recycleExpiredClaims(ctx context.Context) error {
 	return nil
 }
 
-// expireClaim returns the task of the expired claim rec to the queue. It
+// expireClaim returns the task of the claim rec, expired or released, to
+// the queue. It
 // first records the decision on the claim, in one compare-and-swap from
 // the version read, so an acceptance that marks the claim either comes
 // first and keeps it, or finds it gone. Only then is the task claimable
@@ -1325,17 +1337,6 @@ func (s *DispatchTaskStore) claimLeased(ctx context.Context, payload dispatchTas
 	return lease.ClaimToken == payload.ClaimToken, nil
 }
 
-func (s *DispatchTaskStore) releaseClaim(
-	ctx context.Context,
-	rec *persis.Record,
-	payload dispatchTaskPayload,
-	now time.Time,
-) error {
-	return s.withClaimTransition(ctx, payload, func(lockCtx context.Context) error {
-		return s.releaseClaimRecord(lockCtx, rec, payload, now)
-	})
-}
-
 // requeuedRecord returns the pending record that queues the task of the
 // claim in payload again at now, and its payload.
 func (s *DispatchTaskStore) requeuedRecord(payload dispatchTaskPayload, now time.Time) (*persis.Record, dispatchTaskPayload, error) {
@@ -1364,24 +1365,6 @@ func (s *DispatchTaskStore) requeuedRecord(payload dispatchTaskPayload, now time
 		return nil, dispatchTaskPayload{}, err
 	}
 	return pendingRec, payload, nil
-}
-
-func (s *DispatchTaskStore) releaseClaimRecord(ctx context.Context, rec *persis.Record, payload dispatchTaskPayload, now time.Time) error {
-	pendingRec, payload, err := s.requeuedRecord(payload, now)
-	if err != nil {
-		return err
-	}
-	if err := s.col.Put(ctx, pendingRec); err != nil {
-		return err
-	}
-	if err := s.col.CompareAndDelete(ctx, rec); err != nil {
-		_ = s.col.CompareAndDelete(context.WithoutCancel(ctx), pendingRec)
-		return err
-	}
-	if s.index != nil {
-		s.index.replaceClaimWithPending(rec.ID, pendingRec, payload)
-	}
-	return nil
 }
 
 // removePendingRecordsWithActiveClaims deletes pending records whose task is
