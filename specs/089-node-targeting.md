@@ -324,6 +324,12 @@ step, runs a step with nodes again only on the nodes that did not succeed:
 - After the run's process died during the step, the retry does the same.
   A child run still recorded as running runs its unfinished steps again.
 
+A run's process holds the DAG's run lock briefly while it writes its
+status or creates an attempt. When the process stops while it holds the
+lock, a start, retry, or status change of that DAG can fail with `failed to
+acquire lock for dag-run` for up to 30 seconds, until the lock is taken
+over. An attempt after that succeeds.
+
 A step whose previous attempt recorded no nodes, such as one whose selector
 failed or one recorded before this version, matches its selector again, and
 so does a step whose records cannot be read or parsed, with a warning in the
