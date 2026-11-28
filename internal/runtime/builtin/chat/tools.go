@@ -321,11 +321,7 @@ func withEnvCopies(inputs map[string]bool, env []string) map[string]bool {
 			continue
 		}
 		if !copied {
-			next := make(map[string]bool, len(inputs)+1)
-			for k := range inputs {
-				next[k] = true
-			}
-			inputs = next
+			inputs = maps.Clone(inputs)
 			copied = true
 		}
 		inputs[name] = true

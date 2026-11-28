@@ -262,6 +262,7 @@ func TestNewToolRegistryRefusesEvaluatedInput(t *testing.T) {
 		{"ForeachLiteralItems", params + "shell: bash\nsteps:\n  - id: each\n    foreach:\n      items: [a, b]\n      steps:\n        - run: echo ${foreach.item} \"$Q\"\n", ""},
 		// The item scope of an inner foreach replaces the outer one.
 		{"NestedForeachLiteralItems", params + "shell: bash\nsteps:\n  - id: orders\n    foreach:\n      items: ${params.Q}\n      steps:\n        - id: lines\n          foreach:\n            items: [a, b]\n            steps:\n              - run: echo ${foreach.item}\n", ""},
+		{"NestedForeachLiteralItemsEnvCopy", params + "shell: bash\nsteps:\n  - id: orders\n    foreach:\n      items: ${params.Q}\n      steps:\n        - id: lines\n          foreach:\n            items: [a, b]\n            steps:\n              - env:\n                  - COPY: $Q\n                run: echo ${foreach.item} \"$COPY\"\n", ""},
 		{"StepPOSIXShell", params + "shell: pwsh\nsteps:\n  - with:\n      shell: bash\n    run: echo \"$Q\"\n", ""},
 		{"EnvCopyAsVariable", params + "shell: bash\nenv:\n  - QUERY: ${params.Q}\nsteps:\n  - run: echo \"$QUERY\"\n", ""},
 		{"ValueMatch", params + "preconditions:\n  - condition: ${params.Q}\n    expected: yes\nsteps:\n  - run: echo\n", ""},
