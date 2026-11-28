@@ -11,6 +11,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -194,6 +195,18 @@ func (a *API) ListWorkerInvites(ctx context.Context, _ api.ListWorkerInvitesRequ
 
 // DeleteWorkerInvite implements the deleteWorkerInvite operation.
 func (a *API) DeleteWorkerInvite(ctx context.Context, request api.DeleteWorkerInviteRequestObject) (api.DeleteWorkerInviteResponseObject, error) {
+	if err := a.requireAdmin(ctx); err != nil {
+		return nil, err
+	}
+	// Invite IDs are UUIDs. Anything else, such as an invite pasted in
+	// place of its ID, never reaches a coordinator or the audit entry.
+	if uuid.Validate(request.InviteId) != nil {
+		return nil, &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    "this is not an invite ID: list the invites to find their IDs",
+		}
+	}
 	client, err := a.workerAccess(ctx)
 	if err != nil {
 		return nil, err

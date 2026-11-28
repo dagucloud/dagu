@@ -7,12 +7,14 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
@@ -25,6 +27,7 @@ import (
 type rewordingCoordinator struct {
 	coordinatorv1.UnimplementedCoordinatorServiceServer
 	ready bool
+	calls atomic.Int32
 }
 
 func (c *rewordingCoordinator) CreateInvite(context.Context, *coordinatorv1.CreateInviteRequest) (*coordinatorv1.CreateInviteResponse, error) {
@@ -32,7 +35,15 @@ func (c *rewordingCoordinator) CreateInvite(context.Context, *coordinatorv1.Crea
 }
 
 func (c *rewordingCoordinator) ListInvites(context.Context, *coordinatorv1.ListInvitesRequest) (*coordinatorv1.ListInvitesResponse, error) {
-	return &coordinatorv1.ListInvitesResponse{}, nil
+	c.calls.Add(1)
+	// A failed read, then a delete with no answer: what once let a pasted
+	// invite through as a deleted ID.
+	return nil, status.Error(codes.Internal, "failed to list the invites")
+}
+
+func (c *rewordingCoordinator) DeleteInvite(context.Context, *coordinatorv1.DeleteInviteRequest) (*coordinatorv1.DeleteInviteResponse, error) {
+	c.calls.Add(1)
+	return nil, status.Error(codes.Unavailable, "connection reset")
 }
 
 func (c *rewordingCoordinator) GetJoinReadiness(context.Context, *coordinatorv1.GetJoinReadinessRequest) (*coordinatorv1.GetJoinReadinessResponse, error) {
@@ -87,4 +98,22 @@ func TestWorkerAccessReasonOverGRPC(t *testing.T) {
 	}
 	assert.Nil(t, reasons[true])
 	assert.Equal(t, new(openapiv1.WorkerAccessReasonRequireTls), reasons[false])
+}
+
+// An invite pasted in place of an invite ID answers 400 and reaches neither
+// the coordinator nor the audit, over a real gRPC client.
+func TestDeleteWorkerInviteRefusesInviteOverGRPC(t *testing.T) {
+	t.Parallel()
+
+	c := &rewordingCoordinator{}
+	registry, err := coordinator.NewStaticRegistry([]string{serveRewording(t, c)})
+	require.NoError(t, err)
+	client := coordinator.New(registry, coordinator.DefaultConfig())
+	t.Cleanup(func() { _ = client.Cleanup(context.Background()) })
+	a, store := rolesAPI(client)
+
+	_, err = a.DeleteWorkerInvite(userContext(auth.RoleAdmin), openapiv1.DeleteWorkerInviteRequestObject{InviteId: testInvite})
+	assert.Equal(t, http.StatusBadRequest, httpStatus(t, err))
+	assert.Zero(t, c.calls.Load())
+	assert.Empty(t, store.entries)
 }

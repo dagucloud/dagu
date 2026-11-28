@@ -31,6 +31,9 @@ const (
 	requireTLSRefusal = "the coordinator requires TLS: upgrade this process, or remove peer.insecure: true"
 )
 
+// testInviteID is the ID of the invite the stub coordinator creates.
+const testInviteID = "0f8fad5b-d9cb-469f-a165-70867728950e"
+
 // testInvite is the invite the stub coordinator creates.
 const testInvite = "dagu1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
 
@@ -58,7 +61,7 @@ func (s *inviteCoordinatorStub) CreateInvite(_ context.Context, req *coordinator
 		return nil, s.err
 	}
 	record := &coordinatorv1.InviteRecord{
-		Id:        "invite-1",
+		Id:        testInviteID,
 		Kind:      coordinatorv1.InviteKind_INVITE_KIND_SINGLE_USE,
 		ExpiresAt: 1710086400,
 		Address:   req.Address,
@@ -109,7 +112,7 @@ func workerAccessCalls(a *API) map[string]func(context.Context) error {
 			return err
 		},
 		"delete": func(ctx context.Context) error {
-			_, err := a.DeleteWorkerInvite(ctx, openapiv1.DeleteWorkerInviteRequestObject{InviteId: "invite-1"})
+			_, err := a.DeleteWorkerInvite(ctx, openapiv1.DeleteWorkerInviteRequestObject{InviteId: testInviteID})
 			return err
 		},
 		"join readiness": func(ctx context.Context) error {
@@ -224,7 +227,7 @@ func TestCreateWorkerInvite(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, openapiv1.CreateWorkerInvite201JSONResponse{
-		Id:        "invite-1",
+		Id:        testInviteID,
 		Invite:    testInvite,
 		ExpiresAt: new("2024-03-10T16:00:00Z"),
 	}, resp)
@@ -239,7 +242,7 @@ func TestCreateWorkerInvite(t *testing.T) {
 	entry := store.entries[0]
 	assert.Equal(t, audit.CategorySystem, entry.Category)
 	assert.Equal(t, "worker_invite_create", entry.Action)
-	assert.JSONEq(t, `{"invite_id":"invite-1","kind":"single_use","address":"192.168.1.20:50055"}`, entry.Details)
+	assert.JSONEq(t, `{"invite_id":"`+testInviteID+`","kind":"single_use","address":"192.168.1.20:50055"}`, entry.Details)
 }
 
 func TestCreateWorkerInviteExpiresIn(t *testing.T) {
@@ -278,7 +281,7 @@ func TestWorkerInviteOnlyInCreateResponse(t *testing.T) {
 	require.NoError(t, err)
 	readiness, err := a.GetWorkerJoinReadiness(ctx, openapiv1.GetWorkerJoinReadinessRequestObject{})
 	require.NoError(t, err)
-	_, err = a.DeleteWorkerInvite(ctx, openapiv1.DeleteWorkerInviteRequestObject{InviteId: "invite-1"})
+	_, err = a.DeleteWorkerInvite(ctx, openapiv1.DeleteWorkerInviteRequestObject{InviteId: testInviteID})
 	require.NoError(t, err)
 
 	for _, later := range []any{listed, readiness, store.entries} {
@@ -316,13 +319,13 @@ func TestDeleteWorkerInvite(t *testing.T) {
 
 	stub := &inviteCoordinatorStub{}
 	a, store := rolesAPI(stub)
-	resp, err := a.DeleteWorkerInvite(userContext(auth.RoleAdmin), openapiv1.DeleteWorkerInviteRequestObject{InviteId: "invite-1"})
+	resp, err := a.DeleteWorkerInvite(userContext(auth.RoleAdmin), openapiv1.DeleteWorkerInviteRequestObject{InviteId: testInviteID})
 	require.NoError(t, err)
 	assert.Equal(t, openapiv1.DeleteWorkerInvite204Response{}, resp)
-	assert.Equal(t, "invite-1", stub.deleted)
+	assert.Equal(t, testInviteID, stub.deleted)
 	require.Len(t, store.entries, 1)
 	assert.Equal(t, "worker_invite_delete", store.entries[0].Action)
-	assert.JSONEq(t, `{"invite_id":"invite-1"}`, store.entries[0].Details)
+	assert.JSONEq(t, `{"invite_id":"`+testInviteID+`"}`, store.entries[0].Details)
 }
 
 func TestGetWorkerJoinReadiness(t *testing.T) {
@@ -501,4 +504,22 @@ func TestCreateWorkerInviteInvalidWithoutCoordinator(t *testing.T) {
 		Body: &openapiv1.CreateWorkerInviteRequest{ExpiresIn: new("soon")},
 	})
 	assert.Equal(t, http.StatusForbidden, httpStatus(t, err), "the role is checked first")
+}
+
+// A delete of a value that is no invite ID answers 400 before any
+// coordinator call, also on a server without a coordinator.
+func TestDeleteWorkerInviteRefusesNonID(t *testing.T) {
+	t.Parallel()
+
+	for _, stub := range []coordinator.Client{nil, &inviteCoordinatorStub{}} {
+		a, store := rolesAPI(stub)
+		for _, id := range []string{testInvite, "invite-1"} {
+			_, err := a.DeleteWorkerInvite(userContext(auth.RoleAdmin), openapiv1.DeleteWorkerInviteRequestObject{InviteId: id})
+			var apiErr *Error
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
+			assert.NotContains(t, apiErr.Message, id)
+		}
+		assert.Empty(t, store.entries)
+	}
 }
