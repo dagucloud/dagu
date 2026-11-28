@@ -44,9 +44,9 @@ Tool input is a JSON object. Fields outside this table fail with
 
 | Field | Type | Required rule | Meaning |
 | --- | --- | --- | --- |
-| `action` | string | Required. One of `start`, `enqueue`, `retry`, `stop`, `approve`, `reject`, `push_back`, `backfill`, `backfill_resume`, `backfill_cancel`. | Execution action. |
+| `action` | string | Required. One of `start`, `enqueue`, `retry`, `stop`, `approve`, `reject`, `push_back`, `backfill`, `backfill_resume`, `backfill_cancel`, `add_worker`. | Execution action. |
 | `targetType` | string | Optional. One of `dag`, `inline_spec`, `run`. | Target type. Defaults to `run` for `retry`, `stop`, `approve`, `reject`, and `push_back`, `inline_spec` when `spec` is present, otherwise `dag`. |
-| `name` | string | Required. | DAG name, including the identity used for inline runs. |
+| `name` | string | Required, except for `add_worker`, which refuses it. | DAG name, including the identity used for inline runs. |
 | `spec` | string | Required for `targetType=inline_spec`; otherwise forbidden. | Inline DAG YAML document for `start` and `enqueue`. |
 | `dagRunId` | string | Required for `retry`, `stop`, `approve`, `reject`, and `push_back`; optional override for `start` and `enqueue`. | DAG-run identifier. |
 | `params` | string or object | Optional for `start` and `enqueue`. | Runtime parameters. An object is canonicalized to its compact JSON encoding. |
@@ -54,7 +54,7 @@ Tool input is a JSON object. Fields outside this table fail with
 | `singleton` | boolean | Optional for `start` and `enqueue`. | Reject duplicate running or queued DAG-runs. |
 | `noReuse` | boolean | Optional for `start` and `enqueue`. | Execute eligible build steps without reusing prior materializations. |
 | `profile` | string | Optional for `start` and `enqueue`. | Runtime profile for this run only. When absent, a stored DAG keeps its default profile resolution and an inline spec runs without a profile. |
-| `labels` | array of strings | Optional for `start` and `enqueue`. | Additional labels, each `key=value` or key-only. |
+| `labels` | array of strings | Optional for `start`, `enqueue`, and `add_worker`. | For `start` and `enqueue`, additional labels, each `key=value` or key-only. For `add_worker`, worker labels for the commands, each `key` or `key=value` that a worker accepts ([Spec 108](108-peer-transport.md) §Add Worker). |
 | `scheduleTime` | string | Optional for `start` and `enqueue` with `targetType=dag`. | Schedule slot the run is for: `latest`, a date, a time without an offset in the schedule's zone, or an RFC 3339 time with an offset. A slot later than now fails. A time that is not a fire time adds a warning. |
 | `stepName` | string | Optional for `retry`; required for `approve`, `reject`, and `push_back`. | Step to retry, or the waiting step to decide. |
 | `includeDownstream` | boolean | Optional for `retry`. Requires `stepName`. | Retry the selected step and every reachable descendant. |
@@ -67,6 +67,7 @@ Tool input is a JSON object. Fields outside this table fail with
 | `maxConcurrency`, `onFailure` | integer, string | Optional for `backfill` and `backfill_resume`. | Runs of the backfill at once, and `stop` or `continue` after a slot fails. |
 | `dryRun`, `revision` | boolean, string | Optional for `backfill` and `backfill_resume`. | Return the plan only; refuse a plan that changed since `revision`. |
 | `stopRunning` | boolean | Optional for `backfill_cancel`. | Also stop the backfill's running and waiting runs. |
+| `address`, `reusable`, `expiresIn` | string, boolean, string | Optional for `add_worker`. | The invite to create, as [Spec 108](108-peer-transport.md) §MCP Action states. |
 | `wait` | boolean | Optional. | Wait for the identified run to reach a terminal state. |
 | `waitTimeoutSeconds` | integer | Optional. Requires `wait`. From `1` through `300`; defaults to `60`. | Maximum wait duration. |
 
@@ -79,8 +80,9 @@ Rules:
   whitespace; a string that is empty after trimming is treated as absent.
 - `targetType=run` is valid only for `retry`, `stop`, `approve`, `reject`, and
   `push_back`, and those actions require it.
-- `params`, `singleton`, `noReuse`, `profile`, `labels`, and `scheduleTime` are
-  valid only for `start` and `enqueue`; `scheduleTime` is valid only with
+- `params`, `singleton`, `noReuse`, `profile`, and `scheduleTime` are
+  valid only for `start` and `enqueue`; `labels` is valid only for `start`,
+  `enqueue`, and `add_worker`; `scheduleTime` is valid only with
   `targetType=dag`; `queue` is valid only for `enqueue`; `includeDownstream` is
   valid only for `retry`; `stepName` is valid only for `retry`, `approve`,
   `reject`, and `push_back`; `subDAGRunId` and `attemptId` are valid only for
@@ -90,6 +92,10 @@ Rules:
   `backfill` also takes `params` and `profile`. Any other field fails with
   `invalid_tool_input`, and a backfill field fails with `invalid_tool_input`
   for any other action.
+- `add_worker` takes only `action`, `address`, `reusable`, `expiresIn`, and
+  `labels`. Any other field fails with `invalid_tool_input`, and `address`,
+  `reusable`, or `expiresIn` fails with `invalid_tool_input` for any other
+  action.
 - `inputs` that is not a JSON object fails with `invalid_tool_input`.
 - Supplying a field for an action that does not support it fails with
   `invalid_tool_input`, even when a boolean is `false` or an array is empty.
@@ -108,6 +114,7 @@ Rules:
 | `backfill` | Plans a backfill of the DAG named by `name` and, unless `dryRun`, submits it. |
 | `backfill_resume` | Runs again the slots of a backfill that have neither succeeded nor been skipped. |
 | `backfill_cancel` | Cancels an open backfill. |
+| `add_worker` | Returns join readiness and, with `address`, creates a worker invite, as [Spec 108](108-peer-transport.md) §MCP Action states. Admin only, for local MCP callers; a call Dagu Cloud carries over the relay is refused with `unauthorized`. |
 
 ### Backfill actions
 
@@ -199,7 +206,8 @@ resources.
 Structured output rules:
 
 - Output always has `action`, `targetType`, `dagName`, `dagRunId`, and
-  `references`.
+  `references`, except for `add_worker`, whose output Spec 108 §MCP Action
+  defines.
 - When a run is identified, output has `runUri` and `logsUri` with canonical
   `dagu://runs/...` URIs.
 - Without `wait`, output for an identified run has `subscribe` guidance text.
@@ -237,9 +245,10 @@ output holding the error object:
 ```
 
 `code` and `message` are required. Clients must branch on `code`, not parse
-`message`. `action`, `targetType`, `dagName`, `dagRunId`, `field`, and
-`details` are present when they apply, with `field` naming the single input
-field that caused an input failure.
+`message`. `action`, `targetType`, `dagName`, `dagRunId`, `field`, `reason`,
+and `details` are present when they apply, with `field` naming the single
+input field that caused an input failure, and `reason` the stable reason
+the REST API gives the failure, such as `no_coordinator` for `add_worker`.
 
 Common conditions map to codes as follows:
 

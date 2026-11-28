@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -77,6 +79,35 @@ func ValidateLabel(t Label) error {
 		return fmt.Errorf("label value %q contains invalid characters (allowed: a-z, A-Z, 0-9, -, _, ., /)", t.Value)
 	}
 	return nil
+}
+
+// WorkerLabels returns the labels a worker accepts from its configured
+// ones, keys and values lowercased and labels with no value kept, or an
+// error naming every label that breaks the label rules or repeats a key.
+// It adds no built-in platform label.
+func WorkerLabels(configured map[string]string) (map[string]string, error) {
+	labels := make(map[string]string, len(configured)+2)
+	var errs []error
+	for _, key := range slices.Sorted(maps.Keys(configured)) {
+		// Validate the label as configured, so a key holding "=" fails instead
+		// of being reparsed as key=value.
+		configuredLabel := Label{Key: key, Value: configured[key]}
+		text := configuredLabel.String()
+		if err := ValidateLabel(configuredLabel); err != nil {
+			errs = append(errs, fmt.Errorf("worker label %q: %w", text, err))
+			continue
+		}
+		label := ParseLabel(text)
+		if _, ok := labels[label.Key]; ok {
+			errs = append(errs, fmt.Errorf("worker label %q: key %q is set more than once", text, label.Key))
+			continue
+		}
+		labels[label.Key] = label.Value
+	}
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+	return labels, nil
 }
 
 // ValidateLabels validates all labels in the collection.

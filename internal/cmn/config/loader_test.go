@@ -3715,3 +3715,11 @@ signalHandling:
 		assert.False(t, cfg.SignalHandling.EnablePropagation)
 	})
 }
+
+// A []string, as a caller other than the YAML loader passes, parses like a
+// YAML list.
+func TestParseWorkerLabelsStringSlice(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, map[string]string{"gpu": "", "zone": "a"}, ParseWorkerLabels([]string{" gpu ", "zone=b", "", "zone=a"}))
+}

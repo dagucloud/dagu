@@ -1697,7 +1697,7 @@ func (l *ConfigLoader) loadWorkerConfig(cfg *Config, def Definition) {
 		cfg.Worker.HealthPort = def.Worker.HealthPort
 
 		if def.Worker.Labels != nil {
-			cfg.Worker.Labels = parseLabels(def.Worker.Labels)
+			cfg.Worker.Labels = ParseWorkerLabels(def.Worker.Labels)
 		}
 
 		if def.Worker.Coordinators != nil {
@@ -2909,16 +2909,25 @@ func (l *ConfigLoader) configureViper(configDir, configFile string) {
 	l.v.AutomaticEnv()
 }
 
-// parseLabels parses worker labels from a comma-separated string or a list of
-// key or key=value entries, or from a map. A key with no value or a null value
-// is a label with no value. Entries are kept as written: the worker applies the
-// label rules, so a malformed entry stops it instead of being dropped.
-func parseLabels(input any) map[string]string {
+// ParseWorkerLabels parses worker labels from a string of comma-separated
+// entries, a []string or []any of entries, or a map[string]any or
+// map[any]any of keys to values. An entry is key or key=value. From a
+// string or a slice, it trims each entry, its key, and its value, skips
+// blank entries, and keeps the last value of a key given more than once.
+// A key with no value or a null value is a label with no value. Any other
+// type gives no labels. Entries are otherwise kept as written: the worker
+// applies the label rules, so a malformed entry stops it instead of being
+// dropped.
+func ParseWorkerLabels(input any) map[string]string {
 	labels := make(map[string]string)
 
 	switch v := input.(type) {
 	case string:
 		for entry := range strings.SplitSeq(v, ",") {
+			addLabelEntry(labels, entry)
+		}
+	case []string:
+		for _, entry := range v {
 			addLabelEntry(labels, entry)
 		}
 	case []any:

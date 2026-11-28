@@ -260,10 +260,16 @@ func (a *API) GetWorkerJoinReadiness(ctx context.Context, _ api.GetWorkerJoinRea
 	return resp, nil
 }
 
+// RequireWorkerAccess returns an error unless the caller may make the
+// worker invite, removal, and join readiness calls.
+func (a *API) RequireWorkerAccess(ctx context.Context) error {
+	return a.requireAdmin(ctx)
+}
+
 // workerAccess returns the client for the invite and removal calls, once
 // the caller is an admin.
 func (a *API) workerAccess(ctx context.Context) (coordinator.InviteClient, error) {
-	if err := a.requireAdmin(ctx); err != nil {
+	if err := a.RequireWorkerAccess(ctx); err != nil {
 		return nil, err
 	}
 	client, ok := a.coordinatorCli.(coordinator.InviteClient)

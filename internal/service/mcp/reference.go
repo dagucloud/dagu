@@ -18,6 +18,7 @@ Before writing or editing DAG YAML, read dagu_read target=reference name=authori
 Use dagu_change with mode=preview before mode=apply when editing DAG YAML, DAG default profiles, or Wiki pages.
 Use dagu_execute for start, enqueue, retry, and stop. retry and stop are actions inside dagu_execute.
 When a run waits for a person, dagu_execute action=approve, reject, or push_back decides the waiting step that dagu_read target=run lists.
+To add a worker on another host, an admin uses dagu_execute action=add_worker, first without address; dagu://reference/execute-tool gives the steps.
 MCP Apps hosts can render run-related dagu_read and dagu_execute results in Dagu's interactive run inspector.
 To follow a run to completion, pass wait=true to dagu_execute, or read the returned dagu://runs/... resource, or subscribe to it to receive a resource update notification when the run reaches a terminal state or stops at a waiting checkpoint.
 When Dagu misbehaves or its errors or references mislead, read dagu_read target=reference name=feedback before drafting an issue.`
@@ -116,13 +117,13 @@ The server intentionally exposes three tools.
 
 - dagu_read: read DAGs, DAG specs, DAG default profiles, Wiki pages, DAG-runs, logs, list views, node inventories, and reference resources.
 - dagu_change: preview or apply DAG YAML, DAG default profile, and workspace-aware Wiki changes.
-- dagu_execute: start, enqueue, retry, or stop a DAG-run, or approve, reject, or push back a step that waits for a person.
+- dagu_execute: start, enqueue, retry, or stop a DAG-run, approve, reject, or push back a step that waits for a person, or add a worker on another host.
 
 Detailed tool references:
 
 - dagu://reference/read-tool: dagu_read inputs, targets, URI mode, query parameters, outputs, and errors.
 - dagu://reference/change-tool: dagu_change preview and apply contract for DAG YAML, DAG profiles, and Wiki changes.
-- dagu://reference/execute-tool: dagu_execute start, enqueue, retry, stop, approve, reject, and push_back contract.
+- dagu://reference/execute-tool: dagu_execute start, enqueue, retry, stop, approve, reject, push_back, and add_worker contract.
 - dagu://reference/apps: interactive run inspector behavior for MCP Apps hosts.
 
 Use dagu_execute action=retry with name and dagRunId for retry. Use action=stop with name and dagRunId for stop. Use action=start or action=enqueue with targetType=dag for a stored DAG, or targetType=inline_spec with spec for an ad hoc run. Use action=approve, reject, or push_back with name, dagRunId, stepName, and the attemptId read from the run to decide a step waiting for a person.`,
@@ -284,13 +285,13 @@ Errors:
 			description: "Detailed dagu_execute input, output, and error reference.",
 			text: `# dagu_execute reference
 
-Purpose: control DAG execution through start, enqueue, retry, and stop actions, and decide steps that wait for a person through approve, reject, and push_back.
+Purpose: control DAG execution through start, enqueue, retry, and stop actions, decide steps that wait for a person through approve, reject, and push_back, and add a worker on another host through add_worker.
 
 Fields:
 
-- action: required. Values are start, enqueue, retry, stop, approve, reject, and push_back.
+- action: required. Values are start, enqueue, retry, stop, approve, reject, push_back, and add_worker.
 - targetType: dag, inline_spec, or run. Defaults to run for retry, stop, approve, reject, and push_back, inline_spec when spec is present, otherwise dag.
-- name: DAG name. Required for every action, including inline runs.
+- name: DAG name. Required for every action except add_worker, including inline runs.
 - spec: inline DAG YAML for start or enqueue with targetType=inline_spec; otherwise invalid.
 - dagRunId: DAG-run identifier. Required for retry, stop, approve, reject, and push_back. Optional override for start and enqueue.
 - params: run parameters for start and enqueue, as a JSON object or a JSON-encoded string.
@@ -298,7 +299,7 @@ Fields:
 - singleton: singleton run flag for start and enqueue.
 - noReuse: when true for start or enqueue, execute eligible build steps instead of reusing prior materializations.
 - profile: runtime profile name for start and enqueue. Selects the profile for this run only. When omitted, a stored DAG keeps its default profile resolution and an inline spec runs without a profile. The profile must exist and be usable by the caller.
-- labels: labels for start and enqueue.
+- labels: labels for start and enqueue, each key=value or key-only. For add_worker, worker labels put into the commands, each key or key=value as a worker accepts at start: a key holds only letters, digits, -, _, and ., a value only those and /, each key once, and not os or arch. A refusal names a label by its position.
 - targetNodes: for start and enqueue, the nodes the run is narrowed to. Its steps with nodes, and those of its child runs, run only on listed nodes; a step none of whose nodes is listed is skipped without blocking later steps, and a run whose list leaves every such step without a node fails. A node: required DAG needs exactly one node and runs bound to it, on that worker for a worker node. Each name must be a node, inventory or worker.
 - stepName: optional step name for retry. Required for approve, reject, and push_back: the waiting step to decide.
 - includeDownstream: when true, retry the selected step and every reachable descendant. Requires stepName.
@@ -308,6 +309,7 @@ Fields:
 - attemptId: for approve, reject, and push_back, the attemptId from the run details the decision is based on. When the run has moved to another attempt, the decision is refused with conflict.
 - wait: when true, wait for the identified run to reach a terminal state or a waiting checkpoint before returning. Requires a name that identifies the run.
 - waitTimeoutSeconds: maximum seconds to wait, from 1 to 300. Defaults to 60.
+- address, reusable, expiresIn: for add_worker only. address is the host:port workers dial: one IP address without a zone or one DNS name, and not 0.0.0.0, [::], a loopback or link-local address, localhost, or a container ID. reusable makes an invite any number of workers join with; expiresIn is a Go duration such as 24h.
 
 Action behavior:
 
@@ -316,24 +318,31 @@ Action behavior:
 - retry retries an existing DAG-run and may target a step with stepName, optionally including downstream steps.
 - stop stops an existing DAG-run.
 - approve, reject, and push_back decide a step that dagu_read target=run reports as waiting with approval or humanTask. For an approval gate, approve lets the step continue with inputs, reject rejects it with reason, and push_back sends it back for re-execution with inputs as feedback. For a human task, approve completes it and push_back pushes it back; human tasks cannot be rejected.
-- Fields unsupported by an action are invalid. params, singleton, noReuse, profile, labels, and targetNodes apply only to start and enqueue; queue only to enqueue; includeDownstream only to retry; stepName only to retry, approve, reject, and push_back; subDAGRunId and attemptId only to approve, reject, and push_back; inputs only to approve and push_back; reason only to reject.
+- Fields unsupported by an action are invalid. params, singleton, noReuse, profile, and targetNodes apply only to start and enqueue; labels only to start, enqueue, and add_worker; queue only to enqueue; includeDownstream only to retry; stepName only to retry, approve, reject, and push_back; subDAGRunId and attemptId only to approve, reject, and push_back; inputs only to approve and push_back; reason only to reject.
+- add_worker is admin only and takes only address, reusable, expiresIn, and labels. It walks through Add worker as the Workers section of System status does:
+  1. Call it without address. coordinators lists each coordinator with ready, its report, and, when not ready, changes or error and errorReason to show the user. Each change needs a restart of the coordinator; call add_worker again after it. notes hold reminders that apply even when ready, such as publishing the port of a container.
+  2. Ask the user for the address workers dial. addressOptions.initial is the address of the last invite or coordinator.advertise; addressOptions.suggestions are the coordinators' own addresses. In a container there are none, and addressOptions.note says to ask for the address of the machine that runs it. Never fill in a host name the result does not give.
+  3. Call it with address, reusable, and labels. Once every coordinator is ready, it creates the invite and returns inviteId, invite, kind, expiresAt when the invite expires, and commands: linux and docker, and kubernetes (a manifest) for a reusable invite only, since a new pod has no certificate. The container commands use the image of this server's release; a development build has no published image, so commands has only linux and imageUnavailable says why. While a coordinator is not ready, it creates nothing and returns step 1 again.
+- The docker command mounts the volume dagu-worker. For a second worker on the same host, change the volume name, since two workers cannot share one.
+- Only the add_worker result that creates the invite contains it. Show it to the user once; no later read returns it. A worker that joins with it lists its inviteId.
 - With wait=true, the call returns once the run reaches a terminal state, stops at a waiting checkpoint, or the timeout elapses. A run stopped at a checkpoint has completed=false and reports each waiting step under run.steps as humanTask or approval with its prompt; resolve them to resume the run. On timeout the run keeps executing and the output has completed=false.
 
 Output:
 
-- Successful result text begins with Dagu execute action completed.
-- Structured output has action, targetType, dagName, dagRunId, and references.
+- For every action except add_worker, successful result text begins with Dagu execute action completed, and structured output has action, targetType, dagName, dagRunId, and references.
 - When a run is identified, output includes runUri and logsUri. Without wait, it also includes subscribe guidance.
 - approve, reject, and push_back output also has stepName, subDAGRunId when given, and, without wait, the run status and statusLabel observed after the decision.
 - With wait=true, output has completed plus the last observed status and statusLabel, and a completed run includes the run detail summary under run with per-step statuses, errors, and the run's outputs.
+- add_worker output has action, ready, coordinators, addressOptions, and references, and once it creates the invite also inviteId, invite, kind, expiresAt when the invite expires, commands, and imageUnavailable on a development build.
 
 Errors:
 
 - invalid_tool_input for missing fields, unknown action, unsupported targetType, or malformed input, when reject targets a human task, or when inputs do not fit the waiting step.
-- unauthorized when the caller cannot perform the requested execution operation.
+- unauthorized when the caller cannot perform the requested execution operation, such as add_worker by a non-admin.
 - resource_not_found when the named DAG, DAG-run, or step does not exist. A misspelled stored-DAG name carries close existing names under details.didYouMean.
-- conflict when a singleton run is already running or queued, when a DAG with a restart_policy has an active run, when the step to decide is not waiting for a person, or when attemptId differs from the run's current attempt, which details.attemptId reports.
-- resource_unavailable or internal_error for runtime failures.`,
+- conflict when every coordinator runs an earlier Dagu release without worker invites or refuses to create one, when a singleton run is already running or queued, when a DAG with a restart_policy has an active run, when the step to decide is not waiting for a person, or when attemptId differs from the run's current attempt, which details.attemptId reports.
+- resource_unavailable when no coordinator is running or reachable, or the server lacks the peer token, for add_worker; resource_unavailable or internal_error for other runtime failures.
+- An add_worker error carries reason, a stable name such as no_coordinator, older_coordinator, coordinator_refused, coordinator_conflict, or retry_later, when the REST API gives one; after retry_later, call again shortly. Branch on reason, not message.`,
 		},
 		{
 			topic:       "notifications",

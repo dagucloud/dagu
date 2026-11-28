@@ -94,6 +94,8 @@ type executeInput struct {
 	AttemptID string
 	// Backfill holds the fields of the backfill actions.
 	Backfill backfillInput
+	// AddWorker holds the fields of the add_worker action.
+	AddWorker addWorkerInput
 }
 
 func executeToolInputSchema() json.RawMessage {
@@ -102,8 +104,8 @@ func executeToolInputSchema() json.RawMessage {
 		"properties": {
 			"action": {
 				"type": "string",
-				"enum": ["start", "enqueue", "retry", "stop", "approve", "reject", "push_back", "backfill", "backfill_resume", "backfill_cancel"],
-				"description": "Execution action. approve, reject, and push_back decide a step that waits for a person: an approval gate or a human task, as listed under the steps of dagu_read target=run. approve completes a human task; human tasks cannot be rejected. backfill plans and submits runs of the DAG for past schedule slots, oldest first; backfill_resume runs again a backfill's slots that have not succeeded; backfill_cancel cancels one."
+				"enum": ["start", "enqueue", "retry", "stop", "approve", "reject", "push_back", "backfill", "backfill_resume", "backfill_cancel", "add_worker"],
+				"description": "Execution action. approve, reject, and push_back decide a step that waits for a person: an approval gate or a human task, as listed under the steps of dagu_read target=run. approve completes a human task; human tasks cannot be rejected. backfill plans and submits runs of the DAG for past schedule slots, oldest first; backfill_resume runs again a backfill's slots that have not succeeded; backfill_cancel cancels one. add_worker, admin only, returns whether the coordinators accept workers from other hosts and what to change, and with address creates a worker invite once they do; it takes no name."
 			},
 			"targetType": {
 				"type": "string",
@@ -112,7 +114,7 @@ func executeToolInputSchema() json.RawMessage {
 			},
 			"name": {
 				"type": "string",
-				"description": "DAG name. Required for every execution action."
+				"description": "DAG name. Required for every execution action except add_worker."
 			},
 			"spec": {
 				"type": "string",
@@ -149,7 +151,7 @@ func executeToolInputSchema() json.RawMessage {
 			"labels": {
 				"type": "array",
 				"items": {"type": "string"},
-				"description": "Additional labels, each as key=value or key-only."
+				"description": "Additional labels, each as key=value or key-only. For add_worker: worker labels put into the commands, not the invite, each key or key=value as a worker accepts at start: a key holds only letters, digits, -, _, and ., a value only those and /, each key once, and not os or arch."
 			},
 			"targetNodes": {
 				"type": "array",
@@ -232,6 +234,18 @@ func executeToolInputSchema() json.RawMessage {
 				"type": "boolean",
 				"description": "For backfill_cancel: also stop the backfill's running and waiting runs."
 			},
+			"address": {
+				"type": "string",
+				"description": "For add_worker: the host:port workers dial to reach the coordinator: one IP address without a zone or one DNS name, and not 0.0.0.0, [::], a loopback or link-local address, localhost, or a container ID. Without it, add_worker creates no invite."
+			},
+			"reusable": {
+				"type": "boolean",
+				"description": "For add_worker: true for an invite any number of workers join with, as the kubernetes command needs. Defaults to false: one worker."
+			},
+			"expiresIn": {
+				"type": "string",
+				"description": "For add_worker: how long the invite lasts, a positive Go duration such as 24h. Defaults to 24h for a single-use invite and none for a reusable one."
+			},
 			"waitTimeoutSeconds": {
 				"type": "integer",
 				"minimum": 1,
@@ -239,14 +253,17 @@ func executeToolInputSchema() json.RawMessage {
 				"description": "Maximum seconds to wait when wait is true. Defaults to 60. On timeout the output has completed=false and the run keeps executing."
 			}
 		},
-		"required": ["action", "name"],
+		"required": ["action"],
 		"additionalProperties": false
 	}`)
 }
 
 type executeToolError struct {
-	Code       string
-	Message    string
+	Code    string
+	Message string
+	// Reason is the API's stable name for why the call failed, when it
+	// gives one.
+	Reason     string
 	Action     string
 	TargetType string
 	DAGName    string
@@ -290,6 +307,9 @@ func (svc *Service) executeToolImpl(ctx context.Context, input executeInput) (*m
 	}
 	if isBackfillAction(input.Action) {
 		return svc.executeBackfill(ctx, input)
+	}
+	if input.Action == executeActionAddWorker {
+		return svc.addWorker(ctx, input)
 	}
 
 	var (
@@ -547,7 +567,11 @@ func parseExecuteToolInput(raw json.RawMessage) (executeInput, *executeToolError
 				parseErr = parseBackfillField(&input.Backfill, field, value)
 				break
 			}
-			parseErr = executeInputError("Unknown field "+field+".", field)
+			if isAddWorkerField(field) {
+				parseErr = parseAddWorkerField(&input.AddWorker, field, value)
+				break
+			}
+			parseErr = unknownFieldError(field)
 		}
 		if parseErr != nil {
 			return executeInput{}, parseErr
@@ -605,12 +629,19 @@ func validateExecuteInput(input *executeInput, provided map[string]bool) *execut
 		executeActionApprove, executeActionReject, executeActionPushBack:
 	case executeActionBackfill, executeActionBackfillResume, executeActionBackfillCancel:
 		return validateBackfillInput(input, provided)
+	case executeActionAddWorker:
+		// The fields are checked after the caller's access, in addWorker.
+		input.AddWorker.Fields = provided
+		return nil
 	default:
 		return executeInputError("Unsupported execute action.", executeFieldAction)
 	}
 	for field := range provided {
 		if isBackfillField(field) {
 			return executeInputError("The "+field+" field is only valid for backfill, backfill_resume, and backfill_cancel.", field)
+		}
+		if isAddWorkerField(field) {
+			return executeInputError("The "+field+" field is only valid for add_worker.", field)
 		}
 	}
 	decision := isStepDecisionAction(input.Action)
@@ -723,6 +754,15 @@ func validateExecuteInput(input *executeInput, provided map[string]bool) *execut
 	return nil
 }
 
+// unknownFieldError refuses a field dagu_execute does not know. It names
+// the field unless the name holds an invite, which no output repeats.
+func unknownFieldError(field string) *executeToolError {
+	if holdsInvite(field) {
+		return executeInputError("Unknown field.", "")
+	}
+	return executeInputError("Unknown field "+field+".", field)
+}
+
 func executeInputError(message, field string) *executeToolError {
 	return &executeToolError{
 		Code:    executeErrorInvalidToolInput,
@@ -740,17 +780,23 @@ func classifyExecuteToolError(input executeInput, err error) *executeToolError {
 		DAGName:    input.Name,
 		DAGRunID:   input.DAGRunID,
 	}
+	if input.Action == executeActionAddWorker {
+		// add_worker takes no DAG, so a name it refuses is not repeated.
+		out.DAGName = ""
+	}
 
 	if executeErr, ok := errors.AsType[*executeToolError](err); ok {
 		out.Code = executeErr.Code
 		out.Message = executeErr.Message
 		out.Field = executeErr.Field
+		out.Reason = executeErr.Reason
 		out.Details = executeErr.Details
 		return out
 	}
 
 	if apiErr, ok := errors.AsType[*frontendapi.Error](err); ok {
 		out.Message = apiErr.Message
+		out.Reason, _ = apiErr.Details["reason"].(string)
 		switch apiErr.HTTPStatus {
 		case http.StatusUnauthorized:
 			out.Code = executeErrorUnauthenticated
@@ -799,6 +845,9 @@ func executeErrorResult(err *executeToolError) *mcpsdk.CallToolResult {
 	}
 	if err.Field != "" {
 		output["field"] = err.Field
+	}
+	if err.Reason != "" {
+		output["reason"] = err.Reason
 	}
 	if err.Details != nil {
 		output["details"] = err.Details
