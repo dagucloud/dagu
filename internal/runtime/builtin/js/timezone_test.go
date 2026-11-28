@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
-	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -279,10 +278,15 @@ return {
 	})
 }
 
-func TestJS_ProcessTZFallback(t *testing.T) {
-	t.Setenv("TZ", "Asia/Tokyo")
-	ctx := runtime.WithEnv(context.Background(), runtime.NewEnv(context.Background(), ir.Step{}))
+// A host TZ reaches js.run through the OS entries of the env scope. The entry
+// is set directly: Go reads the process TZ into time.Local on first use, so a
+// process-level TZ would pass even if js.run ignored the env scope.
+func TestJS_HostTZ(t *testing.T) {
+	t.Parallel()
+	scope := cmnvalue.NewEnvScope(nil, false).
+		WithEntries(map[string]string{"TZ": "Asia/Kathmandu"}, cmnvalue.EnvSourceOS)
+	ctx := runtime.WithEnv(context.Background(), runtime.Env{Scope: scope})
 	got := run(t, ctx, `return new Date(Date.UTC(2026, 10, 12, 17, 14, 0)).getTimezoneOffset()`, nil)
 	require.NoError(t, got.err)
-	assert.Equal(t, "-540\n", got.stdout)
+	assert.Equal(t, "-345\n", got.stdout)
 }
