@@ -14,7 +14,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -88,9 +88,9 @@ func TestInviteAPI(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, code, body)
 	assert.NotContains(t, services.process.Output(), created.Invite)
 
-	code, body = services.call(t, http.MethodDelete, "/api/v1/workers/unknown?certificateId=unknown&runs=stop", "")
+	code, body = services.call(t, http.MethodPost, "/api/v1/workers/removals", `{"workerId": "unknown", "certificateId": "unknown", "runs": "stop"}`)
 	assert.Equal(t, http.StatusNotFound, code, body)
-	code, body = services.call(t, http.MethodDelete, "/api/v1/workers/unknown?certificateId=unknown&runs=later", "")
+	code, body = services.call(t, http.MethodPost, "/api/v1/workers/removals", `{"workerId": "unknown", "certificateId": "unknown", "runs": "later"}`)
 	assert.Equal(t, http.StatusBadRequest, code, body)
 }
 
@@ -189,7 +189,9 @@ func TestRemoveWorkerAPI(t *testing.T) {
 	}
 
 	remove := func(id, certID, runs string) (int, string) {
-		return services.call(t, http.MethodDelete, "/api/v1/workers/"+url.PathEscape(id)+"?certificateId="+certID+"&runs="+runs, "")
+		request, err := json.Marshal(map[string]string{"workerId": id, "certificateId": certID, "runs": runs})
+		require.NoError(t, err)
+		return services.call(t, http.MethodPost, "/api/v1/workers/removals", string(request))
 	}
 	code, body = remove("finish", certs["stop"], "finish")
 	assert.Equal(t, http.StatusConflict, code, body)
@@ -276,7 +278,7 @@ func TestRemovedWorkerLeavesList(t *testing.T) {
 	require.NoError(t, heartbeat())
 	services.waitForWorker(t, "idle")
 
-	code, body = services.call(t, http.MethodDelete, "/api/v1/workers/idle?certificateId="+certID, "")
+	code, body = services.call(t, http.MethodPost, "/api/v1/workers/removals", `{"workerId": "idle", "certificateId": "`+certID+`"}`)
 	require.Equal(t, http.StatusOK, code, body)
 	assert.True(t, services.waitForWorker(t, "idle").Removing)
 
@@ -286,7 +288,13 @@ func TestRemovedWorkerLeavesList(t *testing.T) {
 	defer cancel()
 	for {
 		_ = heartbeat()
-		if listed, _ := services.lists(ctx, "idle"); listed == nil {
+		var list struct {
+			Workers []listedWorker `json:"workers"`
+			Errors  []string       `json:"errors"`
+		}
+		require.NoError(t, services.get(ctx, "/api/v1/workers", &list))
+		require.Empty(t, list.Errors)
+		if !slices.ContainsFunc(list.Workers, func(w listedWorker) bool { return w.ID == "idle" }) {
 			break
 		}
 		select {
@@ -295,5 +303,7 @@ func TestRemovedWorkerLeavesList(t *testing.T) {
 		case <-time.After(time.Second):
 		}
 	}
-	assert.Error(t, heartbeat(), "the revoked certificate is refused")
+	err := heartbeat()
+	assert.Equal(t, codes.Unauthenticated, status.Code(err), "%v", err)
+	assert.Equal(t, "this worker was removed from the coordinator", status.Convert(err).Message())
 }
