@@ -364,7 +364,7 @@ func (s peerTLSServer) renameHolder(t *testing.T, key *ecdsa.PrivateKey, cert *x
 	require.NoError(t, err)
 	record.WorkerID = enrollWorkerID
 	record.LastHeartbeatAt = record.LastHeartbeatAt.Add(2 * time.Minute)
-	_, err = s.shared.certs.RecordHeartbeat(t.Context(), record)
+	err = s.shared.certs.RecordHeartbeat(t.Context(), record)
 	require.NoError(t, err)
 }
 
