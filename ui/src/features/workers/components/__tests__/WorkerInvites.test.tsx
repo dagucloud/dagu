@@ -391,6 +391,24 @@ describe('WorkerInvites', () => {
     expect(document.body).not.toHaveTextContent('not an invite ID');
   });
 
+  // One reason covers each way TLS fails on the way to the coordinator. The
+  // advice names every remedy, whichever the server's words describe.
+  it.each([
+    'the coordinator requires TLS: this server calls it over plaintext',
+    'the coordinator requires TLS: this server has no CA certificate for it',
+  ])('gives every TLS remedy for require_tls: %s', async (words) => {
+    server.invites = refused(503, words, 'internal_error', 'require_tls');
+
+    renderInvites();
+
+    const change = await screen.findByText(/^Clear peer\.insecure: true/);
+    expect(change).toHaveTextContent('peer.ca_cert_file');
+    expect(change).toHaveTextContent(
+      'check that the network path to the coordinator passes TLS'
+    );
+    expect(document.body).not.toHaveTextContent(words);
+  });
+
   // The API names why it refused in details.reason; the explanation follows
   // it, not the wording of the message.
   it.each([
@@ -412,7 +430,7 @@ describe('WorkerInvites', () => {
     [
       'require_tls',
       'The coordinator requires TLS, and this server called it over plaintext.',
-      'Clear peer.insecure: true or peer.skip_tls_verify: true in the server config if set, and set peer.ca_cert_file to the CA certificate of the coordinator if this server has none.',
+      'Clear peer.insecure: true or peer.skip_tls_verify: true in the server config if set, and set peer.ca_cert_file to the CA certificate of the coordinator if this server has none. If both are in order, check that the network path to the coordinator passes TLS.',
     ],
     [
       'older_coordinator',

@@ -264,9 +264,10 @@ const ACCESS_REASONS: Record<WorkerAccessReason, Advise> = {
     cause: ts(
       'The coordinator requires TLS, and this server called it over plaintext.'
     ),
-    // The server may also lack the CA certificate of the coordinator.
+    // The same reason covers a server set to plaintext, one without the CA
+    // certificate of the coordinator, and a network path that drops TLS.
     change: ts(
-      'Clear {insecure} or {skipVerify} in the server config if set, and set {caFile} to the CA certificate of the coordinator if this server has none.',
+      'Clear {insecure} or {skipVerify} in the server config if set, and set {caFile} to the CA certificate of the coordinator if this server has none. If both are in order, check that the network path to the coordinator passes TLS.',
       {
         insecure: 'peer.insecure: true',
         skipVerify: 'peer.skip_tls_verify: true',
