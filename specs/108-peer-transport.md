@@ -1305,9 +1305,10 @@ and prints the message:
   not one IP address without a zone or one DNS name, or is `0.0.0.0`,
   `[::]`, a loopback, link-local, multicast, or broadcast address,
   `localhost`, or a container ID (12 or 64 lowercase hexadecimal
-  characters). `POST /api/v1/workers/invites`
-  checks only the `host:port` form, since automation may reach the
-  coordinator through a tunnel.
+  characters). `POST /api/v1/workers/invites` checks only that the
+  address is `host:port` with a port from 1 to 65535 and that its host
+  holds no invite, since automation may reach the coordinator through a
+  tunnel.
 - Step 3 shows only after steps 1 and 2. Its tab sets the invite kind:
 
   | Tab | Invite | Command |

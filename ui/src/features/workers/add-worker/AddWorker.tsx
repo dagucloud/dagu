@@ -251,7 +251,7 @@ function AddressFields({
       'Enter the address of the machine that runs the container. Dagu cannot see it from inside the container.';
   } else if (environment === HostEnvironment.kubernetes) {
     hint =
-      'Enter the address of the coordinator Service: its load balancer, or a node for NodePort.';
+      "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.";
   }
   const errorId = `${id}-error`;
   return (

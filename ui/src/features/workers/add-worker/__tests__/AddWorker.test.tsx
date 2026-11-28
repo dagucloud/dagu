@@ -134,32 +134,22 @@ describe('AddWorker', () => {
     });
   });
 
+  // Each suggestion carries the port of the coordinator that reported it.
   it('starts ready with the last invite address and suggests this host', async () => {
-    await open(readiness({}, '192.168.1.30:50055'));
+    const c2 = report({ port: 51055, addresses: ['10.0.0.9'] });
+    await open({
+      ...readiness({}, '192.168.1.30:50055'),
+      coordinators: [
+        { instanceId: 'c1', host: 'a', port: 50055, report: report() },
+        { instanceId: 'c2', host: 'b', port: 51055, report: c2 },
+      ],
+    });
 
     expect(
       step('Accept workers from other hosts').getByText('Ready')
     ).toBeInTheDocument();
     expect(screen.getByLabelText(ADDRESS)).toHaveValue('192.168.1.30:50055');
-    fireEvent.click(screen.getByRole('button', { name: '10.0.0.5:50055' }));
-    expect(screen.getByLabelText(ADDRESS)).toHaveValue('10.0.0.5:50055');
-  });
-
-  // Each suggestion carries the port of the coordinator that reported it.
-  it('pairs each suggested host with its coordinator port', async () => {
-    await open({
-      coordinators: [
-        { instanceId: 'c1', host: 'a', port: 50055, report: report() },
-        {
-          instanceId: 'c2',
-          host: 'b',
-          port: 51055,
-          report: report({ port: 51055, addresses: ['10.0.0.9'] }),
-        },
-      ],
-    });
     fireEvent.click(screen.getByRole('button', { name: '10.0.0.9:51055' }));
-
     expect(screen.getByLabelText(ADDRESS)).toHaveValue('10.0.0.9:51055');
   });
 
@@ -198,49 +188,21 @@ describe('AddWorker', () => {
   // config.yaml. In a container, -e still wins over a file.
   const { env, file, flag } = ConfigSourceKind;
   const { container, kubernetes } = HostEnvironment;
+  const [V, F, A] = ['DAGU_COORDINATOR_HOST', '--coordinator.host', '/a.yaml'];
+  const fileChange = `In ${A}, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.`;
   it.each([
-    [
-      'a variable',
-      undefined,
-      env,
-      'DAGU_COORDINATOR_HOST',
-      'DAGU_COORDINATOR_HOST=0.0.0.0',
-    ],
-    [
-      'a flag',
-      undefined,
-      flag,
-      '--coordinator.host',
-      '--coordinator.host=0.0.0.0',
-    ],
-    [
-      'admin.yaml',
-      undefined,
-      file,
-      '/home/me/.config/dagu/admin.yaml',
-      'In /home/me/.config/dagu/admin.yaml, set host to 0.0.0.0 inside the coordinator block, adding the block if the file has none.',
-    ],
-    [
-      'a flag in a container',
-      container,
-      flag,
-      '--coordinator.host',
-      '-p 50055:50055',
-    ],
+    ['a variable', undefined, env, V, `${V}=0.0.0.0`],
+    ['a flag', undefined, flag, F, `${F}=0.0.0.0`],
+    ['a file', undefined, file, A, fileChange],
+    ['a flag in a container', container, flag, F, '-p 50055:50055'],
     [
       'a file in a container',
       container,
       file,
-      '/etc/dagu/dagu.yaml',
-      '-p 50055:50055 -e DAGU_COORDINATOR_HOST=0.0.0.0',
+      A,
+      `-p 50055:50055 -e ${V}=0.0.0.0`,
     ],
-    [
-      'a flag in a pod',
-      kubernetes,
-      flag,
-      '--coordinator.host',
-      '--coordinator.host=0.0.0.0',
-    ],
+    ['a flag in a pod', kubernetes, flag, F, `${F}=0.0.0.0`],
   ])(
     'follows %s that sets the listen host',
     async (_, environment, kind, name, change) => {
@@ -308,16 +270,17 @@ describe('AddWorker', () => {
     // The chart path names both settings helm template needs together.
     expect(
       screen.getByText(
-        /^Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload.*persistence.accessMode to ReadWriteMany/
+        /^Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload.*set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany/
       )
     ).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'README' })).toHaveAttribute(
       'href',
       expect.stringContaining('charts/dagu/README.md')
     );
+    // A worker outside the cluster dials a node, not the Service's name.
     expect(
-      screen.queryByText(/deploymentMode/, { selector: 'pre' })
-    ).toBeNull();
+      screen.getByText(/a node's address and the assigned node port/)
+    ).toBeInTheDocument();
     expect(
       screen.getByText(/type LoadBalancer or NodePort/)
     ).toBeInTheDocument();
@@ -325,21 +288,13 @@ describe('AddWorker', () => {
 
   // One coordinator that does not answer keeps the step from being ready.
   it('names each coordinator and the error of one that did not report', async () => {
+    const b = { instanceId: 'c2', host: 'node-b', port: 50055 };
+    const c = { ...b, instanceId: 'c3', host: 'node-c' };
+    const mismatch = WorkerAccessReason.peer_token_mismatch;
     await open({
       coordinators: [
-        {
-          instanceId: 'c2',
-          host: 'node-b',
-          port: 50055,
-          error: 'set peer.token, or read /var/lib/dagu/peer-token',
-        },
-        {
-          instanceId: 'c3',
-          host: 'node-c',
-          port: 50055,
-          error: 'the peer token does not match',
-          errorReason: WorkerAccessReason.peer_token_mismatch,
-        },
+        { ...b, error: 'read /var/lib/dagu/peer-token' },
+        { ...c, error: 'no match', errorReason: mismatch },
       ],
     });
 
@@ -356,15 +311,23 @@ describe('AddWorker', () => {
     expect(screen.getByText('Needs change')).toBeInTheDocument();
   });
 
+  // Removing a coordinator's own certificates alone leaves clients trusting
+  // the old CA, so both paths link to the docs' steps.
+  const OWN = ['Keep your certificates', 'Move to built-in TLS'];
   it.each([
-    [BuiltinTLSReason.ownCertificates, /uses peer.cert_file and peer.key_file/],
-    [BuiltinTLSReason.caUnavailable, /could not create or read it/],
-  ])('names why invites cannot work: %s', async (reason, text) => {
+    [BuiltinTLSReason.ownCertificates, /no built-in CA for invites/, OWN],
+    [BuiltinTLSReason.caUnavailable, /could not create or read it/, []],
+  ])('names why invites cannot work: %s', async (reason, text, links) => {
     await open(
       readiness({ builtinTLS: false, builtinTLSReason: reason, ready: false })
     );
     expect(screen.getByText(text)).toBeInTheDocument();
     expect(screen.getByText('Needs change')).toBeInTheDocument();
+    const shown = screen.queryAllByRole('link');
+    expect(shown.map((a) => a.textContent)).toEqual(links);
+    expect(shown.map((a) => a.getAttribute('href')?.split('#')[1])).toEqual(
+      links.length ? ['server-tls', 'processes-on-another-host'] : []
+    );
   });
 
   // The dialog picks its words by details.reason and never shows the
@@ -381,7 +344,11 @@ describe('AddWorker', () => {
       /Set peer.token on this server/,
     ],
     [503, WorkerAccessReason.peer_token_mismatch, /same peer.token on both/],
-    [503, WorkerAccessReason.require_tls, /no usable CA certificate/],
+    [
+      503,
+      WorkerAccessReason.require_tls,
+      /clear any peer.insecure: true or peer.skip_tls_verify: true.*set peer.ca_cert_file on it to the coordinator's CA certificate/,
+    ],
     [503, WorkerAccessReason.coordinator_refused, /Its log names the reason/],
     [409, WorkerAccessReason.coordinator_conflict, /present state/],
     [503, WorkerAccessReason.retry_later, /Try again in a moment/],
@@ -493,26 +460,17 @@ describe('AddWorker', () => {
     expect(document.activeElement).toBe(screen.getByLabelText(ADDRESS));
   });
 
-  // The workers refresh fails while Dagu restarts; its recovery is the only
-  // trigger, besides opening, to read readiness again.
-  it('reads readiness again when the server is back', async () => {
+  // Readiness is read again when the workers refresh recovers, as after a
+  // restart, and on window focus until ready.
+  it.each(['server', 'focus'])('reads readiness again on %s', async (by) => {
     const { rerender } = await open(loopback());
     rerender(view(true));
     await settle();
     expect(api.GET).toHaveBeenCalledTimes(1);
 
     api.GET.mockResolvedValue(answer(200, readiness()));
-    rerender(view(false));
-    await settle();
-
-    expect(api.GET).toHaveBeenCalledTimes(2);
-    expect(screen.getByText('Ready')).toBeInTheDocument();
-  });
-
-  it('reads readiness again when the window regains focus, until ready', async () => {
-    await open(loopback());
-    api.GET.mockResolvedValue(answer(200, readiness()));
-    fireEvent.focus(window);
+    if (by === 'server') rerender(view(false));
+    else fireEvent.focus(window);
     await settle();
     expect(api.GET).toHaveBeenCalledTimes(2);
     expect(screen.getByText('Ready')).toBeInTheDocument();

@@ -9,7 +9,7 @@ import {
   type components,
 } from '@/api/v1/schema';
 import { I18nText } from '@/i18n/I18nText';
-import { CommandBlock, reasonText } from './parts';
+import { CommandBlock, ReasonLinks, reasonText } from './parts';
 
 type CoordinatorReadiness = components['schemas']['CoordinatorJoinReadiness'];
 type Report = components['schemas']['JoinReadinessReport'];
@@ -55,6 +55,7 @@ export function ReadinessBody({
                   'This coordinator did not report. Start or upgrade it, then check again.'
                 }
               />
+              <ReasonLinks reason={c.errorReason} />
             </p>
           )}
         </div>
@@ -213,20 +214,21 @@ function SourceChange({ report }: { report: Report }) {
 }
 
 function CAChange({ reason }: { reason?: BuiltinTLSReason }) {
-  const text =
+  const access =
     reason === BuiltinTLSReason.ownCertificates
-      ? reasonText(WorkerAccessReason.own_certificates)
+      ? WorkerAccessReason.own_certificates
       : reason === BuiltinTLSReason.caUnavailable
-        ? reasonText(WorkerAccessReason.ca_unavailable)
+        ? WorkerAccessReason.ca_unavailable
         : undefined;
   return (
     <p>
       <I18nText
         text={
-          text ??
+          reasonText(access) ??
           'Invites need the built-in CA, which this coordinator does not have.'
         }
       />
+      <ReasonLinks reason={access} />
     </p>
   );
 }

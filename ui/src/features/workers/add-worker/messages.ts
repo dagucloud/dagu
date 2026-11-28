@@ -6,10 +6,16 @@ import { defineMessages } from '@/features/workflow-workspace/messages/define';
 /** The static messages of the Add worker dialog. */
 export const addWorkerMessages = defineMessages({
   en: {
+    'Move to built-in TLS': 'Move to built-in TLS',
+    'Keep your certificates': 'Keep your certificates',
+    "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
+      "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.",
+    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
+      "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.",
+    'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, or move every Dagu process to built-in TLS together.':
+      'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, or move every Dagu process to built-in TLS together.',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.",
-    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file). If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
-      "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file). If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.",
     'Copy the change': 'Copy the change',
     'Check again': 'Check again',
     'The coordinator cannot do this yet. Try again in a moment.':
@@ -64,8 +70,6 @@ export const addWorkerMessages = defineMessages({
       'Recreate the container with these options:',
     'The variable {name} sets coordinator.host. Set it to 0.0.0.0 where Dagu starts:':
       'The variable {name} sets coordinator.host. Set it to 0.0.0.0 where Dagu starts:',
-    'Invites need the built-in CA, but this coordinator uses peer.cert_file and peer.key_file. Remove both to use invites, or connect each worker with your own certificates.':
-      'Invites need the built-in CA, but this coordinator uses peer.cert_file and peer.key_file. Remove both to use invites, or connect each worker with your own certificates.',
     'Invites need the built-in CA, but this coordinator could not create or read it. Its start warning names the cause.':
       'Invites need the built-in CA, but this coordinator could not create or read it. Its start warning names the cause.',
     'Invites need the built-in CA, which this coordinator does not have.':
@@ -79,8 +83,6 @@ export const addWorkerMessages = defineMessages({
     'Addresses of this machine:': 'Addresses of this machine:',
     'Enter the address of the machine that runs the container. Dagu cannot see it from inside the container.':
       'Enter the address of the machine that runs the container. Dagu cannot see it from inside the container.',
-    'Enter the address of the coordinator Service: its load balancer, or a node for NodePort.':
-      'Enter the address of the coordinator Service: its load balancer, or a node for NodePort.',
     'Enter the address workers use to reach the coordinator.':
       'Enter the address workers use to reach the coordinator.',
     '{host} reaches only the machine it runs on. Enter an address that workers on other hosts can reach.':
@@ -91,10 +93,16 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Shown after steps 1 and 2',
   },
   'zh-CN': {
+    'Move to built-in TLS': '迁移到内置 TLS',
+    'Keep your certificates': '保留您的证书',
+    "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
+      '输入 Worker 可访问的协调器 Service 地址：其负载均衡器；如果使用 NodePort，则为节点地址和分配的节点端口。Service 自身的名称只在集群内有效。',
+    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
+      '协调器要求 TLS。请在此服务器上清除所有 peer.insecure: true 或 peer.skip_tls_verify: true，无论它由参数、变量还是配置文件设置。如果此服务器没有协调器可用的 CA 证书，请将其 peer.ca_cert_file 设为协调器的 CA 证书。然后重启它。',
+    'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, or move every Dagu process to built-in TLS together.':
+      '此协调器使用自己的证书（peer.cert_file 和 peer.key_file），因此没有用于邀请的内置 CA。请使用您自己的证书添加 Worker，不使用邀请；或者将所有 Dagu 进程一起迁移到内置 TLS。',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       '在协调器的工作负载上将 DAGU_COORDINATOR_HOST 设为 0.0.0.0，然后重启它。在独立 Pod 中运行的协调器需要所有 Dagu Pod 都能写入的存储。使用 Helm Chart 时，请使用 deploymentMode: distributed，它会设置该变量。将数据迁移到 ReadWriteMany 声明，然后在升级前将 persistence.existingClaim 设为该声明，并将 persistence.accessMode 设为 ReadWriteMany。',
-    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file). If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
-      '协调器要求 TLS。请在此服务器上删除所有 peer.insecure: true（--peer.insecure 参数、DAGU_PEER_INSECURE 变量或配置文件）。如果此服务器没有协调器可用的 CA 证书，请将其 peer.ca_cert_file 设为协调器的 CA 证书。然后重启它。',
     'Copy the change': '复制修改内容',
     'Check again': '重新检查',
     'The coordinator cannot do this yet. Try again in a moment.':
@@ -148,8 +156,6 @@ export const addWorkerMessages = defineMessages({
     'Recreate the container with these options:': '使用以下选项重新创建容器：',
     'The variable {name} sets coordinator.host. Set it to 0.0.0.0 where Dagu starts:':
       '变量 {name} 设置了 coordinator.host。在启动 Dagu 的地方将其设为 0.0.0.0：',
-    'Invites need the built-in CA, but this coordinator uses peer.cert_file and peer.key_file. Remove both to use invites, or connect each worker with your own certificates.':
-      '邀请需要内置 CA，但此协调器使用 peer.cert_file 和 peer.key_file。删除这两项即可使用邀请，或使用你自己的证书连接每个 Worker。',
     'Invites need the built-in CA, but this coordinator could not create or read it. Its start warning names the cause.':
       '邀请需要内置 CA，但此协调器无法创建或读取它。其启动警告说明了原因。',
     'Invites need the built-in CA, which this coordinator does not have.':
@@ -163,8 +169,6 @@ export const addWorkerMessages = defineMessages({
     'Addresses of this machine:': '本机地址：',
     'Enter the address of the machine that runs the container. Dagu cannot see it from inside the container.':
       '输入运行该容器的机器的地址。Dagu 在容器内无法看到它。',
-    'Enter the address of the coordinator Service: its load balancer, or a node for NodePort.':
-      '输入协调器 Service 的地址：其负载均衡器，或 NodePort 所用的节点。',
     'Enter the address workers use to reach the coordinator.':
       '输入 Worker 用于连接协调器的地址。',
     '{host} reaches only the machine it runs on. Enter an address that workers on other hosts can reach.':
@@ -175,10 +179,16 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': '完成步骤 1 和 2 后显示',
   },
   ja: {
+    'Move to built-in TLS': '組み込み TLS に移行',
+    'Keep your certificates': '独自の証明書を使い続ける',
+    "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
+      'ワーカーが到達できるコーディネーター Service のアドレスを入力してください。ロードバランサー、または NodePort ならノードのアドレスと割り当てられたノードポートです。Service 自体の名前はクラスター内でのみ使えます。',
+    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
+      'コーディネーターは TLS を必要とします。このサーバーで peer.insecure: true と peer.skip_tls_verify: true を、フラグ、変数、設定ファイルのどれで設定されていてもすべて解除してください。このサーバーにコーディネーター用の使える CA 証明書がない場合は、peer.ca_cert_file をコーディネーターの CA 証明書にしてください。その後再起動してください。',
+    'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, or move every Dagu process to built-in TLS together.':
+      'このコーディネーターは独自の証明書 (peer.cert_file と peer.key_file) を使っているため、招待用の組み込み CA がありません。招待を使わずに独自の証明書でワーカーを追加するか、すべての Dagu プロセスを一緒に組み込み TLS に移行してください。',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       'コーディネーターのワークロードで DAGU_COORDINATOR_HOST を 0.0.0.0 にし、再起動してください。独自の Pod で動くコーディネーターには、すべての Dagu Pod が書き込めるストレージが必要です。Helm チャートでは deploymentMode: distributed を使ってください。これがこの変数を設定します。データを ReadWriteMany のクレームに移し、アップグレードの前に persistence.existingClaim をそのクレームに、persistence.accessMode を ReadWriteMany にしてください。',
-    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file). If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
-      'コーディネーターは TLS を必要とします。このサーバーで peer.insecure: true をすべて削除してください (--peer.insecure フラグ、DAGU_PEER_INSECURE 変数、設定ファイル)。このサーバーにコーディネーター用の使える CA 証明書がない場合は、peer.ca_cert_file をコーディネーターの CA 証明書にしてください。その後再起動してください。',
     'Copy the change': '変更をコピー',
     'Check again': '再確認',
     'The coordinator cannot do this yet. Try again in a moment.':
@@ -233,8 +243,6 @@ export const addWorkerMessages = defineMessages({
       '次のオプションでコンテナを作り直してください:',
     'The variable {name} sets coordinator.host. Set it to 0.0.0.0 where Dagu starts:':
       '変数 {name} が coordinator.host を設定しています。Dagu を起動する場所で 0.0.0.0 にしてください:',
-    'Invites need the built-in CA, but this coordinator uses peer.cert_file and peer.key_file. Remove both to use invites, or connect each worker with your own certificates.':
-      '招待には組み込み CA が必要ですが、このコーディネーターは peer.cert_file と peer.key_file を使っています。招待を使うには両方を削除するか、各ワーカーを独自の証明書で接続してください。',
     'Invites need the built-in CA, but this coordinator could not create or read it. Its start warning names the cause.':
       '招待には組み込み CA が必要ですが、このコーディネーターは CA を作成または読み込めませんでした。起動時の警告に原因が示されています。',
     'Invites need the built-in CA, which this coordinator does not have.':
@@ -248,8 +256,6 @@ export const addWorkerMessages = defineMessages({
     'Addresses of this machine:': 'このマシンのアドレス:',
     'Enter the address of the machine that runs the container. Dagu cannot see it from inside the container.':
       'コンテナを実行しているマシンのアドレスを入力してください。Dagu はコンテナ内からそれを確認できません。',
-    'Enter the address of the coordinator Service: its load balancer, or a node for NodePort.':
-      'コーディネーター Service のアドレスを入力してください: ロードバランサー、または NodePort の場合はノード。',
     'Enter the address workers use to reach the coordinator.':
       'ワーカーがコーディネーターに接続するアドレスを入力してください。',
     '{host} reaches only the machine it runs on. Enter an address that workers on other hosts can reach.':
@@ -261,10 +267,16 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'ステップ 1 と 2 の後に表示',
   },
   de: {
+    'Move to built-in TLS': 'Auf eingebautes TLS umstellen',
+    'Keep your certificates': 'Eigene Zertifikate behalten',
+    "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
+      'Geben Sie die Adresse des Koordinator-Service ein, die Worker erreichen: seinen Load Balancer oder bei NodePort die Adresse eines Knotens und den zugewiesenen Knotenport. Der Name des Service selbst funktioniert nur im Cluster.',
+    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
+      'Der Koordinator verlangt TLS. Entfernen Sie auf diesem Server jedes peer.insecure: true und peer.skip_tls_verify: true, ob ein Flag, eine Variable oder die Konfigurationsdatei es setzt. Hat dieser Server kein nutzbares CA-Zertifikat für den Koordinator, setzen Sie peer.ca_cert_file auf das CA-Zertifikat des Koordinators. Starten Sie ihn dann neu.',
+    'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, or move every Dagu process to built-in TLS together.':
+      'Dieser Koordinator nutzt eigene Zertifikate, peer.cert_file und peer.key_file, und hat daher keine eingebaute CA für Einladungen. Fügen Sie den Worker mit Ihren eigenen Zertifikaten und ohne Einladung hinzu, oder stellen Sie alle Dagu-Prozesse gemeinsam auf eingebautes TLS um.',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       'Setzen Sie DAGU_COORDINATOR_HOST auf dem Workload des Koordinators auf 0.0.0.0 und starten Sie ihn neu. Ein Koordinator in einem eigenen Pod braucht Speicher, in den jeder Dagu-Pod schreiben kann. Mit dem Helm-Chart nutzen Sie deploymentMode: distributed, das die Variable setzt. Verschieben Sie die Daten in einen ReadWriteMany-Claim und setzen Sie vor dem Upgrade persistence.existingClaim darauf und persistence.accessMode auf ReadWriteMany.',
-    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file). If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
-      'Der Koordinator verlangt TLS. Entfernen Sie auf diesem Server jedes peer.insecure: true (das Flag --peer.insecure, die Variable DAGU_PEER_INSECURE oder die Konfigurationsdatei). Hat dieser Server kein nutzbares CA-Zertifikat für den Koordinator, setzen Sie peer.ca_cert_file auf das CA-Zertifikat des Koordinators. Starten Sie ihn dann neu.',
     'Copy the change': 'Änderung kopieren',
     'Check again': 'Erneut prüfen',
     'The coordinator cannot do this yet. Try again in a moment.':
@@ -320,8 +332,6 @@ export const addWorkerMessages = defineMessages({
       'Erstellen Sie den Container mit diesen Optionen neu:',
     'The variable {name} sets coordinator.host. Set it to 0.0.0.0 where Dagu starts:':
       'Die Variable {name} setzt coordinator.host. Setzen Sie sie dort, wo Dagu startet, auf 0.0.0.0:',
-    'Invites need the built-in CA, but this coordinator uses peer.cert_file and peer.key_file. Remove both to use invites, or connect each worker with your own certificates.':
-      'Einladungen brauchen die eingebaute CA, aber dieser Koordinator nutzt peer.cert_file und peer.key_file. Entfernen Sie beide, um Einladungen zu nutzen, oder verbinden Sie jeden Worker mit Ihren eigenen Zertifikaten.',
     'Invites need the built-in CA, but this coordinator could not create or read it. Its start warning names the cause.':
       'Einladungen brauchen die eingebaute CA, aber dieser Koordinator konnte sie nicht erstellen oder lesen. Seine Startwarnung nennt die Ursache.',
     'Invites need the built-in CA, which this coordinator does not have.':
@@ -335,8 +345,6 @@ export const addWorkerMessages = defineMessages({
     'Addresses of this machine:': 'Adressen dieses Rechners:',
     'Enter the address of the machine that runs the container. Dagu cannot see it from inside the container.':
       'Geben Sie die Adresse des Rechners ein, auf dem der Container läuft. Dagu sieht sie nicht aus dem Container heraus.',
-    'Enter the address of the coordinator Service: its load balancer, or a node for NodePort.':
-      'Geben Sie die Adresse des Koordinator-Service ein: seinen Load Balancer oder bei NodePort einen Knoten.',
     'Enter the address workers use to reach the coordinator.':
       'Geben Sie die Adresse ein, über die Worker den Koordinator erreichen.',
     '{host} reaches only the machine it runs on. Enter an address that workers on other hosts can reach.':
@@ -348,10 +356,16 @@ export const addWorkerMessages = defineMessages({
     'Shown after steps 1 and 2': 'Erscheint nach Schritt 1 und 2',
   },
   fr: {
+    'Move to built-in TLS': 'Passer au TLS intégré',
+    'Keep your certificates': 'Garder vos certificats',
+    "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
+      'Saisissez l’adresse du Service du coordinateur que les workers atteignent : son équilibreur de charge, ou pour NodePort, l’adresse d’un nœud et le port de nœud attribué. Le nom du Service ne fonctionne qu’à l’intérieur du cluster.',
+    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
+      'Le coordinateur exige TLS. Sur ce serveur, retirez tout peer.insecure : true ou peer.skip_tls_verify : true, qu’une option, une variable ou le fichier de configuration le définisse. Si ce serveur n’a pas de certificat de CA utilisable pour le coordinateur, définissez peer.ca_cert_file sur le certificat de CA du coordinateur. Puis redémarrez-le.',
+    'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, or move every Dagu process to built-in TLS together.':
+      'Ce coordinateur utilise ses propres certificats, peer.cert_file et peer.key_file, et n’a donc pas de CA intégrée pour les invitations. Ajoutez le worker avec vos propres certificats et sans invitation, ou passez tous les processus Dagu ensemble au TLS intégré.',
     "Set DAGU_COORDINATOR_HOST to 0.0.0.0 on the coordinator's workload, then restart it. A coordinator in its own pod needs storage that every Dagu pod can write. With the Helm chart, use deploymentMode: distributed, which sets the variable. Move the data to a ReadWriteMany claim, then set persistence.existingClaim to it and persistence.accessMode to ReadWriteMany before you upgrade.":
       'Définissez DAGU_COORDINATOR_HOST à 0.0.0.0 sur la charge de travail du coordinateur, puis redémarrez-la. Un coordinateur dans son propre pod a besoin d’un stockage que chaque pod Dagu peut écrire. Avec le chart Helm, utilisez deploymentMode : distributed, qui définit la variable. Déplacez les données vers une demande ReadWriteMany, puis définissez persistence.existingClaim sur celle-ci et persistence.accessMode à ReadWriteMany avant la mise à jour.',
-    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file). If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.":
-      'Le coordinateur exige TLS. Sur ce serveur, retirez tout peer.insecure : true (l’option --peer.insecure, la variable DAGU_PEER_INSECURE ou le fichier de configuration). Si ce serveur n’a pas de certificat de CA utilisable pour le coordinateur, définissez peer.ca_cert_file sur le certificat de CA du coordinateur. Puis redémarrez-le.',
     'Copy the change': 'Copier la modification',
     'Check again': 'Revérifier',
     'The coordinator cannot do this yet. Try again in a moment.':
@@ -407,8 +421,6 @@ export const addWorkerMessages = defineMessages({
       'Recréez le conteneur avec ces options :',
     'The variable {name} sets coordinator.host. Set it to 0.0.0.0 where Dagu starts:':
       'La variable {name} définit coordinator.host. Donnez-lui la valeur 0.0.0.0 là où Dagu démarre :',
-    'Invites need the built-in CA, but this coordinator uses peer.cert_file and peer.key_file. Remove both to use invites, or connect each worker with your own certificates.':
-      'Les invitations nécessitent la CA intégrée, mais ce coordinateur utilise peer.cert_file et peer.key_file. Supprimez les deux pour utiliser les invitations, ou connectez chaque worker avec vos propres certificats.',
     'Invites need the built-in CA, but this coordinator could not create or read it. Its start warning names the cause.':
       'Les invitations nécessitent la CA intégrée, mais ce coordinateur n’a pas pu la créer ni la lire. Son avertissement au démarrage en donne la cause.',
     'Invites need the built-in CA, which this coordinator does not have.':
@@ -422,8 +434,6 @@ export const addWorkerMessages = defineMessages({
     'Addresses of this machine:': 'Adresses de cette machine :',
     'Enter the address of the machine that runs the container. Dagu cannot see it from inside the container.':
       'Saisissez l’adresse de la machine qui exécute le conteneur. Dagu ne la voit pas depuis le conteneur.',
-    'Enter the address of the coordinator Service: its load balancer, or a node for NodePort.':
-      'Saisissez l’adresse du Service du coordinateur : son load balancer, ou un nœud pour NodePort.',
     'Enter the address workers use to reach the coordinator.':
       'Saisissez l’adresse que les workers utilisent pour joindre le coordinateur.',
     '{host} reaches only the machine it runs on. Enter an address that workers on other hosts can reach.':

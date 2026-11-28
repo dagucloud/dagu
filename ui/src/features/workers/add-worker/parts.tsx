@@ -11,9 +11,13 @@ import { cn } from '@/lib/utils';
 const NO_COORDINATOR =
   'No coordinator is running or reachable. Start one, such as with dagu start-all, then check again.';
 
+const TRANSPORT_DOCS =
+  'https://docs.dagu.sh/server-admin/distributed/transport-security';
+
 /** A request that failed, as the dialog's own words: the cause and the change. */
 export interface RequestProblem {
   text: string;
+  reason?: string;
 }
 
 // The dialog's words for each reason the server gives in details.reason or
@@ -21,7 +25,7 @@ export interface RequestProblem {
 // it may name where a credential is kept.
 const REASON_TEXT: Partial<Record<WorkerAccessReason, string>> = {
   [WorkerAccessReason.own_certificates]:
-    'Invites need the built-in CA, but this coordinator uses peer.cert_file and peer.key_file. Remove both to use invites, or connect each worker with your own certificates.',
+    'This coordinator uses its own certificates, peer.cert_file and peer.key_file, so it has no built-in CA for invites. Add the worker with your own certificates and no invite, or move every Dagu process to built-in TLS together.',
   [WorkerAccessReason.ca_unavailable]:
     'Invites need the built-in CA, but this coordinator could not create or read it. Its start warning names the cause.',
   [WorkerAccessReason.peer_token_missing]:
@@ -29,7 +33,7 @@ const REASON_TEXT: Partial<Record<WorkerAccessReason, string>> = {
   [WorkerAccessReason.peer_token_mismatch]:
     "This server's peer.token is not the coordinator's. Set the same peer.token on both, then restart them.",
   [WorkerAccessReason.require_tls]:
-    "The coordinator requires TLS. On this server, remove any peer.insecure: true (the --peer.insecure flag, the DAGU_PEER_INSECURE variable, or the config file). If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.",
+    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, set peer.ca_cert_file on it to the coordinator's CA certificate. Then restart it.",
   [WorkerAccessReason.coordinator_refused]:
     'The coordinator refused this server. Its log names the reason.',
   [WorkerAccessReason.coordinator_conflict]:
@@ -40,6 +44,30 @@ const REASON_TEXT: Partial<Record<WorkerAccessReason, string>> = {
     'The coordinator is from an earlier Dagu release. Upgrade every coordinator to add workers.',
   [WorkerAccessReason.no_coordinator]: NO_COORDINATOR,
 };
+
+// Docs that carry the steps a reason's words leave out.
+const REASON_LINKS: Partial<Record<WorkerAccessReason, [string, string][]>> = {
+  [WorkerAccessReason.own_certificates]: [
+    ['Keep your certificates', `${TRANSPORT_DOCS}#server-tls`],
+    ['Move to built-in TLS', `${TRANSPORT_DOCS}#processes-on-another-host`],
+  ],
+};
+
+/** The docs links for a reason, if it has any. */
+export function ReasonLinks({ reason }: { reason?: string }) {
+  const links = reason ? REASON_LINKS[reason as WorkerAccessReason] : undefined;
+  return links?.map(([text, href]) => (
+    <a
+      key={href}
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="ml-2 underline underline-offset-2"
+    >
+      <I18nText text={text} />
+    </a>
+  ));
+}
 
 /** The dialog's words for a reason, or undefined for one it does not know. */
 export function reasonText(reason: string | undefined): string | undefined {
@@ -58,7 +86,7 @@ export function requestProblem(
   const reason = (error as { details?: { reason?: string } } | undefined)
     ?.details?.reason;
   const text = reasonText(reason);
-  if (text) return { text };
+  if (text) return { text, reason };
   switch (status) {
     case 400:
       return {
@@ -79,6 +107,7 @@ export function ProblemText({ problem }: { problem: RequestProblem }) {
   return (
     <p role="alert" className="text-sm text-destructive">
       <I18nText text={problem.text} />
+      <ReasonLinks reason={problem.reason} />
     </p>
   );
 }
