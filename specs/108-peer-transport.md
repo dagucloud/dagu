@@ -1122,9 +1122,11 @@ The Workers page is the list of workers on System status.
 - Only the result that creates the invite contains it. Each call is in the
   audit log, and the entry of the call that creates an invite has its ID.
   The entries of the call record no string the caller sent.
-- A non-admin gets `unauthorized`. No coordinator running or reachable
-  gives `resource_unavailable`, and only coordinators of an earlier release
-  give `conflict`.
+- A non-admin gets `unauthorized`. No coordinator running or reachable, or
+  a coordinator that refuses the server, gives `resource_unavailable` with
+  the message of [REST API](#rest-api). Only coordinators of an earlier
+  release give `conflict`. An `expiresIn` the REST API refuses gives
+  `invalid_tool_input` on `expiresIn`.
 
 ### Secrets in Output
 

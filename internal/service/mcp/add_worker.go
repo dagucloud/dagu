@@ -6,8 +6,10 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"regexp"
 	"slices"
 	"strconv"
@@ -16,6 +18,7 @@ import (
 	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	frontendapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -178,7 +181,7 @@ func (svc *Service) addWorker(ctx context.Context, input executeInput) (*mcpsdk.
 	}
 	created, err := svc.api.CreateWorkerInvite(ctx, daguapi.CreateWorkerInviteRequestObject{Body: body})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, inviteInputError(err)
 	}
 	invite, ok := created.(daguapi.CreateWorkerInvite201JSONResponse)
 	if !ok {
@@ -207,6 +210,24 @@ func (svc *Service) addWorker(ctx context.Context, input executeInput) (*mcpsdk.
 		message += " Kubernetes needs reusable=true, since a new pod has no certificate."
 	}
 	return resultWithLinks(message), output, nil
+}
+
+// inviteInputError names the field of a create refusal for a bad request:
+// the API and the coordinator start its message with the field. Any other
+// error returns as it is.
+func inviteInputError(err error) error {
+	apiErr, ok := errors.AsType[*frontendapi.Error](err)
+	if !ok || apiErr.HTTPStatus != http.StatusBadRequest {
+		return err
+	}
+	field := ""
+	switch {
+	case strings.HasPrefix(apiErr.Message, executeFieldExpiresIn), strings.HasPrefix(apiErr.Message, "expires_in"):
+		field = executeFieldExpiresIn
+	case strings.HasPrefix(apiErr.Message, executeFieldAddress):
+		field = executeFieldAddress
+	}
+	return executeInputError(apiErr.Message, field)
 }
 
 // joinSteps returns step 1 of Add worker for each coordinator, and how many

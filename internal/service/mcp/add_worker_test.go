@@ -4,6 +4,7 @@
 package mcp
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"strings"
@@ -236,26 +237,52 @@ func TestAddWorkerReusableInvite(t *testing.T) {
 func TestAddWorkerRefused(t *testing.T) {
 	t.Parallel()
 
-	older := &workerAccessStub{readiness: []coordinator.JoinReadiness{{Err: status.Error(codes.Unimplemented, "unknown method")}}}
+	ready := func() coordinator.Client {
+		return &workerAccessStub{readiness: []coordinator.JoinReadiness{{Report: readyReport()}}}
+	}
+	refusing := func(err error) coordinator.Client {
+		return &workerAccessStub{readiness: []coordinator.JoinReadiness{{Err: err}}}
+	}
 	tests := map[string]struct {
-		client coordinator.Client
-		role   auth.Role
-		code   string
+		client    coordinator.Client
+		role      auth.Role
+		expiresIn string
+		code      string
+		field     string
+		message   string
 	}{
-		"non-admin":         {client: &workerAccessStub{readiness: []coordinator.JoinReadiness{{Report: readyReport()}}}, role: auth.RoleDeveloper, code: executeErrorUnauthorized},
+		"non-admin":         {client: ready(), role: auth.RoleDeveloper, code: executeErrorUnauthorized},
 		"no coordinator":    {role: auth.RoleAdmin, code: executeErrorResourceUnavailable},
-		"older coordinator": {client: older, role: auth.RoleAdmin, code: executeErrorConflict},
+		"older coordinator": {client: refusing(status.Error(codes.Unimplemented, "unknown method")), role: auth.RoleAdmin, code: executeErrorConflict},
+		"coordinator refuses the server": {
+			client: refusing(status.Error(codes.Unauthenticated, "no peer token")), role: auth.RoleAdmin,
+			code: executeErrorResourceUnavailable, message: "the coordinator refused the server: no peer token",
+		},
+		"expiresIn not a duration": {client: ready(), role: auth.RoleAdmin, code: executeErrorInvalidToolInput, field: executeFieldExpiresIn},
+		"expiresIn too long": {
+			client: ready(), role: auth.RoleAdmin, expiresIn: "2562047h47m17s",
+			code: executeErrorInvalidToolInput, field: executeFieldExpiresIn,
+		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			svc, store := newAddWorkerService(tc.client)
+			// By default an invite is pasted into expiresIn, which reaches no
+			// audit entry.
+			expiresIn := cmp.Or(tc.expiresIn, testWorkerInvite)
 
-			// An invite pasted into expiresIn reaches no audit entry.
-			result, data := addWorker(t, cloudUser(tc.role), svc, map[string]any{"address": "192.168.1.20:50055", "expiresIn": testWorkerInvite})
+			result, data := addWorker(t, cloudUser(tc.role), svc, map[string]any{"address": "192.168.1.20:50055", "expiresIn": expiresIn})
 
 			require.True(t, result.IsError, data)
-			require.Equal(t, tc.code, structuredMap(t, result)["code"])
+			output := structuredMap(t, result)
+			require.Equal(t, tc.code, output["code"], data)
+			if tc.field != "" {
+				require.Equal(t, tc.field, output["field"], data)
+			}
+			if tc.message != "" {
+				require.Equal(t, tc.message, output["message"], data)
+			}
 			if stub, ok := tc.client.(*workerAccessStub); ok {
 				require.Nil(t, stub.created)
 			}
