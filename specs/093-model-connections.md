@@ -79,6 +79,59 @@ This spec does not define:
 - An author sees a combination that cannot work while editing, not when
   a run fails.
 
+## Overview
+
+This section is informative. The sections after it state the rules.
+
+An admin adds a provider's API key once, as a shared key, and shares it
+with projects. A manager can instead add a key that only one project
+uses. A DAG author names a connection and a model, and never writes the
+key.
+
+```mermaid
+flowchart LR
+  app["Shared key openai-team<br/>server-wide, added by an admin"]
+  mgr["Manager of project A"]
+  subgraph pa["Project A"]
+    ca["Connection openai-team<br/>no key of its own"]
+    own["Connection anthropic-main<br/>its own key"]
+    s1["Step<br/>connection: openai-team"]
+    s2["Step<br/>connection: anthropic-main"]
+  end
+  subgraph pb["Project B"]
+    cb["Connection openai-team<br/>no key of its own"]
+  end
+  app -- Share --> ca
+  app -- Share --> cb
+  mgr -- adds --> own
+  ca -- used by --> s1
+  own -- used by --> s2
+```
+
+At run time, the CLI of a step sends its model requests to a relay, with
+the relay secret as its key. The gateway adds the real key, and removes
+it from every answer. The step holds only the relay secret.
+
+```mermaid
+sequenceDiagram
+  participant C as CLI of the step
+  participant R as Relay on 127.0.0.1
+  participant G as Gateway<br/>coordinator, or the process of a local run
+  participant P as Provider
+  C->>R: model request, relay secret as the key
+  R->>G: request
+  Note over G: checks the operation and allowed_models<br/>drops the client's credentials<br/>adds the key
+  G->>P: request with the key
+  P-->>G: response
+  Note over G: removes the key and the secret parts of URLs
+  G-->>R: response
+  R-->>C: response
+```
+
+A trusted step that names no connection keeps the CLI's own sign-in, so
+a personal machine needs no setup. [Policy](#policy) states when a step
+needs a connection.
+
 ## Terms
 
 A model connection is a connection of Spec 107 with the provider `model`.
@@ -352,6 +405,19 @@ A CLI step takes the first of these that applies:
 2. When [Policy](#policy) requires a connection: `llm.connection` of the
    DAG, when its adapter accepts one of the connection's protocols.
 3. The CLI's own sign-in. `model` and `effort` keep Spec 067 behavior.
+
+The same order for a CLI with an adapter, with [Policy](#policy):
+
+```mermaid
+flowchart TD
+  c{"with.connection set?"}
+  c -- yes --> use["That connection"]
+  c -- no --> p{"Untrusted step, or<br/>ai.require_connections?"}
+  p -- no --> own["The CLI's own sign-in"]
+  p -- yes --> l{"llm.connection serves<br/>a protocol of the CLI?"}
+  l -- yes --> llm["llm.connection"]
+  l -- no --> err["Fails with connection_required"]
+```
 
 - A step that takes a connection and sets no `model` takes `llm.model`
   when it is one model and `llm.connection` names the same connection.
