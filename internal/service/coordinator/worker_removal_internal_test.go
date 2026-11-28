@@ -1133,7 +1133,7 @@ func TestEnrollRefusesKeyOfRemovingCertificate(t *testing.T) {
 	require.NoError(t, err)
 	issued, err := x509.ParseCertificate(resp.Certificate)
 	require.NoError(t, err)
-	_, err = f.certs.MarkRemoving(t.Context(), issued.Subject.CommonName, "worker-a", time.Now)
+	_, err = f.certs.MarkRemoving(t.Context(), issued.Subject.CommonName, "worker-a", time.Now, false)
 	require.NoError(t, err)
 
 	_, err = f.h.Enroll(tlsCtx, req)

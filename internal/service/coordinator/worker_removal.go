@@ -31,6 +31,8 @@ const (
 	// certificates in removal, so it applies another coordinator's removal
 	// within this interval.
 	removalRereadInterval = 30 * time.Second
+	// idleRevokeAttempts bounds the write attempts of one idle revocation.
+	idleRevokeAttempts = 3
 	// recordPruneInterval is how often a coordinator prunes the certificate
 	// and invite records.
 	recordPruneInterval = 24 * time.Hour
@@ -867,18 +869,7 @@ func (h *Handler) settleRemovals(ctx context.Context, removing []persis.WorkerCe
 // it leaves a stop removal whose wait ended meanwhile to the deadline.
 func (h *Handler) revokeIdle(ctx context.Context, removal persis.WorkerCertificateRemoval, now time.Time) {
 	claimed := false
-	defer func() {
-		if claimed {
-			h.stops.release(removal.ID)
-			h.wakeStopDeadlines()
-		}
-	}()
-	cert, revoked, err := h.workerCertificates.RevokeIfIdle(ctx, removal.ID, func(ctx context.Context, read persis.WorkerCertificate) (bool, error) {
-		// A write that lost to another one lists again without the state.
-		if claimed {
-			h.stops.release(removal.ID)
-			claimed = false
-		}
+	idle := func(ctx context.Context, read persis.WorkerCertificate) (bool, error) {
 		presence, err := h.listPresence(ctx)
 		if err != nil {
 			return false, err
@@ -895,7 +886,26 @@ func (h *Handler) revokeIdle(ctx context.Context, removal persis.WorkerCertifica
 			return false, nil
 		}
 		return h.removalDue(removalOf(read), presence, leases, now), nil
-	})
+	}
+	var (
+		cert    persis.WorkerCertificate
+		revoked bool
+		err     error
+	)
+	// A write that lost to an acceptance reads and lists again. Each
+	// attempt lets the state go once it ends, and a later settle takes up
+	// one that keeps losing.
+	for range idleRevokeAttempts {
+		cert, revoked, err = h.workerCertificates.RevokeIfIdle(ctx, removal.ID, idle)
+		if claimed {
+			h.stops.release(removal.ID)
+			claimed = false
+			h.wakeStopDeadlines()
+		}
+		if !errors.Is(err, persis.ErrConflict) {
+			break
+		}
+	}
 	if err != nil {
 		logger.Warn(ctx, "Failed to revoke a removed worker's certificate", slog.String("certificate-id", removal.ID), tag.Error(err))
 		return
