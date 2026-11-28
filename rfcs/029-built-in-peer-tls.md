@@ -51,8 +51,8 @@ file, and the cluster issues and rotates node certificates.
    install and after an upgrade, wherever a process can get the CA without
    a setting and the network path carries TLS. Elsewhere it stays on h2c,
    and the UI says why and what to set.
-2. A worker on another host joins with one copied command from the Web UI,
-   the CLI, or Dagu Cloud. Until the coordinator can accept it, the dialog
+2. A worker on another host joins with one copied command from the Web UI
+   or the CLI. Until the coordinator can accept it, the dialog
    shows what to change instead of a command.
 3. A worker that joined with an invite holds its own certificate, not the
    peer token. Removing it keeps that worker out across restarts, whichever
@@ -198,11 +198,11 @@ error.
 
 ### Dagu Cloud
 
-- The Workers section of a server page has the same **Add worker**. The
-  console asks the server through the relay as the signed-in person, under
-  the same access rule as other console actions, and needs admin. It shows
-  the invite once and keeps no copy; the call log records the invite ID.
 - Each worker shows how it connects.
+- The console does not create invites. Relay calls stay below admin, as
+  RFC 002 sets, and adding a worker gives it runs, so **Add worker** stays
+  with a local admin: the Web UI, the CLI, the REST API, or a local MCP
+  client.
 - Dagu Cloud never holds the CA or a private key, and worker traffic never
   passes through it.
 
@@ -628,11 +628,12 @@ The existing keys keep working, with three fixes:
   cluster. Clients check the fixed name `coordinator.dagu.invalid`, so the
   load balancer passes TCP through and needs no certificate.
 
-### Dagu Cloud
+### MCP
 
-- **Add worker** calls a new server MCP action, as the signed-in person. It
-  returns the join readiness first, so the console shows the same steps,
-  and creates the invite once the coordinator is ready.
+- A server MCP action returns the join readiness first, so an agent shows
+  the same steps as the dialog, and creates the invite once the coordinator
+  is ready. It is for local MCP callers with admin; a relay call is
+  refused.
 
 ## Compatibility
 
@@ -712,7 +713,7 @@ The existing keys keep working, with three fixes:
 3. Invites, enrollment, revocation, configuration conflicts, join
    readiness, workers list, API, CLI, MCP.
 4. Chart, including the coordinator Service type.
-5. Dagu Cloud console.
+5. Dagu Cloud console: each worker's connection.
 
 Specs under `specs/` state the transport selection, enrollment, and
 revocation contracts. Conformance tests cover h2c and TLS on one port, the
@@ -746,4 +747,3 @@ single-use invite, and revocation of an open connection.
 4. Replacing the CA: issue from a new CA while trusting both, then drop the
    old one. Nothing expires, so this is only for replacing a CA on purpose.
    Is it needed before v3.0?
-5. Should **Add worker** in Dagu Cloud be paid only, like worker monitoring?
