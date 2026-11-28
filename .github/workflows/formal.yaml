@@ -1,0 +1,47 @@
+name: Formal
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "formal/**"
+      - "internal/service/scheduler/missed_gap.go"
+      - "internal/service/scheduler/catchup.go"
+      - "internal/service/scheduler/tick_planner.go"
+      - "internal/service/scheduler/scheduler.go"
+      - ".github/workflows/formal.yaml"
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+    paths:
+      - "formal/**"
+      - "internal/service/scheduler/missed_gap.go"
+      - "internal/service/scheduler/catchup.go"
+      - "internal/service/scheduler/tick_planner.go"
+      - "internal/service/scheduler/scheduler.go"
+      - ".github/workflows/formal.yaml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: Check formal models
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft != true
+    timeout-minutes: 30
+    steps:
+      - name: Check out code
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      # The runner image ships Java 17.
+      - name: Check models with TLC
+        run: ./formal/check.sh
