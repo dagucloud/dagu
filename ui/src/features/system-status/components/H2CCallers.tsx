@@ -22,7 +22,10 @@ function H2CCallers({ callers }: { callers: H2CCaller[] }) {
             key={`${caller.host} ${caller.reason}`}
             className="flex items-start gap-3"
           >
-            <span className="w-32 shrink-0 truncate font-mono text-muted-foreground">
+            <span
+              className="w-32 shrink-0 truncate font-mono text-muted-foreground"
+              title={caller.host}
+            >
               {caller.host}
             </span>
             <div className="min-w-0 flex-1">

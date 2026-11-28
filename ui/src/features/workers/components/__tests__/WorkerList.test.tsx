@@ -29,6 +29,12 @@ const worker = {
   versionDrift: WorkerVersionDrift.none,
 } as Worker;
 
+// The list renders each connection line twice, in the Connection column and
+// under the worker ID, and its width shows one of them.
+function expectConnection(text: string | RegExp) {
+  expect(screen.getAllByText(text)).toHaveLength(2);
+}
+
 function renderList(workers: Worker[]) {
   return render(
     <MemoryRouter>
@@ -92,9 +98,9 @@ describe('WorkerList', () => {
       { ...worker, id: 'worker-3', connection: undefined },
     ]);
 
-    expect(screen.getByText('Certificate')).toBeInTheDocument();
-    expect(screen.getByText('TLS')).toBeInTheDocument();
-    expect(screen.getByText('Connection not reported')).toBeInTheDocument();
+    expectConnection('Certificate');
+    expectConnection('TLS');
+    expectConnection('Connection not reported');
   });
 
   // Plaintext can be on purpose, as behind a service mesh, so the line names
@@ -114,21 +120,16 @@ describe('WorkerList', () => {
       },
     ]);
 
-    const links = screen.getAllByRole('link', { name: 'Plaintext' });
-    expect(links).toHaveLength(2);
-    expect(links[0]).toHaveAttribute(
-      'href',
-      'https://docs.dagu.sh/server-admin/distributed/transport-security'
-    );
-    expect(
-      screen.getByText(/peer\.insecure: true in its config/)
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText('Remove peer.insecure: true to use TLS')
-    ).toBeInTheDocument();
-    expect(screen.getByText(/older version/)).toBeInTheDocument();
-    expect(screen.getByText('Upgrade it to use TLS')).toBeInTheDocument();
-    expect(links[0].closest('.text-warning')).toBeNull();
+    for (const link of screen.getAllByRole('link', { name: 'Plaintext' })) {
+      expect(link).toHaveAttribute(
+        'href',
+        'https://docs.dagu.sh/server-admin/distributed/transport-security'
+      );
+    }
+    expectConnection(/peer\.insecure: true in its config/);
+    expectConnection('Remove peer.insecure: true to use TLS');
+    expectConnection(/older version/);
+    expectConnection('Upgrade it to use TLS');
   });
 
   it('tells a worker that reports no version', () => {

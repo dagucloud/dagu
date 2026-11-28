@@ -74,8 +74,10 @@ function WorkerList({ workers, isLoading, errors }: WorkerListProps) {
 
   const behind = countWorkersBehind(workers);
 
+  // The list is a container, so the Connection column shows only where the
+  // list is wide enough; a narrower list shows it under the worker ID.
   return (
-    <div className="divide-y">
+    <div className="@container divide-y">
       {behind > 0 && (
         <div className="px-3 py-2 flex items-center gap-2 text-xs text-warning">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
@@ -124,6 +126,9 @@ function WorkerList({ workers, isLoading, errors }: WorkerListProps) {
               <div className="flex-1 min-w-0">
                 <div className="font-mono text-sm truncate">{worker.id}</div>
                 <WorkerVersion worker={worker} />
+                <div className="@4xl:hidden">
+                  <WorkerConnection worker={worker} />
+                </div>
               </div>
 
               {/* Labels */}
@@ -142,7 +147,7 @@ function WorkerList({ workers, isLoading, errors }: WorkerListProps) {
               </div>
 
               {/* Connection */}
-              <div className="w-56 min-w-0">
+              <div className="hidden w-56 min-w-0 @4xl:block">
                 <WorkerConnection worker={worker} />
               </div>
 

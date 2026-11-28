@@ -7407,7 +7407,7 @@ export interface components {
             startedAt: string;
             /** @description Port number the coordinator is listening on */
             port: number;
-            /** @description Hosts, other than workers, that called this coordinator over h2c in the last 10 minutes, the latest call first. Absent when the coordinator does not report them, as one of an earlier release. */
+            /** @description Hosts that called this coordinator over h2c in the last 10 minutes, one entry per host and reason, the latest call first. Workers' calls and health checks are left out. The coordinator keeps at most 64 entries and drops the oldest first, so the list may omit a host. Absent when the coordinator does not report them, as one of an earlier release. */
             h2cCallers?: components["schemas"]["H2CCaller"][];
         };
         /** @description A host that called a coordinator over h2c, with the reason it sent */
@@ -9214,7 +9214,7 @@ export interface components {
          *     - peer.insecure: its config sets peer.insecure: true.
          *     - no TLS source: it has nothing to verify the coordinator with.
          *     - tls failed on the network path: TLS failed between it and the coordinator, so it fell back to h2c.
-         *     - older version: it runs a Dagu release that does not send a reason.
+         *     - older version: its calls carry no reason, as those of a Dagu release before reasons do, or one the coordinator does not know.
          *
          * @enum {string}
          */
