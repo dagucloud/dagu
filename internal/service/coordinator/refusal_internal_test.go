@@ -9,7 +9,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 )
@@ -38,4 +40,16 @@ func TestRefusalReason(t *testing.T) {
 		assert.Equal(t, want, RefusalReason(err), "%v", err)
 	}
 	assert.Empty(t, RefusalReason(fmt.Errorf("no coordinators available")))
+}
+
+// The reason travels as a status detail, so it survives a reworded
+// message, and a coordinator of an earlier release that attaches none is
+// still named by its message.
+func TestRefusalReasonDetail(t *testing.T) {
+	t.Parallel()
+
+	reworded := refusalError(codes.FailedPrecondition, reasonOwnCertificates, "a reworded message")
+	assert.Equal(t, reasonOwnCertificates, RefusalReason(reworded))
+	assert.Equal(t, reasonCAUnavailable, RefusalReason(status.Error(codes.FailedPrecondition, caUnavailableMessage)))
+	assert.Empty(t, RefusalReason(status.Error(codes.FailedPrecondition, "a reworded message")))
 }

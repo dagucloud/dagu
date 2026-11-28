@@ -264,9 +264,9 @@ func (a *PeerTokenAuth) authorize(ctx context.Context, method string) error {
 	require := a.require || peerTokenOnlyMethods[method]
 	switch {
 	case got != "" && (a.configured || require):
-		return status.Error(codes.Unauthenticated, peerTokenMismatchMessage)
+		return refusalError(codes.Unauthenticated, reasonPeerTokenMismatch, peerTokenMismatchMessage)
 	case got == "" && require:
-		return status.Error(codes.Unauthenticated, peerTokenMissingMessage)
+		return refusalError(codes.Unauthenticated, reasonPeerTokenMissing, peerTokenMissingMessage)
 	}
 	a.warn(ctx, method, got != "")
 	return nil

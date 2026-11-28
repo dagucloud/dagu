@@ -25,7 +25,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
-	"google.golang.org/grpc/status"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -100,7 +99,7 @@ func requireTLS(ctx context.Context, method string) error {
 			return nil
 		}
 	}
-	return status.Error(codes.Unauthenticated, requireTLSMessage)
+	return refusalError(codes.Unauthenticated, reasonRequireTLS, requireTLSMessage)
 }
 
 // peerTransportCredentials picks TLS or h2c from the first byte of each

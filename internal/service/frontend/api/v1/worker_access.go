@@ -31,6 +31,9 @@ const (
 	// refused to the server, before the coordinator's reason, such as a
 	// missing peer token or a TLS requirement.
 	coordinatorRefusedPrefix = "the coordinator refused the server: "
+	// peerTokenMissingAnswer answers a call the coordinator refused for
+	// lack of the peer token.
+	peerTokenMissingAnswer = coordinatorRefusedPrefix + "it requires the peer token: set peer.token"
 	// maxExpiresInSeconds keeps an invite's expiry within what the
 	// coordinator accepts.
 	maxExpiresInSeconds = math.MaxInt64 / int64(time.Second)
@@ -77,7 +80,7 @@ type coordinatorAnswer struct {
 var coordinatorAnswers = map[codes.Code]coordinatorAnswer{
 	codes.InvalidArgument:    {http.StatusBadRequest, api.ErrorCodeBadRequest, asSent, ""},
 	codes.NotFound:           {http.StatusNotFound, api.ErrorCodeNotFound, asSent, ""},
-	codes.FailedPrecondition: {http.StatusConflict, api.ErrorCodeConflict, asSent, ""},
+	codes.FailedPrecondition: {http.StatusConflict, api.ErrorCodeConflict, asSent, api.WorkerAccessReasonCoordinatorConflict},
 	codes.Unimplemented: {http.StatusConflict, api.ErrorCodeConflict,
 		func(string) string { return olderCoordinatorMessage }, api.WorkerAccessReasonOlderCoordinator},
 	codes.Unauthenticated: {http.StatusServiceUnavailable, api.ErrorCodeInternalError,
@@ -86,6 +89,15 @@ var coordinatorAnswers = map[codes.Code]coordinatorAnswer{
 		prefixed(coordinatorUnreachableMessage + ": "), api.WorkerAccessReasonNoCoordinator},
 	codes.DeadlineExceeded: {http.StatusServiceUnavailable, api.ErrorCodeInternalError,
 		prefixed(coordinatorUnreachableMessage + ": "), api.WorkerAccessReasonNoCoordinator},
+}
+
+// reasonMessages words the answers whose reason the coordinator's message,
+// or the code's wording, does not fit.
+var reasonMessages = map[api.WorkerAccessReason]func(string) string{
+	// The guidance names the setting only.
+	api.WorkerAccessReasonPeerTokenMissing: func(string) string { return peerTokenMissingAnswer },
+	// A coordinator answered; it cannot do it yet.
+	api.WorkerAccessReasonRetryLater: asSent,
 }
 
 // asSent answers with the coordinator's message.
@@ -267,10 +279,14 @@ func coordinatorCallError(err error) *Error {
 	if !reason.Valid() {
 		reason = answer.reason
 	}
+	message := answer.message
+	if worded, ok := reasonMessages[reason]; ok {
+		message = worded
+	}
 	return &Error{
 		HTTPStatus: answer.httpStatus,
 		Code:       answer.code,
-		Message:    answer.message(st.Message()),
+		Message:    message(st.Message()),
 		Details:    reasonDetails(reason),
 	}
 }

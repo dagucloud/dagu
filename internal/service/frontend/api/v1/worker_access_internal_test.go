@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -168,7 +169,10 @@ func TestWorkerAccessErrors(t *testing.T) {
 		{status.Error(codes.FailedPrecondition, caUnavailable), http.StatusConflict, caUnavailable, "ca_unavailable"},
 		{status.Error(codes.InvalidArgument, "address must be host:port"), http.StatusBadRequest, "address must be host:port", ""},
 		{status.Error(codes.NotFound, "no invite has this ID"), http.StatusNotFound, "no invite has this ID", ""},
-		{status.Error(codes.Unauthenticated, peerTokenRefusal), http.StatusServiceUnavailable, coordinatorRefusedPrefix + peerTokenRefusal, "peer_token_missing"},
+		{status.Error(codes.Unauthenticated, peerTokenRefusal), http.StatusServiceUnavailable, peerTokenMissingAnswer, "peer_token_missing"},
+		{status.Error(codes.FailedPrecondition, "a refusal this server does not know"), http.StatusConflict, "a refusal this server does not know", "coordinator_conflict"},
+		{withReason(codes.Unavailable, "retry_later", "the worker's certificate record is being written again; try again in a minute"), http.StatusServiceUnavailable,
+			"the worker's certificate record is being written again; try again in a minute", "retry_later"},
 		{status.Error(codes.Unauthenticated, tokenMismatch), http.StatusServiceUnavailable, coordinatorRefusedPrefix + tokenMismatch, "peer_token_mismatch"},
 		{status.Error(codes.Unauthenticated, requireTLSRefusal), http.StatusServiceUnavailable, coordinatorRefusedPrefix + requireTLSRefusal, "require_tls"},
 		{status.Error(codes.Unauthenticated, "refused by a proxy"), http.StatusServiceUnavailable, coordinatorRefusedPrefix + "refused by a proxy", "coordinator_refused"},
@@ -438,13 +442,26 @@ func TestCreateWorkerInviteLongestExpiry(t *testing.T) {
 func TestGetWorkerJoinReadinessRefusal(t *testing.T) {
 	t.Parallel()
 
-	for _, refusal := range []string{peerTokenRefusal, requireTLSRefusal} {
+	for refusal, want := range map[string]string{
+		peerTokenRefusal:  peerTokenMissingAnswer,
+		requireTLSRefusal: coordinatorRefusedPrefix + requireTLSRefusal,
+	} {
 		a, _ := rolesAPI(&inviteCoordinatorStub{readiness: []coordinator.JoinReadiness{{Err: status.Error(codes.Unauthenticated, refusal)}}})
 		_, err := a.GetWorkerJoinReadiness(userContext(auth.RoleAdmin), openapiv1.GetWorkerJoinReadinessRequestObject{})
 		var apiErr *Error
 		require.ErrorAs(t, err, &apiErr)
 		assert.Equal(t, http.StatusServiceUnavailable, apiErr.HTTPStatus)
-		assert.Equal(t, coordinatorRefusedPrefix+refusal, apiErr.Message)
+		assert.Equal(t, want, apiErr.Message)
 		assert.NotNil(t, apiErr.Details["reason"])
 	}
+}
+
+// withReason returns a coordinator refusal that carries reason as a status
+// detail, as a coordinator sends it.
+func withReason(code codes.Code, reason, message string) error {
+	st, err := status.New(code, message).WithDetails(&errdetails.ErrorInfo{Reason: reason, Domain: "coordinator.dagu"})
+	if err != nil {
+		panic(err)
+	}
+	return st.Err()
 }
