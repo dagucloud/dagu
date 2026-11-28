@@ -723,9 +723,10 @@ The `worker_certificates` collection keeps one record per certificate:
 - This holds while the worker keeps its enrollment. A fresh worker
   instance, one that kept no enrollment or starts without the one it had,
   enrolls again while its reusable invite exists. In Kubernetes, a
-  restarted container keeps its enrollment and exits again. A replacement
-  pod that starts without the enrollment is a fresh worker instance, and
-  one that starts with it exits again.
+  restarted container that kept its enrollment exits again, and one whose
+  enrollment was held in memory only is a fresh worker instance. A
+  replacement pod that starts without the enrollment is a fresh worker
+  instance, and one that starts with it exits again.
 
 #### Worker Lock
 
