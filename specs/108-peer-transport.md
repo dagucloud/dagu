@@ -941,8 +941,8 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
   `builtinTLSReason`, as the dialog's step 1 does.
 - A failed call prints the coordinator's refusal, except that a refusal for
   the peer token says to set the same `peer.token` on the calling host. A
-  coordinator that fails to generate or store the invite gets that failure
-  and its log as the place to look. Any other failure gets only its kind
+  coordinator that fails to generate, store, or delete the invite gets that
+  failure and its log as the place to look. Any other failure gets only its kind
   and that `dagu worker --check` on the calling host shows why.
 - `--address` loses surrounding spaces, as in the Add worker dialog. It
   must be valid UTF-8, hold no invite, and be one `host:port` without a
@@ -955,7 +955,8 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
   created and exits with code 1. It says, naming the invite by its ID only,
   that the invite was deleted, or that the delete failed and the invite
   must be deleted before it is used.
-- It logs no peer transport line, even at the debug level.
+- It logs no peer transport line, for the start or for any coordinator,
+  even at the debug level.
 - On success it prints the invite kind and expiry, the invite, and the
   command to run on the worker host, and exits with code 0. The command
   quotes an address that a POSIX shell would change, such as an IPv6

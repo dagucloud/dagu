@@ -415,14 +415,14 @@ func TestWorkerInviteUnauthenticated(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		message string
-		// want is in the output, whose case the client may change.
-		want string
+		want    string
 	}{
 		{
-			// The client words this refusal for its own TLS settings.
+			// With peer.insecure: true, the client keeps this remedy in
+			// whatever words it uses for the refusal.
 			name:    "RequireTLS",
 			message: "the coordinator requires TLS: upgrade this process, or remove peer.insecure: true",
-			want:    "the coordinator requires tls",
+			want:    "remove peer.insecure: true",
 		},
 		{
 			name:    "TokenMismatch",
@@ -434,10 +434,13 @@ func TestWorkerInviteUnauthenticated(t *testing.T) {
 			t.Parallel()
 
 			fake := &inviteCoordinator{readinessErr: status.Error(codes.Unauthenticated, tc.message)}
-			_, errOut, err := runWorkerInvite(t, startInviteCoordinators(t, fake), "--address", testInviteAddress)
+			home := configHome(t, "peer:\n  insecure: true\n")
+			registerCoordinator(t, home, serveInviteCoordinator(t, fake))
+			_, errOut, err := runWorkerInvite(t, home, "--address", testInviteAddress)
 
 			require.Error(t, err)
-			assert.Contains(t, strings.ToLower(errOut), " did not report whether it accepts workers: "+strings.ToLower(tc.want))
+			assert.Contains(t, errOut, " did not report whether it accepts workers: ")
+			assert.Contains(t, errOut, tc.want)
 			if tc.name == "RequireTLS" {
 				assert.NotContains(t, errOut, tokenRemedy)
 			}
@@ -717,6 +720,27 @@ func TestWorkerInviteFreshHome(t *testing.T) {
 
 	assert.Empty(t, logged())
 	assert.NoDirExists(t, filepath.Join(home, "dags"))
+}
+
+// The client starts on built-in TLS from the published CA certificate and
+// reaches the coordinator over h2c, a change it logs at the info level for
+// other commands. The invite command logs it at no level. It replaces
+// os.Stderr like TestWorkerInviteNotLogged, so it does not run in parallel.
+func TestWorkerInviteNoTransportChangeLine(t *testing.T) {
+	home := startInviteCoordinators(t, &inviteCoordinator{readiness: readyReport()})
+	paths, err := coordinator.WritePeerInit(t.TempDir())
+	require.NoError(t, err)
+	caPEM, err := os.ReadFile(paths[0])
+	require.NoError(t, err)
+	published := filepath.Join(home, "data", "coordinator", "peer-ca.crt")
+	require.NoError(t, os.MkdirAll(filepath.Dir(published), 0o700))
+	require.NoError(t, os.WriteFile(published, caPEM, 0o600))
+	logged := captureLog(t)
+
+	_, _, err = runWorkerInvite(t, home, "--address", testInviteAddress)
+
+	require.NoError(t, err)
+	assert.NotContains(t, logged(), "Peer transport")
 }
 
 // captureLog sends what the process writes to os.Stderr, where the logger

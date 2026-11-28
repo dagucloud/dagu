@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net"
 	"os/signal"
@@ -23,6 +24,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/worker"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -120,6 +122,24 @@ type inviteCoordinator interface {
 	coordinator.InviteClient
 }
 
+// warningsOnly is a logger that drops debug and info messages.
+type warningsOnly struct {
+	logger.Logger
+}
+
+func (warningsOnly) Debug(string, ...slog.Attr) {}
+func (warningsOnly) Info(string, ...slog.Attr)  {}
+func (warningsOnly) Debugf(string, ...any)      {}
+func (warningsOnly) Infof(string, ...any)       {}
+
+func (l warningsOnly) With(attrs ...slog.Attr) logger.Logger {
+	return warningsOnly{l.Logger.With(attrs...)}
+}
+
+func (l warningsOnly) WithGroup(name string) logger.Logger {
+	return warningsOnly{l.Logger.WithGroup(name)}
+}
+
 // inviteOptions are the flags of dagu worker invite.
 type inviteOptions struct {
 	address  string
@@ -161,6 +181,10 @@ func runWorkerInvite(ctx *Context, _ []string) error {
 	if err != nil {
 		return err
 	}
+	// The command reports each outcome itself. The client's info lines,
+	// such as the transport to each coordinator, would only sit next to
+	// the invite the operator copies.
+	ctx = ctx.WithContext(logger.WithLogger(ctx, warningsOnly{logger.FromContext(ctx)}))
 	client, err := newInviteClient(ctx)
 	if err != nil {
 		return err
