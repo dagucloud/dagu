@@ -392,10 +392,10 @@ The rules, in order:
    with isolation fails before it starts.
 
    Before the end, when a root process of the step ends while no other root process of the step
-   runs or starts, Dagu also sends `SIGKILL` to every process of the restricted user. So a process
-   that the root process left cannot keep the output of the step open, and the step ends. This
-   happens before the next root process of the step starts, as between the commands of a step
-   with several commands. A root process of the step starts only when Dagu can watch it, and,
+   runs or starts, Dagu also sends `SIGKILL` to every process of the restricted user, as at the
+   end, and waits until no live task of that user is left. So a process that the root process left
+   cannot keep the output of the step open, and the step ends. This happens before the next root
+   process of the step starts, as between the commands of a step with several commands. A root process of the step starts only when Dagu can watch it, and,
    when no other root process of the step runs, only once no process of the restricted user is
    left. Otherwise its start fails.
 

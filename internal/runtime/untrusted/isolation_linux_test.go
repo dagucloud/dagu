@@ -1513,6 +1513,29 @@ func TestIsolatedStepStartNeedsTheLeftoversGone(t *testing.T) {
 	assert.Nil(t, cmd.Process, "the process started")
 }
 
+// A scan of /proc can miss a process: one that a leftover forks after the scan
+// read the list, when the leftover ends before the scan checks it. Here the
+// scan misses every process, and the leftover that holds the stdout of the
+// step must still be stopped when its root process ends.
+func TestIsolatedStepStopsALeftoverTheScanMisses(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := beginStep(t, ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	listProcesses = func(uint32) ([]int, error) { return nil, nil }
+	t.Cleanup(func() { listProcesses = userProcesses })
+
+	cmd := exec.Command("/bin/sh", "-c", "sleep 1000 &")
+	cmd.Dir = workDir
+	cmd.Env = []string{"PATH=/usr/bin:/bin"}
+	cmd.Stdout = &bytes.Buffer{}
+	process, err := StartManagedProcess(WithStep(ctx, step), cmd)
+	require.NoError(t, err)
+	defer func() { _ = process.Release() }()
+	requireWaitReturns(t, process)
+}
+
 // A process that a root process of the step left without a pipe of the step
 // is stopped before the next process of the step starts, as between the
 // commands of a step with several commands.

@@ -100,7 +100,7 @@ func killUser(uid, gid uint32) error {
 	deadline := time.Now().Add(killTimeout)
 	for {
 		helperErr := runKillHelperAs(uid, gid)
-		pids, err := userProcesses(uid)
+		pids, err := listProcesses(uid)
 		if err != nil {
 			return err
 		}

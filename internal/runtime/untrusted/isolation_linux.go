@@ -42,8 +42,8 @@ var pidfdOpen = unix.PidfdOpen
 // removexattr removes an extended attribute. A test replaces it.
 var removexattr = unix.Removexattr
 
-// listProcesses lists the processes of a user for the watcher. A test
-// replaces it.
+// listProcesses lists the processes of a user for killUser. A test replaces
+// it.
 var listProcesses = userProcesses
 
 // gitConfig is the global git config of the restricted user. The folders that
@@ -898,44 +898,29 @@ func (iso *isolation) otherProcesses() (running, starting bool) {
 	return iso.running > 0, iso.starting > 0
 }
 
-// killLeftovers stops the processes of the restricted user once no root
-// process of the step runs, and returns nil once none is left. It also returns
-// nil when a root process runs, whose watcher stops them at its own end, and
-// waits while one is starting. It returns an error when the scan of /proc
-// fails, when the step ends first, or when processes are left after
-// killTimeout. The check comes after the pidfd of each scanned process is
-// open: a root process that holds a scanned PID was counted before the check,
-// and one that gets such a PID later is not the process of the pidfd.
+// killLeftovers stops each process of the restricted user with killUser once
+// no root process of the step runs or is starting, and returns nil once none
+// is left. It returns nil at once while a root process runs, whose watcher
+// stops them at its own end, and waits while one is starting. The caller
+// holds endMu, which keeps a new root process from starting during the kill.
+// It returns an error when the step ends first, when a start does not settle
+// within killTimeout, or when killUser fails.
 func (iso *isolation) killLeftovers() error {
 	deadline := time.Now().Add(killTimeout)
 	for {
-		pids, err := listProcesses(iso.uid)
-		if err != nil || len(pids) == 0 {
-			return err
-		}
 		if iso.stopping.Load() {
 			return errors.New("the step ended")
 		}
-		if !time.Now().Before(deadline) {
-			return fmt.Errorf("%d processes of the restricted user are left after SIGKILL", len(pids))
-		}
-		fds := make(map[int]int, len(pids))
-		for _, pid := range pids {
-			if fd, err := unix.PidfdOpen(pid, 0); err == nil {
-				fds[pid] = fd
-			}
-		}
 		running, starting := iso.otherProcesses()
-		for pid, fd := range fds {
-			// A PID that a process of another user took before the open
-			// fails the check of its tasks.
-			if !running && !starting && len(liveTasks(pid, iso.uid)) > 0 {
-				_ = unix.PidfdSendSignal(fd, unix.SIGKILL, nil, 0)
-			}
-			_ = unix.Close(fd)
-		}
-		if running {
+		switch {
+		case running:
 			return nil
+		case !starting:
+			// The kill(-1) of the helper also reaches a process that a fork
+			// made after a scan of /proc read the list.
+			return killUser(iso.uid, iso.gid)
+		case !time.Now().Before(deadline):
+			return errors.New("a root process of the step is still starting")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
