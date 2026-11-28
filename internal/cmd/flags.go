@@ -333,7 +333,7 @@ var (
 var (
 	peerInsecureFlag = commandLineFlag{
 		name:      "peer.insecure",
-		usage:     "Use insecure connection (h2c) instead of TLS",
+		usage:     "true: h2c; false: TLS; unset: built-in TLS with a TLS source, else h2c",
 		isBool:    true,
 		bindViper: true,
 	}

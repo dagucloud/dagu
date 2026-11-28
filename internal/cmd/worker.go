@@ -46,7 +46,7 @@ Flags:
                                            taking tasks
 
 TLS Configuration (uses global peer settings):
-  --peer.insecure                          Use insecure connection (h2c) instead of TLS (unset selects h2c)
+  --peer.insecure                          true: h2c; false: TLS; unset: built-in TLS with a TLS source, else h2c
   --peer.cert-file string                  Path to TLS certificate file for mutual TLS
   --peer.key-file string                   Path to TLS key file for mutual TLS
   --peer.client-ca-file string             Path to CA certificate file for server verification
