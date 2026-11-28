@@ -457,3 +457,165 @@ func TestPruneRecords(t *testing.T) {
 	_, err = f.invites.Get(ctx, forever.ID)
 	assert.NoError(t, err)
 }
+
+// enrollCall returns an enrollment of the worker id with a new key through a
+// reusable invite, and the context of a call over TLS.
+func (f *removalFixture) enrollCall(t *testing.T, id string) (*coordinatorv1.EnrollRequest, context.Context) {
+	t.Helper()
+	invite, err := f.h.CreateInvite(t.Context(), &coordinatorv1.CreateInviteRequest{Reusable: true})
+	require.NoError(t, err)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	csr, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, key)
+	require.NoError(t, err)
+	req := &coordinatorv1.EnrollRequest{Invite: invite.Invite, Csr: csr, WorkerId: id, KeepsCertificate: true}
+	return req, peer.NewContext(t.Context(), &peer.Peer{AuthInfo: credentials.TLSInfo{}})
+}
+
+// beforeRevoke runs hook once, before the first revocation.
+type beforeRevoke struct {
+	persis.WorkerCertificateStore
+	hook func()
+}
+
+func (s *beforeRevoke) SetState(ctx context.Context, id string, state persis.WorkerCertificateState) (persis.WorkerCertificate, error) {
+	if hook := s.hook; hook != nil {
+		s.hook = nil
+		hook()
+	}
+	return s.WorkerCertificateStore.SetState(ctx, id, state)
+}
+
+// An enrollment of the removed worker's key finishes, its key checks
+// included, after the removal listed the certificates and before it
+// revoked them. The removal revokes that certificate too, so no
+// certificate of the key stays active (Spec 108 §Revocation).
+func TestRemovalDuringEnrollment(t *testing.T) {
+	f := newRemovalFixture(t)
+	req, tlsCtx := f.enrollCall(t, "worker-a")
+	_, err := f.h.Enroll(tlsCtx, req)
+	require.NoError(t, err)
+	f.h.workerCertificates = &beforeRevoke{WorkerCertificateStore: f.certs, hook: func() {
+		_, err := f.h.Enroll(tlsCtx, req)
+		require.NoError(t, err)
+	}}
+
+	resp, err := f.h.RemoveWorker(t.Context(), &coordinatorv1.RemoveWorkerRequest{WorkerId: "worker-a"})
+	require.NoError(t, err)
+	assert.Len(t, resp.CertificateIds, 2)
+	certs, err := f.certs.List(t.Context())
+	require.NoError(t, err)
+	require.Len(t, certs, 2)
+	for _, cert := range certs {
+		assert.Equal(t, persis.WorkerCertificateRevoked, cert.State, cert.ID)
+	}
+}
+
+// A coordinator that predates the certificate ID in heartbeats records a
+// certificate connection without it. Such a fresh heartbeat counts as
+// connected, under the removed worker's ID or under another ID on the
+// certificate's host, so the removal is refused (Spec 108 §Removal).
+func TestRemoveWorkerLegacyHeartbeat(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		workerID string
+	}{
+		{name: "same worker ID", workerID: "worker-a"},
+		{name: "restarted under another ID", workerID: "worker-b"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRemovalFixture(t)
+			w := f.enroll(t, "worker-a")
+			require.NoError(t, f.heartbeats.Upsert(t.Context(), dispatch.WorkerHeartbeatRecord{
+				WorkerID: tc.workerID, Host: "host-worker-a", LastHeartbeatAt: f.now.UnixMilli(),
+				Connection: dispatch.WorkerConnectionCertificate,
+			}))
+
+			_, err := f.h.RemoveWorker(t.Context(), &coordinatorv1.RemoveWorkerRequest{WorkerId: w.id})
+			assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+			assert.Equal(t, connectedWorkerMessage, status.Convert(err).Message())
+			assert.Equal(t, persis.WorkerCertificateActive, f.state(t, w))
+		})
+	}
+}
+
+// A worker restarts under a new ID within a minute of its certificate's
+// last record write and stops before its next heartbeat. Its presence
+// record goes, and a removal by the new ID still finds the certificate
+// (Spec 108 §Removal).
+func TestRemoveRenamedWorkerAfterRestart(t *testing.T) {
+	f := newRemovalFixture(t)
+	w := f.enroll(t, "worker-a")
+	f.heartbeat(t, f.h, w)
+	renamed := w
+	renamed.id = "worker-b"
+	f.now = removalStart.Add(30 * time.Second)
+	f.heartbeat(t, f.h, renamed)
+	f.now = removalStart.Add(time.Hour)
+	_, err := f.heartbeats.DeleteStale(t.Context(), f.now)
+	require.NoError(t, err)
+
+	resp := f.remove(t, renamed)
+	assert.Equal(t, []string{w.certID}, resp.CertificateIds)
+	assert.Equal(t, persis.WorkerCertificateRevoked, f.state(t, w))
+}
+
+// Enroll records the time it issued the certificate at, at the
+// certificate's precision, so a record written again from the certificate
+// keeps its creation time.
+func TestEnrollRecordsIssuanceTime(t *testing.T) {
+	f := newRemovalFixture(t)
+	req, tlsCtx := f.enrollCall(t, "worker-a")
+	tick := removalStart.Add(400 * time.Millisecond)
+	f.h.clock = func() time.Time {
+		tick = tick.Add(700 * time.Millisecond)
+		return tick
+	}
+
+	resp, err := f.h.Enroll(tlsCtx, req)
+	require.NoError(t, err)
+	cert, err := x509.ParseCertificate(resp.Certificate)
+	require.NoError(t, err)
+	record, err := f.certs.Get(t.Context(), cert.Subject.CommonName)
+	require.NoError(t, err)
+	assert.True(t, record.CreatedAt.Equal(cert.NotBefore.Add(certBackdate)), "recorded %v, issued %v", record.CreatedAt, cert.NotBefore)
+}
+
+// blockedPrune holds every prune until release closes or the call ends.
+type blockedPrune struct {
+	persis.WorkerCertificateStore
+	release chan struct{}
+}
+
+func (s blockedPrune) Prune(ctx context.Context, _ time.Time) (int, error) {
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+	}
+	return 0, nil
+}
+
+// The maintenance loop rereads the removals on its own schedule while the
+// startup prune is still running, so a revocation made by another
+// coordinator applies here (Spec 108 §Revocation).
+func TestScheduledRereadDuringPrune(t *testing.T) {
+	f := newRemovalFixture(t)
+	w := f.enroll(t, "worker-a")
+	release := make(chan struct{})
+	f.h.workerCertificates = blockedPrune{WorkerCertificateStore: f.certs, release: release}
+	f.h.removalReread = 10 * time.Millisecond
+	ctx, cancel := context.WithCancel(t.Context())
+	f.h.startPeerMaintenance(ctx)
+	t.Cleanup(func() {
+		cancel()
+		close(release)
+		f.h.waitPeerMaintenance()
+	})
+	require.NoError(t, f.h.removals.refusal(w.certID))
+
+	_, err := f.certs.SetState(t.Context(), w.certID, persis.WorkerCertificateRevoked)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return status.Code(f.h.removals.refusal(w.certID)) == codes.Unauthenticated
+	}, 5*time.Second, 10*time.Millisecond)
+}

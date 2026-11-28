@@ -83,7 +83,10 @@ func (h *Handler) Enroll(ctx context.Context, req *coordinatorv1.EnrollRequest) 
 	}
 
 	certID := uuid.NewString()
-	der, err := h.peerCA.issueWorkerCertificate(csr.PublicKey, certID, invite.ID, now)
+	// The record takes the issuance time at the certificate's precision,
+	// so a record written again from the certificate keeps it.
+	issuedAt := now.Truncate(time.Second)
+	der, err := h.peerCA.issueWorkerCertificate(csr.PublicKey, certID, invite.ID, issuedAt)
 	if err != nil {
 		logger.Error(ctx, "Failed to issue a worker certificate", tag.Error(err))
 		return nil, status.Error(codes.Internal, "failed to issue the worker certificate")
@@ -101,7 +104,7 @@ func (h *Handler) Enroll(ctx context.Context, req *coordinatorv1.EnrollRequest) 
 		State:          persis.WorkerCertificateActive,
 		WorkerID:       req.WorkerId,
 		Host:           req.Host,
-		CreatedAt:      now,
+		CreatedAt:      issuedAt,
 	}); err != nil {
 		logger.Error(ctx, "Failed to record a worker certificate",
 			slog.String("certificate-id", certID),

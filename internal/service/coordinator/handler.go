@@ -233,6 +233,7 @@ type Handler struct {
 	removals                  workerRemovals                     // Certificates in removal, refused or given no task
 	peerMaintenance           sync.WaitGroup                     // The removal reread and the daily prune
 	clock                     func() time.Time                   // The time removals and certificate heartbeats use
+	removalReread             time.Duration                      // How often the removals are reread
 
 	// Open attempts cache for status persistence
 	attemptsMu   sync.RWMutex
@@ -437,6 +438,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		workerInvites:             cfg.WorkerInviteStore,
 		workerCertificates:        cfg.WorkerCertificateStore,
 		clock:                     time.Now,
+		removalReread:             removalRereadInterval,
 		staleHeartbeatThreshold:   cfg.StaleHeartbeatThreshold,
 		staleLeaseThreshold:       cfg.StaleLeaseThreshold,
 		workerWaitTimeout:         cfg.WorkerWaitTimeout,

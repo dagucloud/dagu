@@ -138,7 +138,9 @@ func (h *Handler) RemoveWorker(ctx context.Context, req *coordinatorv1.RemoveWor
 		return nil, status.Error(codes.Internal, "failed to read the worker's heartbeat")
 	}
 	if hb != nil && dispatch.WorkerHeartbeatFresh(*hb, now, h.staleHeartbeatThreshold) {
-		if hb.CertificateID == "" {
+		// A coordinator that predates the certificate ID in heartbeats
+		// writes a certificate connection without it.
+		if hb.CertificateID == "" && hb.Connection != dispatch.WorkerConnectionCertificate {
 			return nil, status.Error(codes.FailedPrecondition, peerTokenWorkerMessage)
 		}
 		return nil, status.Error(codes.FailedPrecondition, connectedWorkerMessage)
@@ -148,21 +150,23 @@ func (h *Handler) RemoveWorker(ctx context.Context, req *coordinatorv1.RemoveWor
 
 // revokeWorker revokes every certificate that names the worker workerID,
 // which is not connected. hb is its stale heartbeat, or nil. A certificate
-// that a worker under another ID still connects with, as after a restart,
-// keeps it connected, so the removal is refused.
+// that a worker under another ID may still connect with, as after a
+// restart, keeps it connected, so the removal is refused. A certificate
+// that an enrollment running alongside records for the worker or for a
+// revoked key is revoked too.
 func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatch.WorkerHeartbeatRecord, now time.Time) (*coordinatorv1.RemoveWorkerResponse, error) {
 	certs, err := h.workerCertificates.List(ctx)
 	if err != nil {
 		logger.Error(ctx, "Failed to list worker certificates", tag.Error(err))
 		return nil, status.Error(codes.Internal, "failed to remove the worker")
 	}
-	var ids []string
+	var named []persis.WorkerCertificate
 	for _, cert := range certs {
 		if cert.WorkerID == workerID || (hb != nil && cert.ID == hb.CertificateID) {
-			ids = append(ids, cert.ID)
+			named = append(named, cert)
 		}
 	}
-	if len(ids) == 0 {
+	if len(named) == 0 {
 		if hb != nil {
 			return nil, status.Error(codes.FailedPrecondition, peerTokenWorkerMessage)
 		}
@@ -173,27 +177,86 @@ func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatc
 		logger.Error(ctx, "Failed to list worker heartbeats", tag.Error(err))
 		return nil, status.Error(codes.Internal, "failed to remove the worker")
 	}
-	for _, id := range ids {
-		if freshHolder(id, presence, now, h.staleHeartbeatThreshold) {
+	for _, cert := range named {
+		if mayHold(cert, presence, now, h.staleHeartbeatThreshold) {
 			return nil, status.Error(codes.FailedPrecondition, connectedWorkerMessage)
 		}
 	}
-	for _, id := range ids {
-		if err := h.revoke(ctx, id); err != nil {
-			return nil, status.Error(codes.Internal, "failed to remove the worker")
+	ids, err := h.revokeAll(ctx, named)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to remove the worker")
+	}
+	// An enrollment checks the key again after it records its certificate.
+	// One whose check came before these revocations recorded its
+	// certificate before them too, so a second listing finds it.
+	certs, err = h.workerCertificates.List(ctx)
+	if err != nil {
+		logger.Error(ctx, "Failed to list worker certificates", tag.Error(err))
+		return nil, status.Error(codes.Internal, "failed to remove the worker")
+	}
+	keys := make(map[string]bool, len(named))
+	for _, cert := range named {
+		keys[string(cert.KeyFingerprint)] = true
+	}
+	var enrolled []persis.WorkerCertificate
+	for _, cert := range certs {
+		if cert.State != persis.WorkerCertificateRevoked && (cert.WorkerID == workerID || keys[string(cert.KeyFingerprint)]) {
+			enrolled = append(enrolled, cert)
 		}
 	}
+	more, err := h.revokeAll(ctx, enrolled)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to remove the worker")
+	}
+	h.warnReconnected(ctx, workerID, append(named, enrolled...))
 	return &coordinatorv1.RemoveWorkerResponse{
 		State:          coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED,
-		CertificateIds: ids,
+		CertificateIds: append(ids, more...),
 	}, nil
 }
 
-// freshHolder reports whether a worker whose fresh heartbeat in presence
-// carries the certificate certID exists.
-func freshHolder(certID string, presence []dispatch.WorkerHeartbeatRecord, now time.Time, stale time.Duration) bool {
+// warnReconnected logs each of the revoked certs that a worker connected
+// with while the removal ran. Such a worker is removed all the same: its
+// next call is refused, here at once and elsewhere from the next reread.
+func (h *Handler) warnReconnected(ctx context.Context, workerID string, revoked []persis.WorkerCertificate) {
+	presence, err := h.listPresence(ctx)
+	if err != nil {
+		return
+	}
+	now := h.clock()
+	for _, cert := range revoked {
+		if mayHold(cert, presence, now, h.staleHeartbeatThreshold) {
+			logger.Warn(ctx, "A worker connected while it was removed; its calls are refused from now on",
+				tag.WorkerID(workerID), slog.String("certificate-id", cert.ID))
+		}
+	}
+}
+
+// revokeAll revokes certs and returns their IDs.
+func (h *Handler) revokeAll(ctx context.Context, certs []persis.WorkerCertificate) ([]string, error) {
+	ids := make([]string, 0, len(certs))
+	for _, cert := range certs {
+		if err := h.revoke(ctx, cert.ID); err != nil {
+			return nil, err
+		}
+		ids = append(ids, cert.ID)
+	}
+	return ids, nil
+}
+
+// mayHold reports whether a worker with a fresh heartbeat in presence may
+// connect with cert: its heartbeat carries the certificate, or it is a
+// certificate connection on the certificate's host that a coordinator
+// predating the certificate ID in heartbeats recorded without it.
+func mayHold(cert persis.WorkerCertificate, presence []dispatch.WorkerHeartbeatRecord, now time.Time, stale time.Duration) bool {
 	for _, hb := range presence {
-		if hb.CertificateID == certID && dispatch.WorkerHeartbeatFresh(hb, now, stale) {
+		if !dispatch.WorkerHeartbeatFresh(hb, now, stale) {
+			continue
+		}
+		if hb.CertificateID == cert.ID {
+			return true
+		}
+		if hb.CertificateID == "" && hb.Connection == dispatch.WorkerConnectionCertificate && (cert.Host == "" || hb.Host == cert.Host) {
 			return true
 		}
 	}
@@ -238,7 +301,7 @@ func (h *Handler) startPeerMaintenance(ctx context.Context) {
 		}
 	})
 	h.peerMaintenance.Go(func() {
-		reread := time.NewTicker(removalRereadInterval)
+		reread := time.NewTicker(h.removalReread)
 		defer reread.Stop()
 		for {
 			select {

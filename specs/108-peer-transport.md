@@ -641,10 +641,12 @@ The `worker_certificates` collection keeps one record per certificate:
   key after revocation.
 - A heartbeat with a worker certificate that is not newer than the stored
   `last_heartbeat_at` writes nothing. Otherwise it writes the record when
-  the stored `last_heartbeat_at` is more than 24 hours old, or none, or
-  when the worker ID, host, or environment it reports changed and the
-  stored `last_heartbeat_at` is at least a minute old. It writes the
-  record again when it was pruned. It keeps the stored state.
+  the stored `last_heartbeat_at` is more than 24 hours old, or none, when
+  the worker ID it reports changed, or when the host or environment it
+  reports changed and the stored `last_heartbeat_at` is at least a minute
+  old. A changed worker ID is written at once, so a removal finds a worker
+  by the ID it reported last. It writes the record again when it was
+  pruned. It keeps the stored state.
 - Once a day, each coordinator deletes the records in state `active` whose
   `last_heartbeat_at`, or `created_at` when it is none, is more than 90
   days old.
@@ -752,6 +754,15 @@ or `stop`:
 - A removal with `stop` of a worker in `removing` cancels its runs as above.
 - A worker on the peer token cannot be removed. The removal fails and says
   to stop the worker on its host, or to change the peer token.
+- A fresh heartbeat that a coordinator predating the certificate ID in
+  heartbeats recorded as a certificate connection counts as connected when
+  it names the removed worker ID or the certificate's host.
+- A certificate that an enrollment running alongside the removal records
+  for the worker ID, or for the key of a certificate the removal revokes,
+  is revoked too.
+- The removal decides from the heartbeats as it reads them. A worker that
+  connects again while the removal runs is removed all the same: its next
+  call is refused, and the coordinator logs that it connected.
 
 #### Removed Worker
 

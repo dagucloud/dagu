@@ -117,8 +117,9 @@ service CoordinatorService {
   // request, admitted by an invite. It needs built-in TLS and no peer token.
   rpc Enroll (EnrollRequest) returns (EnrollResponse);
 
-  // RemoveWorker revokes the certificate of a worker that joined with an
-  // invite, when the worker is not connected or holds no run. It takes the
+  // RemoveWorker revokes the certificates of a worker that joined with an
+  // invite and is not connected. A connected worker is refused with
+  // FailedPrecondition: stop it on its host, then call again. It takes the
   // peer token.
   rpc RemoveWorker (RemoveWorkerRequest) returns (RemoveWorkerResponse);
 }
@@ -928,8 +929,8 @@ message RemoveWorkerRequest {
 
 message RemoveWorkerResponse {
   WorkerRemovalState state = 1;
-  // The certificates the removal revokes: the one the worker connects
-  // with, or each one that names the worker when it is not connected.
+  // The certificates the removal revoked: each one that names the worker,
+  // its key, or its last heartbeat.
   repeated string certificate_ids = 2;
 }
 

@@ -9473,8 +9473,8 @@ func (b0 RemoveWorkerRequest_builder) Build() *RemoveWorkerRequest {
 type RemoveWorkerResponse struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	State WorkerRemovalState     `protobuf:"varint,1,opt,name=state,proto3,enum=coordinator.v1.WorkerRemovalState" json:"state,omitempty"`
-	// The certificates the removal revokes: the one the worker connects
-	// with, or each one that names the worker when it is not connected.
+	// The certificates the removal revoked: each one that names the worker,
+	// its key, or its last heartbeat.
 	CertificateIds []string `protobuf:"bytes,2,rep,name=certificate_ids,json=certificateIds,proto3" json:"certificate_ids,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -9531,8 +9531,8 @@ type RemoveWorkerResponse_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	State WorkerRemovalState
-	// The certificates the removal revokes: the one the worker connects
-	// with, or each one that names the worker when it is not connected.
+	// The certificates the removal revoked: each one that names the worker,
+	// its key, or its last heartbeat.
 	CertificateIds []string
 }
 
