@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -309,7 +310,7 @@ const recordedSteps = `{
 }`
 
 // saveKey is the commit point key of recordedSteps' first act.
-var saveKey = replayKey(0, "Click the Save button", "https://books.example.com/deals")
+var saveKey = literalKey(0, "Click the Save button", "https://books.example.com/deals")
 
 // approve keeps point as an approved commit point of the test run's step.
 func (r *testRun) approve(point writegate.CommitPoint) {
@@ -339,6 +340,36 @@ func TestRecordSendsTheApprovedCommitWrite(t *testing.T) {
 	assert.False(t, run.engine.allowing, "the allowance ends before the next operation")
 	assert.Equal(t, []recordedAction{saved}, run.engine.replays)
 	assert.Equal(t, []string{"Click the Next button"}, run.engine.actInstructions(), "the commit act asks no model")
+}
+
+// A write approved on one record's page is approved there only: the same
+// act on another record's page asks the model, and the gate blocks its
+// write until a person approves it there too.
+func TestRecordApprovalHoldsForItsRecord(t *testing.T) {
+	t.Parallel()
+
+	const steps = `{"url": %q, "browser": {"write_gate": "record"}, "do": [{"act": "Click the Save button"}]}`
+	approved := fmt.Sprintf(steps, "https://books.example.com/orders/4812/edit")
+	run := newTestRun(t, pageModel(nil))
+	run.engine.handle.WriteGate = runningGate()
+	run.engine.actWrites = []writegate.Event{blockedSave}
+	require.ErrorContains(t, run.execute(approved, nil).err, "write_blocked")
+	store := writegate.NewCommitStore(filepath.Join(run.dataDir, "browser"))
+	_, err := store.Approve(t.Context(), "orders", "shop", nil, func(writegate.CommitPoint) bool { return true }, time.Now())
+	require.NoError(t, err)
+
+	// Each run starts with the gate a new browser has: no writes and no
+	// allowance.
+	run.engine.writes = nil
+	require.NoError(t, run.execute(approved, nil).err)
+	require.Len(t, run.engine.replays, 1, "the approved act replays on its record")
+
+	run.engine.writes, run.engine.allowing = nil, false
+	run.engine.actWrites = []writegate.Event{blockedSave}
+	other := run.execute(fmt.Sprintf(steps, "https://books.example.com/orders/77/edit"), nil)
+	require.ErrorContains(t, other.err, "write_blocked")
+	assert.Len(t, run.engine.replays, 1, "the approval does not replay on another record")
+	assert.Equal(t, []string{"Click the Save button", "Click the Save button"}, run.engine.actInstructions())
 }
 
 // In record mode a write no approved commit point sends is blocked and
@@ -651,7 +682,7 @@ func TestAskSettlesDownloadsBeforeItWaits(t *testing.T) {
 
 	run := newTestRun(t, pageModel(nil))
 	run.engine.handle.WriteGate = runningGate()
-	point := writegate.CommitPoint{Key: replayKey(1, "Click the Save button", "https://books.example.com/deals"), Op: 1, Operation: "Click the Save button", Signature: blockedSave.Signature}
+	point := writegate.CommitPoint{Key: literalKey(1, "Click the Save button", "https://books.example.com/deals"), Op: 1, Operation: "Click the Save button", Signature: blockedSave.Signature}
 	require.NoError(t, writegate.NewCommitStore(filepath.Join(run.dataDir, "browser")).Note(t.Context(), "orders", "shop", point))
 	run.engine.lateDownloads = []string{"deals.csv"}
 	waiting := run.execute(`{"url": "https://books.example.com/deals", "browser": {"write_gate": "ask"}, "do": [

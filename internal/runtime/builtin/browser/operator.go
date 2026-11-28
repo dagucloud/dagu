@@ -296,23 +296,23 @@ func (o *operator) act(ctx context.Context, index int, spec actSpec, timeout tim
 	// lost the page took effect. It stays empty when the page cannot be read.
 	document, _ := o.eng.DocumentID(ctx)
 	choice, recorded := o.decide(spec.AI, spec.Cache)
-	key, pageURL := "", ""
+	key, literal, pageURL := "", "", ""
 	if recorded {
 		var err error
 		if pageURL, err = o.eng.CurrentURL(ctx); err != nil {
 			return opResult{}, err
 		}
-		key = replayKey(index, spec.Instruction, pageURL)
+		key, literal = replayKey(index, spec.Instruction, pageURL), literalKey(index, spec.Instruction, pageURL)
 	}
 	status := agentstep.StatusCompleted
-	rec, ok := o.recording(choice, key)
+	rec, ok := o.recordingAt(choice, key, literal)
 	actions := rec.Actions
 	// An approved commit act does only what was approved: the actions it
 	// recorded, never what a model picks.
 	isCommit := false
 	if o.committed != nil {
 		var committed []recordedAction
-		if committed, isCommit = o.committed(key); isCommit {
+		if committed, isCommit = o.committed(literal); isCommit {
 			choice, actions, ok = aiNever, committed, true
 		}
 	}
@@ -412,6 +412,22 @@ func (o *operator) recording(choice, key string) (recording, bool) {
 		return recording{}, false
 	}
 	return o.lookup(key)
+}
+
+// recordingAt returns what was recorded for an operation under its replay
+// key or, failing that, under its literal key, where a recording made
+// before replay keys ignored record IDs is kept. A recording found under
+// the literal key moves to the replay key once the attempt succeeds.
+func (o *operator) recordingAt(choice, key, literal string) (recording, bool) {
+	rec, ok := o.recording(choice, key)
+	if ok || literal == key {
+		return rec, ok
+	}
+	if rec, ok = o.recording(choice, literal); ok {
+		o.recorder.stage(key, rec)
+		o.recorder.drop(literal)
+	}
+	return rec, ok
 }
 
 // lookup returns what was recorded under key, if it holds any action.
@@ -629,17 +645,17 @@ func (o *operator) readPages(ctx context.Context, index int, spec extractSpec, s
 func (o *operator) turnPage(ctx context.Context, index int, next string, turned bool, made *[]recordedAction, timeout time.Duration) (bool, error) {
 	document, _ := o.eng.DocumentID(ctx)
 	choice, recorded := o.decide("", nil)
-	key := ""
+	key, literal := "", ""
 	if recorded {
 		pageURL, err := o.eng.CurrentURL(ctx)
 		if err != nil {
 			return false, err
 		}
-		key = replayKey(index, next, pageURL)
+		key, literal = replayKey(index, next, pageURL), literalKey(index, next, pageURL)
 	}
 	actions := *made
 	if len(actions) == 0 {
-		if rec, ok := o.recording(choice, key); ok && unfit(next, rec, o.variables) == "" {
+		if rec, ok := o.recordingAt(choice, key, literal); ok && unfit(next, rec, o.variables) == "" {
 			actions = rec.Actions
 		}
 	}

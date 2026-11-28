@@ -102,14 +102,14 @@ func commitQuestion(index int, op operation, points []writegate.CommitPoint) str
 }
 
 // commitKey identifies the operation at index on pageURL as a commit point
-// does, the way the replay cache keys acts and uploads; "" for an
-// operation of another kind.
+// does, by its literal key, so an approval holds on the page of the record
+// it was given for only; "" for an operation of another kind.
 func commitKey(index int, op operation, pageURL string) string {
 	switch {
 	case op.Act != nil:
-		return replayKey(index, op.Act.Instruction, pageURL)
+		return literalKey(index, op.Act.Instruction, pageURL)
 	case op.Upload != nil && op.Upload.Into != "":
-		return uploadReplayKey(index, op.Upload.Into, pageURL)
+		return uploadLiteralKey(index, op.Upload.Into, pageURL)
 	}
 	return ""
 }
