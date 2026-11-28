@@ -318,10 +318,12 @@ func (h *Handler) removeCertificate(ctx context.Context, req *coordinatorv1.Remo
 			return nil, h.notHeld(ctx, req.WorkerId, hb)
 		}
 		if cert.State == persis.WorkerCertificateRevoked {
+			// The answer names the worker the removal recorded, which a
+			// replay under an earlier ID does not change.
 			return &coordinatorv1.RemoveWorkerResponse{
 				State:          coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED,
 				CertificateIds: []string{certID},
-				WorkerId:       req.WorkerId,
+				WorkerId:       cmp.Or(removal.WorkerID, cert.WorkerID),
 			}, nil
 		}
 		// The removal takes the ID the request paired with, so its replay

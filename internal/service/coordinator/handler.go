@@ -2145,9 +2145,6 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 		workers := make([]*coordinatorv1.WorkerInfo, 0, len(h.heartbeats))
 		now := time.Now()
 		for _, hb := range h.heartbeats {
-			if h.certificateRevoked(hb.certificateID) {
-				continue
-			}
 			workerInfo := &coordinatorv1.WorkerInfo{
 				WorkerId:        hb.workerID,
 				Labels:          hb.labels,
@@ -2158,7 +2155,9 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 				PlaintextReason: hb.connection.plaintextReason,
 				Environment:     hb.environment,
 			}
-			h.addCertificate(workerInfo, hb.certificateID, hb.inviteID)
+			if !h.addCertificate(workerInfo, hb.certificateID, hb.inviteID) {
+				continue
+			}
 			if hb.stats != nil {
 				workerInfo.TotalPollers = hb.stats.TotalPollers
 				workerInfo.BusyPollers = hb.stats.BusyPollers
@@ -2178,9 +2177,6 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 	now := time.Now()
 
 	for _, hb := range records {
-		if h.certificateRevoked(hb.CertificateID) {
-			continue
-		}
 		workerInfo := &coordinatorv1.WorkerInfo{
 			WorkerId:        hb.WorkerID,
 			Labels:          hb.Labels,
@@ -2191,7 +2187,9 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 			PlaintextReason: hb.PlaintextReason,
 			Environment:     convert.HostEnvironmentToProto(hb.Environment),
 		}
-		h.addCertificate(workerInfo, hb.CertificateID, hb.InviteID)
+		if !h.addCertificate(workerInfo, hb.CertificateID, hb.InviteID) {
+			continue
+		}
 
 		if hb.Stats != nil {
 			workerInfo.TotalPollers = hb.Stats.TotalPollers
@@ -2205,29 +2203,25 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 	return &coordinatorv1.GetWorkersResponse{Workers: workers}, nil
 }
 
-// certificateRevoked reports whether the worker certificate certID is in
-// the coordinator's revoked set. A heartbeat row of a revoked certificate
-// stays until stale cleanup, but its worker is removed, so the list leaves
-// it out.
-func (h *Handler) certificateRevoked(certID string) bool {
-	if certID == "" {
-		return false
-	}
-	removal, ok := h.removals.get(certID)
-	return ok && removal.State == persis.WorkerCertificateRevoked
-}
-
 // addCertificate sets, on the listed worker, the certificate certID it
 // connects with, the invite inviteID that the certificate names, and
-// whether the certificate is removing, from the copy of the removals.
-func (h *Handler) addCertificate(worker *coordinatorv1.WorkerInfo, certID, inviteID string) {
+// whether the certificate is removing, from the copy of the removals. It
+// reports false for a revoked certificate: its heartbeat row stays until
+// stale cleanup, but its worker is removed, so the list leaves it out. One
+// read of the copy decides both, so a listed worker never misses removing
+// while its certificate is revoked.
+func (h *Handler) addCertificate(worker *coordinatorv1.WorkerInfo, certID, inviteID string) bool {
 	if certID == "" {
-		return
+		return true
+	}
+	removal, ok := h.removals.get(certID)
+	if ok && removal.State == persis.WorkerCertificateRevoked {
+		return false
 	}
 	worker.CertificateId = certID
 	worker.InviteId = inviteID
-	removal, ok := h.removals.get(certID)
 	worker.Removing = ok && removal.State == persis.WorkerCertificateRemoving
+	return true
 }
 
 // GetH2CCallers lists the hosts, other than workers, that called the

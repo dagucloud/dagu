@@ -443,7 +443,8 @@ func TestRemoveWorkerStopReplayAfterRename(t *testing.T) {
 }
 
 // A retry with the ID the removal was accepted with pairs with it after the
-// holder took a new ID and the certificate was revoked.
+// holder took a new ID and the certificate was revoked. The answer names
+// the worker the removal recorded, as the audit does.
 func TestRemoveWorkerReplayAfterRename(t *testing.T) {
 	t.Parallel()
 	server := startPeerTLSServer(t, certHosts)
@@ -457,7 +458,7 @@ func TestRemoveWorkerReplayAfterRename(t *testing.T) {
 	resp, err := server.removeCertificate(t, cert.Subject.CommonName)
 	require.NoError(t, err)
 	assert.Equal(t, coordinatorv1.WorkerRemovalState_WORKER_REMOVAL_STATE_REMOVED, resp.State)
-	assert.Equal(t, enrollWorkerID, resp.WorkerId, "the answer names the worker the request paired with")
+	assert.Equal(t, "renamed", resp.WorkerId, "the answer names the holder the removal recorded, not the replay's ID")
 }
 
 // A request that does not pair a certificate in removal with its worker
