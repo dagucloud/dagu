@@ -268,6 +268,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workers/invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List worker invites
+         * @description Lists the invites that let workers on other hosts join, without their secrets. Admin only.
+         */
+        get: operations["listWorkerInvites"];
+        put?: never;
+        /**
+         * Create a worker invite
+         * @description Creates an invite that lets a worker on another host join. Only this response contains the invite. A coordinator that listens on loopback only still creates it. Admin only.
+         */
+        post: operations["createWorkerInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workers/invites/{inviteId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a worker invite
+         * @description Deletes an invite, so it lets no further worker join. Workers that joined with it keep their certificates. Admin only.
+         */
+        delete: operations["deleteWorkerInvite"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workers/{workerId}/certificate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a worker
+         * @description Revokes the certificate of a worker that joined with an invite, so it stays out across restarts until it gets a new invite. A worker that is not connected is removed at once. A connected one gets no new runs and is removed once the runs it holds end. Admin only.
+         */
+        delete: operations["removeWorker"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workers/join-readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get worker join readiness
+         * @description Reports, for each coordinator in the registry, whether a worker on another host can join it, and the address of the newest invite made for one. Admin only.
+         */
+        get: operations["getWorkerJoinReadiness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dags": {
         parameters: {
             query?: never;
@@ -9382,6 +9466,145 @@ export interface components {
          * @enum {string}
          */
         PlaintextReason: PlaintextReason;
+        /** @description Settings of a new worker invite. Every field is optional. */
+        CreateWorkerInviteRequest: {
+            /** @description True for an invite that lets any number of workers join. Default false: one worker. */
+            reusable?: boolean;
+            /** @description A positive Go duration, such as 24h, rounded up to whole seconds. Default: 24 hours for a single-use invite, none for a reusable one. */
+            expiresIn?: string;
+            /** @description The host:port of the coordinator the invite is made for. Join readiness reports the newest one as lastInviteAddress. */
+            address?: string;
+        };
+        /** @description A created invite. No other response contains the invite. */
+        CreateWorkerInviteResponse: {
+            /** @description ID of the invite */
+            id: string;
+            /** @description The invite a worker joins with: dagu1.<pin>.<secret> */
+            invite: string;
+            /** @description RFC3339 timestamp when the invite ends. Absent for an invite without an expiry. */
+            expiresAt?: string;
+        };
+        /** @description The worker invites, without their secrets */
+        WorkerInvitesListResponse: {
+            /** @description The invites, oldest first */
+            invites: components["schemas"]["WorkerInvite"][];
+        };
+        /** @description A worker invite's record. It holds no secret. */
+        WorkerInvite: {
+            /** @description ID of the invite */
+            id: string;
+            kind: components["schemas"]["WorkerInviteKind"];
+            /** @description The user who created it, or "peer token" for a call that carried only the peer token */
+            createdBy: string;
+            /** @description RFC3339 timestamp when it was created */
+            createdAt: string;
+            /** @description RFC3339 timestamp when it ends. Absent for an invite without an expiry. */
+            expiresAt?: string;
+            /** @description The number of workers that joined with it */
+            useCount: number;
+            /** @description RFC3339 timestamp when a worker last joined with it. Absent before the first one. */
+            lastUsedAt?: string;
+            /** @description The host:port it was made for. Absent when none was given. */
+            address?: string;
+        };
+        /**
+         * @description How many workers an invite lets join:
+         *     - single_use: one worker. It ends at its first use.
+         *     - reusable: any number of workers.
+         *
+         * @enum {string}
+         */
+        WorkerInviteKind: WorkerInviteKind;
+        /**
+         * @description What a removal does with the runs the worker holds:
+         *     - finish: lets them run to their end.
+         *     - stop: cancels each of them.
+         *
+         * @default finish
+         * @enum {string}
+         */
+        WorkerRemovalRuns: WorkerRemovalRuns;
+        /** @description The result of removing a worker */
+        WorkerRemovalResponse: {
+            state: components["schemas"]["WorkerRemovalState"];
+        };
+        /**
+         * @description Where the removal stands:
+         *     - removing: the worker gets no new runs, and its certificate is revoked once the runs it holds end.
+         *     - removed: its certificate is revoked.
+         *
+         * @enum {string}
+         */
+        WorkerRemovalState: WorkerRemovalState;
+        /** @description The join readiness of each coordinator in the registry */
+        WorkerJoinReadinessResponse: {
+            /** @description One entry per coordinator */
+            coordinators: components["schemas"]["CoordinatorJoinReadiness"][];
+            /** @description The address of the newest invite made for one. Absent when no invite has one, or the invites cannot be read. */
+            lastInviteAddress?: string;
+        };
+        /** @description The join readiness one coordinator reports from its own host, or why it did not report */
+        CoordinatorJoinReadiness: {
+            /** @description ID of the coordinator in the registry */
+            instanceId: string;
+            /** @description Host of the coordinator in the registry */
+            host: string;
+            /** @description Port of the coordinator in the registry */
+            port: number;
+            report?: components["schemas"]["JoinReadinessReport"];
+            /** @description Why the coordinator did not report. Absent when report is present. */
+            error?: string;
+        };
+        /** @description Whether a worker on another host can join a coordinator, as the coordinator reports it from its own host */
+        JoinReadinessReport: {
+            /** @description coordinator.host */
+            listenHost: string;
+            /** @description coordinator.port */
+            port: number;
+            /** @description The config file the coordinator read, or the default path it would read */
+            configFile: string;
+            /** @description True when coordinator.host is localhost, an address in 127.0.0.0/8, or [::1] */
+            loopbackOnly: boolean;
+            hostSource?: components["schemas"]["ConfigSource"];
+            /** @description coordinator.advertise when set explicitly. Absent otherwise. */
+            advertise?: string;
+            environment?: components["schemas"]["HostEnvironment"];
+            /** @description Addresses a worker on another host may dial, when environment is host. Empty otherwise. */
+            addresses: string[];
+            /** @description True only when the coordinator has a usable peer CA */
+            builtinTLS: boolean;
+            builtinTLSReason?: components["schemas"]["BuiltinTLSReason"];
+            /** @description True when loopbackOnly is false and builtinTLS is true */
+            ready: boolean;
+        };
+        /** @description Where a configuration value came from */
+        ConfigSource: {
+            kind: components["schemas"]["ConfigSourceKind"];
+            /** @description The config file path, the environment variable, or the flag. Absent for a default. */
+            name?: string;
+        };
+        /**
+         * @description The kind of source a configuration value came from
+         * @enum {string}
+         */
+        ConfigSourceKind: ConfigSourceKind;
+        /**
+         * @description Where a Dagu process runs:
+         *     - host: neither of the below.
+         *     - container: a Docker or Podman container.
+         *     - kubernetes: a Kubernetes pod.
+         *
+         * @enum {string}
+         */
+        HostEnvironment: HostEnvironment;
+        /**
+         * @description Why a coordinator has no built-in TLS:
+         *     - ownCertificates: it uses peer.cert_file and peer.key_file.
+         *     - caUnavailable: it could not create or read its generated CA.
+         *
+         * @enum {string}
+         */
+        BuiltinTLSReason: BuiltinTLSReason;
         /**
          * @description How the worker's Dagu version compares with the version of the server that answers:
          *     - none: the same version.
@@ -12178,6 +12401,341 @@ export interface operations {
                 };
             };
             /** @description Coordinator service unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listWorkerInvites: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The invites, oldest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkerInvitesListResponse"];
+                };
+            };
+            /** @description Requires admin role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The coordinator cannot serve invites, such as one with its own certificates */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No coordinator is running or reachable, or the server lacks the peer token */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createWorkerInvite: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkerInviteRequest"];
+            };
+        };
+        responses: {
+            /** @description The invite was created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateWorkerInviteResponse"];
+                };
+            };
+            /** @description An invalid expiresIn or address */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Requires admin role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The coordinator has no built-in TLS */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No coordinator is running or reachable, or the server lacks the peer token */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteWorkerInvite: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description ID of the invite */
+                inviteId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The invite was deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Requires admin role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No invite has the ID */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The coordinator cannot serve invites */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No coordinator is running or reachable, or the server lacks the peer token */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    removeWorker: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description What happens to the runs the worker holds:
+                 *     - finish: they run to their end. The default.
+                 *     - stop: each one is canceled.
+                 *      */
+                runs?: components["schemas"]["WorkerRemovalRuns"];
+            };
+            header?: never;
+            path: {
+                /** @description ID of the worker */
+                workerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The removal started or completed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkerRemovalResponse"];
+                };
+            };
+            /** @description Requires admin role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No worker has the ID */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The worker connects with the peer token, or the coordinator has no built-in TLS */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No coordinator is running or reachable, or the server lacks the peer token */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getWorkerJoinReadiness: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report of each coordinator */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkerJoinReadinessResponse"];
+                };
+            };
+            /** @description Requires admin role */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No coordinator reports join readiness, as one of an earlier release */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No coordinator is running or reachable, or the server lacks the peer token */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -30182,6 +30740,33 @@ export enum PlaintextReason {
     no_TLS_source = "no TLS source",
     tls_failed_on_the_network_path = "tls failed on the network path",
     older_version = "older version"
+}
+export enum WorkerInviteKind {
+    single_use = "single_use",
+    reusable = "reusable"
+}
+export enum WorkerRemovalRuns {
+    finish = "finish",
+    stop = "stop"
+}
+export enum WorkerRemovalState {
+    removing = "removing",
+    removed = "removed"
+}
+export enum ConfigSourceKind {
+    default = "default",
+    file = "file",
+    env = "env",
+    flag = "flag"
+}
+export enum HostEnvironment {
+    host = "host",
+    container = "container",
+    kubernetes = "kubernetes"
+}
+export enum BuiltinTLSReason {
+    ownCertificates = "ownCertificates",
+    caUnavailable = "caUnavailable"
 }
 export enum WorkerVersionDrift {
     none = "none",
