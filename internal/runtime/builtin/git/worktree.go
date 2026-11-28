@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/gofrs/flock"
+
+	cmnconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 )
 
 const (
@@ -733,6 +735,10 @@ func sanitizedGitEnvironment() []string {
 		name, _, _ := strings.Cut(entry, "=")
 		switch name {
 		case "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE":
+			continue
+		}
+		// Git runs for a workflow, which never sees Dagu's own credentials.
+		if cmnconfig.IsCredentialEnv(name) {
 			continue
 		}
 		filtered = append(filtered, entry)

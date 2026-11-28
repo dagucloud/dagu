@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
@@ -136,6 +137,10 @@ func runWorker(ctx *Context, _ []string) error {
 		return fmt.Errorf("failed to start resource monitoring: %w", err)
 	}
 	defer func() { _ = machine.Stop(ctx.Context) }()
+
+	// Nothing the worker starts, such as a workflow's subprocess, needs
+	// the invite, so it leaves the environment once loaded.
+	config.ClearWorkerInviteEnv(ctx.Config)
 
 	// The health check port is held from before the worker joins until
 	// the worker serves on it, so a busy port uses up no invite.

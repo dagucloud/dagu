@@ -4,6 +4,7 @@
 package config
 
 import (
+	"os"
 	"strings"
 	"sync"
 )
@@ -43,6 +44,34 @@ var credentialEnv = sync.OnceValue(func() map[string]bool {
 // settings; the processes a workflow runs never see them.
 func IsCredentialEnv(key string) bool {
 	return credentialEnv()[normalizeEnvKey(key)]
+}
+
+// ClearWorkerInviteEnv removes worker.invite, in each spelling Load reads,
+// from this process's environment and from cfg's base environment, once Load
+// has read it. Only a worker reads the invite, and its runs execute in its
+// own process, so no process it starts needs it.
+func ClearWorkerInviteEnv(cfg *Config) {
+	names := envNames("worker.invite")
+	for _, name := range names {
+		_ = os.Unsetenv(name)
+	}
+	kept := make([]string, 0, len(cfg.Core.BaseEnv.variables))
+	for _, entry := range cfg.Core.BaseEnv.variables {
+		key, _, _ := strings.Cut(entry, "=")
+		if !containsEnvName(names, key) {
+			kept = append(kept, entry)
+		}
+	}
+	cfg.Core.BaseEnv = NewBaseEnv(kept)
+}
+
+func containsEnvName(names []string, key string) bool {
+	for _, name := range names {
+		if normalizeEnvKey(name) == normalizeEnvKey(key) {
+			return true
+		}
+	}
+	return false
 }
 
 // WithoutCredentials returns the filtered environment without Dagu's own

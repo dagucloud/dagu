@@ -4,6 +4,7 @@
 package config_test
 
 import (
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -171,6 +172,26 @@ func TestBaseEnvWithoutCredentials(t *testing.T) {
 	}
 	require.Equal(t, "/srv/dagu", forSteps["DAGU_HOME"])
 	require.False(t, config.IsCredentialEnv("DAGU_HOME"))
+}
+
+// A worker removes its invite, in both spellings, from its environment and
+// its base environment, so no process it starts inherits the invite.
+func TestClearWorkerInviteEnv(t *testing.T) {
+	for _, name := range []string{"DAGU_WORKER_INVITE", "DAGU_WORKER.INVITE"} {
+		t.Setenv(name, "dagu1.pin.secret")
+	}
+	t.Setenv("DAGU_HOME", "/srv/dagu")
+	cfg := &config.Config{}
+	cfg.Core.BaseEnv = config.LoadBaseEnv()
+
+	config.ClearWorkerInviteEnv(cfg)
+	inherited := parseEnvSlice(cfg.Core.BaseEnv.AsSlice())
+	for _, name := range []string{"DAGU_WORKER_INVITE", "DAGU_WORKER.INVITE"} {
+		_, set := os.LookupEnv(name)
+		require.False(t, set, name)
+		require.NotContains(t, inherited, name)
+	}
+	require.Equal(t, "/srv/dagu", inherited["DAGU_HOME"])
 }
 
 func TestIsCredentialEnvHonorsPlatformCaseRules(t *testing.T) {
