@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -33,6 +32,10 @@ const (
 	// certificates in removal, so it applies another coordinator's removal
 	// within this interval.
 	removalRereadInterval = 30 * time.Second
+	// strandedRunWindow is how long after a revocation a coordinator looks
+	// for the runs bound to its worker that no worker took, a few claim
+	// timeouts, so a claim that expires late is still found.
+	strandedRunWindow = 10 * time.Minute
 	// recordPruneInterval is how often a coordinator prunes the certificate
 	// and invite records.
 	recordPruneInterval = 24 * time.Hour
@@ -83,8 +86,11 @@ type workerRemovals struct {
 	// to be removing in the store, from which it counts the minimum wait.
 	// An entry goes when its certificate is revoked.
 	removingSeen map[string]time.Time
-	// now reads the time for removingSeen, after the store read or write
-	// that brought the state returned.
+	// revokedSeen holds when this coordinator first knew each certificate
+	// to be revoked. An entry goes strandedRunWindow later.
+	revokedSeen map[string]time.Time
+	// now reads the time for removingSeen and revokedSeen, after the store
+	// read or write that brought the state returned.
 	now func() time.Time
 }
 
@@ -119,18 +125,24 @@ func (r *workerRemovals) addLocked(removals []persis.WorkerCertificateRemoval) {
 			continue
 		}
 		r.byID[removal.ID] = removal
+		now := time.Now
+		if r.now != nil {
+			now = r.now
+		}
 		switch removal.State {
 		case persis.WorkerCertificateRevoked:
 			delete(r.settledAt, removal.ID)
 			delete(r.removingSeen, removal.ID)
+			if !ok || current.State != persis.WorkerCertificateRevoked {
+				if r.revokedSeen == nil {
+					r.revokedSeen = make(map[string]time.Time)
+				}
+				r.revokedSeen[removal.ID] = now()
+			}
 		case persis.WorkerCertificateRemoving:
 			if _, seen := r.removingSeen[removal.ID]; !seen {
 				if r.removingSeen == nil {
 					r.removingSeen = make(map[string]time.Time)
-				}
-				now := time.Now
-				if r.now != nil {
-					now = r.now
 				}
 				r.removingSeen[removal.ID] = now()
 			}
@@ -187,6 +199,25 @@ func (r *workerRemovals) get(id string) (persis.WorkerCertificateRemoval, bool) 
 	defer r.mu.RUnlock()
 	removal, ok := r.byID[id]
 	return removal, ok
+}
+
+// recentlyRevoked returns the worker IDs of the certificates that this
+// coordinator first knew to be revoked less than window before now, and
+// forgets the older ones.
+func (r *workerRemovals) recentlyRevoked(window time.Duration, now time.Time) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var workerIDs []string
+	for id, seen := range r.revokedSeen {
+		if now.Sub(seen) >= window {
+			delete(r.revokedSeen, id)
+			continue
+		}
+		if workerID := r.byID[id].WorkerID; workerID != "" && !slices.Contains(workerIDs, workerID) {
+			workerIDs = append(workerIDs, workerID)
+		}
+	}
+	return workerIDs
 }
 
 // removing returns the certificates in state removing.
@@ -355,7 +386,6 @@ func (h *Handler) revokeWorker(ctx context.Context, workerID string, hb *dispatc
 	}
 	resp.CertificateIds = append(resp.CertificateIds, more...)
 	h.warnReconnected(ctx, workerID, unheld)
-	h.failTasksBoundTo(ctx, map[string]bool{workerID: true}, h.clock())
 	return resp, nil
 }
 
@@ -581,8 +611,9 @@ func (h *Handler) waitPeerMaintenance() {
 	h.peerMaintenance.Wait()
 }
 
-// rereadRemovals reads the certificates in removal and revokes each
-// removing one that is due. A failed read keeps the last copy.
+// rereadRemovals reads the certificates in removal, revokes each removing
+// one that is due, and fails the runs that recent revocations left with no
+// worker. A failed read keeps the last copy.
 func (h *Handler) rereadRemovals(ctx context.Context) {
 	removals, err := h.workerCertificates.ListRemovals(ctx)
 	if err != nil {
@@ -593,6 +624,7 @@ func (h *Handler) rereadRemovals(ctx context.Context) {
 	if removing := h.removals.removing(); len(removing) > 0 {
 		h.settleRemovals(ctx, removing, h.clock())
 	}
+	h.failStrandedRuns(ctx)
 }
 
 // settleRemovals revokes each certificate of removing that is due.
@@ -606,14 +638,6 @@ func (h *Handler) settleRemovals(ctx context.Context, removing []persis.WorkerCe
 		logger.Warn(ctx, "Failed to list worker heartbeats or run leases for removing workers", tag.Error(err))
 		return
 	}
-	workerIDs := make(map[string]bool)
-	for _, removal := range removing {
-		workerIDs[removal.WorkerID] = true
-		for _, hb := range h.removalHolders(removal, presence, now) {
-			workerIDs[hb.WorkerID] = true
-		}
-	}
-	h.failTasksBoundTo(ctx, workerIDs, now)
 	for _, removal := range removing {
 		if h.removalDue(removal, presence, leases, now) {
 			h.revokeIdle(ctx, removal, now)
@@ -648,24 +672,65 @@ func (h *Handler) revokeIdle(ctx context.Context, removal persis.WorkerCertifica
 	}
 }
 
-// failTasksBoundTo fails the run of each pending task bound to one of
-// workerIDs, whose removal lets no worker take it, and releases its place
-// in its queue, so the queue's next run can start.
-func (h *Handler) failTasksBoundTo(ctx context.Context, workerIDs map[string]bool, now time.Time) {
-	if h.dispatchTaskStore == nil || h.dagRunRepository == nil || len(workerIDs) == 0 {
+// failStrandedRuns fails each run bound to the worker of a certificate
+// revoked less than strandedRunWindow ago that no worker took, pending or
+// claimed without an acceptance, and frees its place in its queue. A worker
+// ID that an active certificate or a fresh heartbeat names keeps its runs,
+// as one that enrolled again under the same ID does. It runs at each
+// reread, so a revocation at startup, one by another coordinator, and a
+// claim that came late are all found by a later pass.
+func (h *Handler) failStrandedRuns(ctx context.Context) {
+	if h.dispatchTaskStore == nil || h.dagRunRepository == nil {
 		return
 	}
-	tasks, err := h.dispatchTaskStore.ListPendingFor(ctx, slices.Collect(maps.Keys(workerIDs)))
+	now := h.clock()
+	workerIDs := h.removals.recentlyRevoked(strandedRunWindow, now)
+	if len(workerIDs) == 0 {
+		return
+	}
+	tasks, err := h.dispatchTaskStore.ListBoundTo(ctx, workerIDs)
 	if err != nil {
-		logger.Warn(ctx, "Failed to list the pending tasks of removed workers", tag.Error(err))
+		logger.Warn(ctx, "Failed to list the tasks of removed workers", tag.Error(err))
+		return
+	}
+	if len(tasks) == 0 {
+		return
+	}
+	presence, err := h.listPresence(ctx)
+	if err != nil {
+		logger.Warn(ctx, "Failed to list worker heartbeats for the tasks of removed workers", tag.Error(err))
+		return
+	}
+	certs, err := h.workerCertificates.List(ctx)
+	if err != nil {
+		logger.Warn(ctx, "Failed to list worker certificates for the tasks of removed workers", tag.Error(err))
 		return
 	}
 	for _, task := range tasks {
+		if workerIdentified(task.TargetWorkerID, certs, presence, now, h.staleHeartbeatThreshold) {
+			continue
+		}
 		reason := fmt.Sprintf("worker %s was removed before it took the run", task.TargetWorkerID)
 		if h.failPendingDispatch(ctx, task, now, reason) {
 			logger.Warn(ctx, "A run bound to a removed worker failed", tag.RunID(task.DAGRunID), tag.WorkerID(task.TargetWorkerID))
 		}
 	}
+}
+
+// workerIdentified reports whether an active certificate of certs or a
+// fresh heartbeat of presence names the worker ID workerID now.
+func workerIdentified(workerID string, certs []persis.WorkerCertificate, presence []dispatch.WorkerHeartbeatRecord, now time.Time, stale time.Duration) bool {
+	for _, cert := range certs {
+		if cert.State == persis.WorkerCertificateActive && cert.WorkerID == workerID {
+			return true
+		}
+	}
+	for _, hb := range presence {
+		if hb.WorkerID == workerID && dispatch.WorkerHeartbeatFresh(hb, now, stale) {
+			return true
+		}
+	}
+	return false
 }
 
 // removalDue reports whether the removing certificate removal is to be

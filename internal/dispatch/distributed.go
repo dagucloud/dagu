@@ -127,9 +127,18 @@ type DispatchTaskStore interface {
 	// before cutoff. They stay claimable; the coordinator removes, with
 	// DeletePending, the ones whose runs no longer await them.
 	ListStalePending(ctx context.Context, cutoff time.Time) ([]*DispatchTask, error)
-	// ListPendingFor returns the pending tasks, held ones included, bound to
-	// one of workerIDs. Its cost grows with those tasks only.
-	ListPendingFor(ctx context.Context, workerIDs []string) ([]*DispatchTask, error)
+	// ListBoundTo returns the tasks bound to one of workerIDs that no
+	// worker accepted: the pending ones, held ones included, and the
+	// claimed ones whose acceptance has not begun, with their claim token.
+	// It reads the shared record IDs first, so it sees the tasks that other
+	// coordinators queued or claimed. Beside that listing, it reads the
+	// record of each bound task.
+	ListBoundTo(ctx context.Context, workerIDs []string) ([]*DispatchTask, error)
+	// RetireClaim deletes the claim claimToken, in one compare-and-delete
+	// from the version it read, unless an acceptance or expiry already
+	// decided on it. It returns [ErrDispatchTaskNotFound] when the claim is
+	// gone or no longer its to retire.
+	RetireClaim(ctx context.Context, claimToken string) error
 	// DeletePending removes the pending task of an attempt, if any. A task
 	// already claimed is left alone.
 	DeletePending(ctx context.Context, attemptKey string) error

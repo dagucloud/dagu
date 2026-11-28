@@ -1976,8 +1976,9 @@ func (h *Handler) failHeldDispatch(ctx context.Context, task *dispatch.DispatchT
 	}
 }
 
-// failPendingDispatch fails the run of one pending task that no worker can
-// take with reason, releases its admission, and drops the task. It reports
+// failPendingDispatch fails the run of one task that no worker can take
+// with reason, releases its admission, and drops the task: a pending one,
+// or a claimed one without an acceptance, through its claim. It reports
 // whether it failed the run. A run that is no longer waiting, was claimed
 // after all, or no longer exists only loses the stale task. A run that
 // cannot be read keeps its task, so the next pass tries again instead of
@@ -2012,8 +2013,12 @@ func (h *Handler) failPendingDispatch(ctx context.Context, task *dispatch.Dispat
 		h.finalizeAdmissionForStatus(storeCtx, &failed, attempt.ID())
 		failedRun = true
 	}
-	if err := h.dispatchTaskStore.DeletePending(storeCtx, task.AttemptKey); err != nil {
-		logger.Warn(ctx, "Failed to drop a pending dispatch that no worker can take",
+	drop := func() error { return h.dispatchTaskStore.DeletePending(storeCtx, task.AttemptKey) }
+	if task.ClaimToken != "" {
+		drop = func() error { return h.dispatchTaskStore.RetireClaim(storeCtx, task.ClaimToken) }
+	}
+	if err := drop(); err != nil && !errors.Is(err, dispatch.ErrDispatchTaskNotFound) {
+		logger.Warn(ctx, "Failed to drop a dispatch that no worker can take",
 			tag.RunID(task.DAGRunID), tag.AttemptKey(task.AttemptKey), tag.Error(err))
 	}
 	return failedRun

@@ -1064,7 +1064,7 @@ func (s *DispatchTaskStore) ListStalePending(ctx context.Context, cutoff time.Ti
 	return stale, nil
 }
 
-func (s *DispatchTaskStore) ListPendingFor(ctx context.Context, workerIDs []string) ([]*dispatch.DispatchTask, error) {
+func (s *DispatchTaskStore) ListBoundTo(ctx context.Context, workerIDs []string) ([]*dispatch.DispatchTask, error) {
 	if len(workerIDs) == 0 {
 		return nil, nil
 	}
@@ -1074,31 +1074,76 @@ func (s *DispatchTaskStore) ListPendingFor(ctx context.Context, workerIDs []stri
 	if err := s.ensureDispatchIndex(ctx); err != nil {
 		return nil, err
 	}
+	if _, err := s.reconcileDispatchIndexIDs(ctx, time.Now().UTC()); err != nil {
+		return nil, err
+	}
 	var bound []*dispatch.DispatchTask
-	for _, id := range append([]string(nil), s.index.pendingIDs...) {
-		entry, ok := s.index.pending[id]
-		if !ok || !entry.hasTask || !slices.Contains(workerIDs, entry.targetWorkerID) {
-			continue
-		}
-		rec, err := s.col.Get(ctx, id)
-		if err != nil {
+	for _, ids := range [][]string{s.boundEntryIDs(s.index.pending, workerIDs), s.boundEntryIDs(s.index.claims, workerIDs)} {
+		for _, id := range ids {
+			rec, err := s.col.Get(ctx, id)
 			if errors.Is(err, persis.ErrNotFound) {
-				s.index.removePending(id)
 				continue
 			}
-			return nil, err
+			if err != nil {
+				return nil, err
+			}
+			payload, err := dispatchTaskPayloadFromRecord(rec)
+			if err != nil {
+				return nil, err
+			}
+			if payload.Task == nil || !slices.Contains(workerIDs, payload.Task.TargetWorkerID) ||
+				payload.LeasingAt != 0 || payload.ExpiredAt != 0 {
+				continue
+			}
+			task := cloneDispatchTask(payload.Task)
+			task.ClaimToken = payload.ClaimToken
+			bound = append(bound, task)
+		}
+	}
+	return bound, nil
+}
+
+// boundEntryIDs returns the IDs of the entries whose task is bound to one
+// of workerIDs.
+func (s *DispatchTaskStore) boundEntryIDs(entries map[string]dispatchTaskIndexEntry, workerIDs []string) []string {
+	var ids []string
+	for id, entry := range entries {
+		if entry.hasTask && slices.Contains(workerIDs, entry.targetWorkerID) {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func (s *DispatchTaskStore) RetireClaim(ctx context.Context, claimToken string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	id := claimDispatchRecordID(claimToken)
+	err := retryConflict(ctx, func(ctx context.Context) error {
+		rec, err := s.col.Get(ctx, id)
+		if err != nil {
+			return err
 		}
 		payload, err := dispatchTaskPayloadFromRecord(rec)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		if payload.Task == nil || !slices.Contains(workerIDs, payload.Task.TargetWorkerID) {
-			s.index.addPending(rec, payload)
-			continue
+		if payload.Task == nil || payload.ClaimToken != claimToken || payload.LeasingAt != 0 || payload.ExpiredAt != 0 {
+			return dispatch.ErrDispatchTaskNotFound
 		}
-		bound = append(bound, cloneDispatchTask(payload.Task))
+		return s.withClaimTransition(ctx, payload, func(ctx context.Context) error {
+			return s.col.CompareAndDelete(ctx, rec)
+		})
+	})
+	if errors.Is(err, persis.ErrNotFound) {
+		err = dispatch.ErrDispatchTaskNotFound
 	}
-	return bound, nil
+	if err == nil && s.index != nil {
+		s.index.removeClaim(id)
+	}
+	return err
 }
 
 // DeletePending removes the pending tasks of an attempt. A task a worker has

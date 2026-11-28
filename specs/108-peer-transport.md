@@ -778,11 +778,17 @@ or `stop`:
     dispatch admitted before the removal still succeeds, also one admitted
     through another coordinator, which the check looks up in the store, and
     a dispatch whose check cannot read the store fails with `Unavailable`,
-    so the caller tries again. A run dispatched to the worker before the
-    removal that the worker has not taken yet fails within 30 seconds, at
-    the next reread, or at once when the removal revokes the worker, with
-    `worker <worker ID> was removed before it took the run`, and frees its
-    place in its queue.
+    so the caller tries again.
+  - A run bound to the worker that the worker did not accept, whether it
+    waits for the worker or the worker claimed it without accepting it,
+    fails with `worker <worker ID> was removed before it took the run` and
+    frees its place in its queue. This happens at the first reread, within
+    30 seconds, after the worker's certificate is revoked, on whichever
+    coordinator admitted the run, also after a restart. It does not happen
+    while an active certificate or a fresh heartbeat names the worker ID,
+    as after the worker enrolled again under it: such a worker keeps the
+    run. A coordinator looks for such runs for 10 minutes after it learns
+    of a revocation.
   - A worker accepts a task only while the store shows its certificate
     `active`: the coordinator that the acceptance reaches reads the
     certificate's state before it creates the task's lease. An acceptance
@@ -1306,6 +1312,8 @@ The Workers page is the list of workers on System status.
   certificate lock needs no refresh.
 - The reread reads the records of `removing` and `revoked` certificates
   only, so its cost grows with removed workers, not with enrollments.
+  For 10 minutes after a revocation, it also lists the IDs of the queued
+  and claimed tasks and reads those bound to the removed workers.
 - A client that uses the published CA certificate reads it and the registry
   when it opens a connection. Connections are long-lived, so this does not
   grow with runs.

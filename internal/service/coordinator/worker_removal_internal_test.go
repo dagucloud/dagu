@@ -1672,60 +1672,173 @@ func TestQueuedRepeatToNodeRemovedElsewhere(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// A queue that runs one run at a time admits a run bound to node-a, and
-// another coordinator removes node-a before it takes the run. The next
-// reread fails the run with the removal as its reason and frees the
-// queue's place, so the queue's next run is admitted (Spec 108 §Removal).
-func TestRemovalFailsAdmittedBoundRun(t *testing.T) {
+// strandFixture is a coordinator over shared file stores with a queue that
+// runs one run at a time, and node-a, a worker on certificate cert-1.
+type strandFixture struct {
+	t       *testing.T
+	baseDir string
+	h       *Handler
+	runs    *mockDAGRunStore
+	certs   persis.WorkerCertificateStore
+	beats   dispatch.WorkerHeartbeatStore
+	leases  *store.DAGRunLeaseStore
+	active  *store.ActiveDistributedRunStore
+	// dispatches is h's dispatch store.
+	dispatches *store.DispatchTaskStore
+}
+
+func newStrandFixture(t *testing.T) *strandFixture {
+	t.Helper()
 	registerCommandExecutorCapsForCoordinatorTest()
-	ctx := t.Context()
-	baseDir := t.TempDir()
-	dispatches, leases, active := newTestDispatchAdmissionTaskStore(baseDir)
-	heartbeats := newTestWorkerHeartbeatStore(baseDir)
-	runs := newMockDAGRunStore()
+	f := &strandFixture{t: t, baseDir: t.TempDir(), runs: newMockDAGRunStore()}
+	f.dispatches, f.leases, f.active = newTestDispatchAdmissionTaskStore(f.baseDir)
+	f.beats = newTestWorkerHeartbeatStore(f.baseDir)
 	certs, err := store.NewWorkerCertificateStore(testutil.NewMemoryBackend().Collection(persis.CollectionWorkerCertificates))
 	require.NoError(t, err)
-	require.NoError(t, certs.Create(ctx, persis.WorkerCertificate{
-		ID: "cert-1", KeyFingerprint: make([]byte, 32), State: persis.WorkerCertificateActive, WorkerID: "node-a", CreatedAt: time.Now(),
-	}))
-	require.NoError(t, heartbeats.Upsert(ctx, dispatch.WorkerHeartbeatRecord{
-		WorkerID: "node-a", LastHeartbeatAt: time.Now().UnixMilli(), CertificateID: "cert-1",
-	}))
-	h := NewHandler(HandlerConfig{
-		DAGRunRepository:          runs.repository,
-		DispatchTaskStore:         dispatches,
-		WorkerHeartbeatStore:      heartbeats,
-		DAGRunLeaseStore:          leases,
-		ActiveDistributedRunStore: active,
-	})
-	t.Cleanup(func() { h.Close(context.Background()) })
-	h.workerCertificates = certs
-	reserve := func(runID string) *dispatch.DispatchAdmissionDecision {
-		t.Helper()
-		decision, err := dispatches.ReserveAdmission(ctx, dispatch.DispatchAdmissionRequest{
-			QueueName: "queue-1", MaxConcurrency: 1, StaleThreshold: time.Minute,
-			AttemptKey: ir.GenerateAttemptKey("routed", runID, "routed", runID, repeatAttemptID),
-			AttemptID:  repeatAttemptID, DAGRun: ir.NewDAGRunRef("routed", runID),
-		})
-		require.NoError(t, err)
-		return decision
-	}
-	admitted := reserve("run-1")
-	require.True(t, admitted.Reserved)
-	task := boundRepeatTask("run-1")
-	task.QueueName = "queue-1"
-	_, err = h.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: task, AdmissionReservationToken: admitted.ReservationToken})
-	require.NoError(t, err)
-	require.False(t, reserve("run-2").Reserved, "the queue is full")
-	_, err = certs.MarkRemoving(ctx, "cert-1", "node-a", time.Now)
-	require.NoError(t, err)
+	f.certs = certs
+	f.addCertificate("cert-1")
+	f.h = f.coordinator(f.dispatches)
+	return f
+}
 
-	h.rereadRemovals(ctx)
-	status, err := runs.attempts["run-1"].ReadStatus(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, ir.Failed, status.Status)
-	assert.Contains(t, status.Error, "node-a was removed")
-	assert.True(t, reserve("run-2").Reserved, "the queue's next run is admitted")
+// coordinator returns a coordinator over the fixture's stores and the
+// dispatch store dispatches.
+func (f *strandFixture) coordinator(dispatches dispatch.DispatchTaskStore) *Handler {
+	f.t.Helper()
+	h := NewHandler(HandlerConfig{
+		DAGRunRepository:          f.runs.repository,
+		DispatchTaskStore:         dispatches,
+		WorkerHeartbeatStore:      f.beats,
+		DAGRunLeaseStore:          f.leases,
+		ActiveDistributedRunStore: f.active,
+	})
+	h.workerCertificates = f.certs
+	f.t.Cleanup(func() { h.Close(context.Background()) })
+	return h
+}
+
+// addCertificate records the active certificate id for node-a, which
+// connects with it now.
+func (f *strandFixture) addCertificate(id string) {
+	f.t.Helper()
+	require.NoError(f.t, f.certs.Create(f.t.Context(), persis.WorkerCertificate{
+		ID: id, KeyFingerprint: []byte(id), State: persis.WorkerCertificateActive, WorkerID: "node-a", CreatedAt: time.Now(),
+	}))
+	require.NoError(f.t, f.beats.Upsert(f.t.Context(), dispatch.WorkerHeartbeatRecord{
+		WorkerID: "node-a", LastHeartbeatAt: time.Now().UnixMilli(), CertificateID: id,
+	}))
+}
+
+// reserve asks the queue for a place for runID.
+func (f *strandFixture) reserve(runID string) *dispatch.DispatchAdmissionDecision {
+	f.t.Helper()
+	decision, err := f.dispatches.ReserveAdmission(f.t.Context(), dispatch.DispatchAdmissionRequest{
+		QueueName: "queue-1", MaxConcurrency: 1, StaleThreshold: time.Minute,
+		AttemptKey: ir.GenerateAttemptKey("routed", runID, "routed", runID, repeatAttemptID),
+		AttemptID:  repeatAttemptID, DAGRun: ir.NewDAGRunRef("routed", runID),
+	})
+	require.NoError(f.t, err)
+	return decision
+}
+
+// admit dispatches runID, bound to node-a, through h in the queue's place.
+func (f *strandFixture) admit(h *Handler, runID string) {
+	f.t.Helper()
+	admitted := f.reserve(runID)
+	require.True(f.t, admitted.Reserved)
+	task := boundRepeatTask(runID)
+	task.QueueName = "queue-1"
+	_, err := h.Dispatch(f.t.Context(), &coordinatorv1.DispatchRequest{Task: task, AdmissionReservationToken: admitted.ReservationToken})
+	require.NoError(f.t, err)
+	require.False(f.t, f.reserve("run-next").Reserved, "the queue is full")
+}
+
+// revoke revokes cert-1, whose worker no longer reports.
+func (f *strandFixture) revoke() {
+	f.t.Helper()
+	_, err := f.certs.SetState(f.t.Context(), "cert-1", persis.WorkerCertificateRevoked)
+	require.NoError(f.t, err)
+	require.NoError(f.t, f.beats.Upsert(f.t.Context(), dispatch.WorkerHeartbeatRecord{
+		WorkerID: "node-a", LastHeartbeatAt: time.Now().Add(-time.Hour).UnixMilli(), CertificateID: "cert-1",
+	}))
+}
+
+func (f *strandFixture) status(runID string) *ir.DAGRunStatus {
+	f.t.Helper()
+	status, err := f.runs.attempts[runID].ReadStatus(f.t.Context())
+	require.NoError(f.t, err)
+	return status
+}
+
+// A queue that runs one run at a time admits a run bound to node-a, and
+// node-a's certificate is revoked before it accepts the run. The next
+// reread fails the run with the removal as its reason and frees the queue's
+// place for its next run: also for a run the worker polled before the
+// removal, one that another coordinator admitted after this one read its
+// tasks, and one this coordinator finds only after a restart. A worker that
+// enrolled again as node-a keeps the run (Spec 108 §Removal).
+func TestRemovalFailsAdmittedBoundRun(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// run admits run-1, revokes cert-1, and returns the coordinator
+		// whose reread is checked.
+		run func(f *strandFixture) *Handler
+		// kept is set when the run is to stay with node-a.
+		kept bool
+	}{
+		{name: "pending", run: func(f *strandFixture) *Handler {
+			f.admit(f.h, "run-1")
+			f.revoke()
+			return f.h
+		}},
+		{name: "polled before the removal", run: func(f *strandFixture) *Handler {
+			f.admit(f.h, "run-1")
+			claimed, err := f.dispatches.ClaimNext(f.t.Context(), dispatch.DispatchTaskClaim{WorkerID: "node-a", PollerID: "poller-1"})
+			require.NoError(f.t, err)
+			require.NotNil(f.t, claimed)
+			f.revoke()
+			return f.h
+		}},
+		{name: "admitted by another coordinator", run: func(f *strandFixture) *Handler {
+			_, err := f.dispatches.ListBoundTo(f.t.Context(), []string{"node-a"})
+			require.NoError(f.t, err)
+			peerStore, _, _ := newTestDispatchAdmissionTaskStore(f.baseDir)
+			f.admit(f.coordinator(peerStore), "run-1")
+			f.revoke()
+			return f.h
+		}},
+		{name: "after a restart", run: func(f *strandFixture) *Handler {
+			f.admit(f.h, "run-1")
+			f.revoke()
+			restartedStore, _, _ := newTestDispatchAdmissionTaskStore(f.baseDir)
+			return f.coordinator(restartedStore)
+		}},
+		{name: "enrolled again", kept: true, run: func(f *strandFixture) *Handler {
+			f.admit(f.h, "run-1")
+			f.revoke()
+			f.addCertificate("cert-2")
+			return f.h
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newStrandFixture(t)
+			h := tc.run(f)
+
+			h.rereadRemovals(t.Context())
+			if tc.kept {
+				assert.NotEqual(t, ir.Failed, f.status("run-1").Status)
+				assert.False(t, f.reserve("run-next").Reserved, "the run keeps its place")
+				claimed, err := f.dispatches.ClaimNext(t.Context(), dispatch.DispatchTaskClaim{WorkerID: "node-a", PollerID: "poller-2"})
+				require.NoError(t, err)
+				assert.NotNil(t, claimed, "node-a can still take the run")
+				return
+			}
+			status := f.status("run-1")
+			assert.Equal(t, ir.Failed, status.Status)
+			assert.Contains(t, status.Error, "node-a was removed")
+			assert.True(t, f.reserve("run-next").Reserved, "the queue's next run is admitted")
+		})
+	}
 }
 
 // failingCertificateRead fails every certificate read.
