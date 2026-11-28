@@ -739,7 +739,9 @@ export const mainListItems = React.forwardRef<
               )}
               {items.map((item) => (
                 <NavItem
-                  key={item.to}
+                  // The path, without the query a badge may add, keeps the
+                  // link, and its focus, when the badge comes and goes.
+                  key={item.to.split('?')[0]}
                   {...item}
                   isOpen={isOpen}
                   onClick={onNavItemClick}

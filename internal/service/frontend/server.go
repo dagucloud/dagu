@@ -105,7 +105,8 @@ const (
 	connectionAttentionMinInterval = 5 * time.Second
 	// connectionAttentionMaxInterval bounds how long a badge goes stale
 	// after a change that no wake reported, such as a removal through
-	// another server on shared storage.
+	// another server on shared storage: this interval plus the age of the
+	// API's shared read, 15 minutes in all.
 	connectionAttentionMaxInterval = 10 * time.Minute
 	// dagRunsMaxInterval bounds how stale a live run list gets when no run
 	// event wakes it, such as when a DAG gains or loses a restart policy and
