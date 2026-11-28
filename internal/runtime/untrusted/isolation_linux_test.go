@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -260,6 +261,10 @@ func runFolders(t *testing.T) (root, dag, run string) {
 	dag = filepath.Join(root, "dag")
 	run = filepath.Join(dag, "run")
 	require.NoError(t, os.MkdirAll(run, 0o750))
+	// The umask must not decide the modes.
+	for _, dir := range []string{root, dag, run} {
+		require.NoError(t, os.Chmod(dir, 0o750))
+	}
 	t.Cleanup(func() { _ = os.Remove(run + handoffSuffix) })
 	return root, dag, run
 }
@@ -383,20 +388,20 @@ func assertRunFolders(t *testing.T, mode fs.FileMode, aclErr error, dirs ...stri
 func TestIsolatedStepRefusesOtherFolders(t *testing.T) {
 	requireIsolation(t)
 	for name, tc := range map[string]struct {
-		blocked func(root string) string
+		blocked func(t *testing.T, root string) string
 		mode    fs.FileMode
 	}{
-		"above the root": {mode: 0o750, blocked: func(root string) string {
+		"above the root": {mode: 0o750, blocked: func(t *testing.T, root string) string {
 			base := filepath.Dir(root)
 			require.NoError(t, os.Chmod(base, 0o750))
 			return base
 		}},
-		"of another user": {mode: 0o750, blocked: func(root string) string {
+		"of another user": {mode: 0o750, blocked: func(t *testing.T, root string) string {
 			require.NoError(t, os.Chown(root, testUID+1, testGID+1))
 			return root
 		}},
 		// The entry of the user comes before the bits of others.
-		"denied by an ACL": {mode: 0o755, blocked: func(root string) string {
+		"denied by an ACL": {mode: 0o755, blocked: func(t *testing.T, root string) string {
 			base := filepath.Dir(root)
 			setACL(t, base, aclNames[0], [3]uint32{0x01, 7, ^uint32(0)}, [3]uint32{0x02, 0, testUID},
 				[3]uint32{0x04, 5, ^uint32(0)}, [3]uint32{0x10, 5, ^uint32(0)}, [3]uint32{0x20, 5, ^uint32(0)})
@@ -405,7 +410,7 @@ func TestIsolatedStepRefusesOtherFolders(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			root, dag, run := runFolders(t)
-			blocked := tc.blocked(root)
+			blocked := tc.blocked(t, root)
 			req := testRequest(t, run, run)
 			req.ManagedRoot = root
 			_, err := beginStep(t, context.Background(), req)
@@ -1449,6 +1454,9 @@ func testKeepsAnotherProcess(t *testing.T, endingPreparedFirst bool) {
 	prepare := func(cmd *exec.Cmd) {
 		release, err := step.prepare(cmd)
 		require.NoError(t, err)
+		// A failed assertion before the start leaves nothing open.
+		release = sync.OnceFunc(release)
+		t.Cleanup(release)
 		releases[cmd] = release
 	}
 	if endingPreparedFirst {

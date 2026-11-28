@@ -172,7 +172,12 @@ func TestTrustedStepGetsAPrivateHome(t *testing.T) {
 	result.assertNodeStatus(t, "check", ir.NodeSucceeded)
 	homes := strings.Fields(result.nodeByName(t, "check").OutputVariablesMap()["HOMES"])
 	require.Len(t, homes, 2)
-	assert.True(t, strings.HasPrefix(homes[0], filepath.Join(os.TempDir(), "dagu-home-")), homes[0])
+	// The private HOME is below the resolved temp folder.
+	tmp, err := filepath.EvalSymlinks(os.TempDir())
+	require.NoError(t, err)
+	tmp, err = filepath.Abs(tmp)
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(homes[0], filepath.Join(tmp, "dagu-home-")), homes[0])
 	assert.Equal(t, filepath.Join(homes[0], ".config"), homes[1])
 	assert.NoFileExists(t, filepath.Join(shared, "planted"))
 	assert.NoDirExists(t, homes[0], "the private HOME is removed after the step")
