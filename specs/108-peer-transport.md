@@ -865,6 +865,11 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
   warnings of [Ignored Settings](#ignored-settings) to standard output
   instead of logging them, and then for each address in
   `worker.coordinators`:
+  - the transport the worker picks for the address and what selected it,
+    by the same decision as the worker's connections, as
+    `<transport> (from <source>)` of [Per Coordinator](#per-coordinator),
+    and for an open h2c window, when it ends and the handshake error that
+    opened it
   - whether the address is reachable, directly or through the HTTPS proxy
     that the environment names for the address, as gRPC dials it, and
     otherwise the message of [Messages](#messages)
@@ -890,10 +895,17 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
   trust, an expired certificate, a certificate without server
   authentication, and a coordinator that requires a client certificate and
   refuses the worker's, or its lack of one.
+- After a failed built-in TLS handshake from which the worker falls back,
+  as [Fallback to h2c](#fallback-to-h2c) and
+  [Unlisted Addresses](#unlisted-addresses) state, it says so and checks
+  the call over h2c, as the worker would make it.
+- A call that `coordinator.require_tls` refuses gets the client's message
+  of [Messages](#messages).
 - A coordinator that does not answer within the dial timeout gets that
   message, not a transport error.
 - It never enrolls, never consumes an invite, registers no worker, takes no
-  task, and changes no state on the coordinator.
+  task, opens or ends no h2c window, and changes no state on the
+  coordinator.
 - It exits with code 0 when every coordinator passes, and with code 1
   otherwise.
 
@@ -901,6 +913,7 @@ dagu worker invite --address <host:port> [--reusable] [--expires <duration>]
 $ dagu worker --check --worker.coordinators=127.0.0.1:50055 --peer.insecure=false --peer.client-ca-file=ca.crt
 Peer transport: TLS (from peer.insecure: false)
 Coordinator 127.0.0.1:50055
+  Transport: TLS (from peer.insecure: false)
   Reachable: yes
   Handshake: failed, the certificate does not cover 127.0.0.1
     Address dialed: 127.0.0.1:50055

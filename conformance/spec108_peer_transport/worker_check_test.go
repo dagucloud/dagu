@@ -16,10 +16,11 @@ import (
 )
 
 // dagu worker --check prints the start line and the ignored-setting warnings
-// instead of logging them, then what the coordinator answered. The worker
-// shares the coordinator's data directory, so it sends the token there
-// (Spec 108 §dagu worker --check).
-func TestWorkerCheckPasses(t *testing.T) {
+// instead of logging them, then what the coordinator answered. A worker that
+// shares the coordinator's data directory uses built-in TLS from its
+// published CA certificate and sends the peer token there (Spec 108 §dagu
+// worker --check).
+func TestWorkerCheckBuiltinTLS(t *testing.T) {
 	dagu := harness.NewRunner(t)
 	sharedHome := []string{"DAGU_HOME=" + t.TempDir()}
 	addr := startCoordinator(t, dagu, sharedHome)
@@ -29,15 +30,52 @@ func TestWorkerCheckPasses(t *testing.T) {
 
 	result.ExpectExitCode(0)
 	for _, want := range []string{
-		ignoredFileCA + "\n" + h2cNoSource + "\nCoordinator " + addr + "\n",
-		"  Reachable: yes\n",
-		"  Handshake: none, the worker uses h2c\n",
+		ignoredFileCA + "\n" + builtinFromDataDir + "\nCoordinator " + addr + "\n",
+		"  Transport: built-in TLS (from the coordinator's data directory)\n  Reachable: yes\n  Handshake: TLS\n",
+		"DNS:" + coordinatorCertName,
 		"  Credential: peer token from the coordinator's data directory\n",
 		"  Coordinator answered: serving, and it accepted the call\n",
 	} {
 		assert.Contains(t, result.Stdout(), want)
 	}
 	result.ExpectStderrNotContains("Peer transport:", "Peer TLS setting ignored:")
+}
+
+// A worker with no TLS source uses h2c, and peer.insecure: true selects it
+// too. A coordinator under coordinator.require_tls refuses the call, and the
+// check says so as the worker does (Spec 108 §Require TLS, §Messages).
+func TestWorkerCheckH2C(t *testing.T) {
+	dagu := harness.NewRunner(t)
+	addr := startCoordinator(t, dagu, nil)
+	strict := startCoordinator(t, dagu, []string{"DAGU_COORDINATOR_REQUIRE_TLS=true"})
+
+	for _, tc := range []struct {
+		name     string
+		addr     string
+		args     []string
+		exitCode int
+		want     []string
+	}{
+		{name: "NoTLSSource", addr: addr, want: []string{
+			h2cNoSource + "\n",
+			"  Transport: h2c (from no TLS source)\n",
+			"  Handshake: none, the worker uses h2c\n",
+			"  Coordinator answered: serving, and it accepted the call\n",
+		}},
+		{name: "RequireTLS", addr: strict, args: []string{"--peer.insecure"}, exitCode: 1, want: []string{
+			"  Transport: h2c (from peer.insecure: true)\n",
+			"  Coordinator answered: The coordinator requires TLS. Upgrade this process, or remove peer.insecure: true.\n",
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := dagu.Run(append([]string{"worker", "--check", "--worker.coordinators=" + tc.addr}, tc.args...)...)
+
+			result.ExpectExitCode(tc.exitCode)
+			for _, want := range tc.want {
+				assert.Contains(t, result.Stdout(), want)
+			}
+		})
+	}
 }
 
 // An address that does not answer gets the message of Spec 108 §Messages.
@@ -130,7 +168,7 @@ func TestWorkerCheckRegistry(t *testing.T) {
 	result := dagu.RunWithEnv(sharedHome, "worker", "--check")
 
 	result.ExpectExitCode(1)
-	assert.Contains(t, result.Stdout(), "Coordinator "+addr+"\n  Reachable: yes\n")
+	assert.Contains(t, result.Stdout(), "Coordinator "+addr+"\n  Transport: built-in TLS (from the coordinator's data directory)\n  Reachable: yes\n")
 	assert.Contains(t, result.Stdout(), "  Coordinator answered: serving, and it accepted the call\n")
 	result.ExpectStderrContains("worker.coordinators is required: set it to the address of a coordinator above that passed")
 }
