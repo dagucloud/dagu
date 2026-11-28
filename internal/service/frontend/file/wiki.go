@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +17,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	filewiki "github.com/dagucloud/dagu/v2/internal/persis/file/wiki"
@@ -28,6 +32,8 @@ const (
 	// and the directory of its revisions and page metadata in the project's
 	// state directory.
 	projectWikiDirName = "wiki"
+	// pageFileExt is the extension of a wiki page file.
+	pageFileExt = ".md"
 	// migratedWikiCheckInterval bounds how often the registry is read for
 	// the projects that migration made. Every process checks the registry
 	// for changes as often.
@@ -45,7 +51,7 @@ type projectWikis struct {
 	cfg      *config.Config
 	registry project.Registry
 	// shared is the store of the default wiki directory.
-	shared   wiki.PageStore
+	shared   *filewiki.Store
 	defaults *wikiView
 
 	mu        sync.Mutex
@@ -57,14 +63,18 @@ type projectWikis struct {
 	// own holds the stores of projects with wiki directories of their own,
 	// keyed by project ID.
 	own map[string]*filewiki.Store
+	// opening holds a lock per project ID, so opening one project's store,
+	// which can move its wiki history, holds up no other project's wiki.
+	opening map[string]*sync.Mutex
 }
 
-func newProjectWikis(cfg *config.Config, registry project.Registry, shared wiki.PageStore) *projectWikis {
+func newProjectWikis(cfg *config.Config, registry project.Registry, shared *filewiki.Store) *projectWikis {
 	w := &projectWikis{
 		cfg:      cfg,
 		registry: registry,
 		shared:   shared,
 		own:      make(map[string]*filewiki.Store),
+		opening:  make(map[string]*sync.Mutex),
 	}
 	w.defaults = &wikiView{store: shared, excluded: w.migratedRoots}
 	return w
@@ -93,13 +103,14 @@ func (w *projectWikis) storeOf(ctx context.Context, p project.Project) (wiki.Pag
 			return &wikiView{store: w.shared, root: w.inPlaceRoot(p.MigratedFrom)}, nil
 		}
 	}
-	return w.ownStore(p, paths, dir)
+	return w.ownStore(ctx, p, paths, dir)
 }
 
-func (w *projectWikis) ownStore(p project.Project, paths config.ProjectPaths, dir string) (*filewiki.Store, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if store, ok := w.own[p.ID]; ok {
+func (w *projectWikis) ownStore(ctx context.Context, p project.Project, paths config.ProjectPaths, dir string) (*filewiki.Store, error) {
+	opening := w.openingLock(p.ID)
+	opening.Lock()
+	defer opening.Unlock()
+	if store := w.cachedStore(p.ID); store != nil {
 		return store, nil
 	}
 	// Opening a store creates its directory, which must not bring back the
@@ -116,8 +127,104 @@ func (w *projectWikis) ownStore(p project.Project, paths config.ProjectPaths, di
 	if err != nil {
 		return nil, fmt.Errorf("wiki store of project %q: %w", p.Name, err)
 	}
+	if p.MigratedFrom != "" {
+		// The pages' history follows them out of the default wiki directory.
+		// The store is kept only once it holds that history, so a move that
+		// fails is tried again on the next open.
+		inRoot := w.inPlaceDirs(p.MigratedFrom)
+		if err := w.shared.MoveHistory(ctx, inRoot, store); err != nil {
+			return nil, fmt.Errorf("move the wiki history of project %q: %w", p.Name, err)
+		}
+		w.warnLeftPages(ctx, p, inRoot)
+	}
+	w.mu.Lock()
 	w.own[p.ID] = store
+	w.mu.Unlock()
 	return store, nil
+}
+
+func (w *projectWikis) openingLock(id string) *sync.Mutex {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	lock, ok := w.opening[id]
+	if !ok {
+		lock = new(sync.Mutex)
+		w.opening[id] = lock
+	}
+	return lock
+}
+
+func (w *projectWikis) cachedStore(id string) *filewiki.Store {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.own[id]
+}
+
+// inPlaceDirs returns a function that reports whether a top-level directory
+// of the default wiki directory holds the pages of the migrated project from
+// workspace name, by the rule inPlaceRoot follows. Call it after
+// migratedRoots.
+func (w *projectWikis) inPlaceDirs(name string) func(dir string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if sharesFold(name, slices.Collect(maps.Keys(w.onDisk))) {
+		return func(dir string) bool { return dir == name }
+	}
+	return func(dir string) bool { return strings.EqualFold(dir, name) }
+}
+
+// sharesFold reports whether another of names differs from name only in
+// case. Such projects each own only the directory spelled as their name.
+// Any other project owns its directory in whatever case it is spelled.
+func sharesFold(name string, names []string) bool {
+	return slices.ContainsFunc(names, func(other string) bool {
+		return other != name && strings.EqualFold(other, name)
+	})
+}
+
+// warnLeftPages logs the pages left in the v2 wiki directory of p, a
+// migrated project with a wiki directory of its own. Those pages show in no
+// project's wiki.
+func (w *projectWikis) warnLeftPages(ctx context.Context, p project.Project, inRoot func(dir string) bool) {
+	dirs, err := w.wikiDirNames([]string{p.MigratedFrom})
+	if err != nil {
+		logger.Warn(ctx, "Failed to look for wiki pages left behind", tag.Name(p.Name), tag.Error(err))
+		return
+	}
+	for _, dir := range dirs {
+		if !inRoot(dir) {
+			continue
+		}
+		path := filepath.Join(w.cfg.Paths.WikiDir, dir)
+		count, err := countPages(path)
+		if err != nil {
+			logger.Warn(ctx, "Failed to look for wiki pages left behind", tag.Name(p.Name), tag.Dir(path), tag.Error(err))
+			continue
+		}
+		if count > 0 {
+			logger.Warn(ctx, "Wiki pages left in the v2 directory show in no project's wiki; move them to the project's wiki directory",
+				tag.Name(p.Name), tag.Dir(path), tag.Count(count))
+		}
+	}
+}
+
+// countPages returns the number of page files under dir, outside the hidden
+// directories, which hold no pages.
+func countPages(dir string) (int, error) {
+	count := 0
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && path != dir && strings.HasPrefix(d.Name(), ".") {
+			return filepath.SkipDir
+		}
+		if d.Type().IsRegular() && strings.HasSuffix(d.Name(), pageFileExt) {
+			count++
+		}
+		return nil
+	})
+	return count, err
 }
 
 // migratedRoots returns the v2 workspace names of the projects that
@@ -149,6 +256,11 @@ func (w *projectWikis) migratedRoots(ctx context.Context) ([]string, error) {
 			delete(w.own, id)
 		}
 	}
+	for id := range w.opening {
+		if !live[id] {
+			delete(w.opening, id)
+		}
+	}
 	dirs, err := w.wikiDirNames(names)
 	if err != nil {
 		return nil, err
@@ -157,7 +269,10 @@ func (w *projectWikis) migratedRoots(ctx context.Context) ([]string, error) {
 	roots := slices.Clone(names)
 	onDisk := make(map[string]string, len(names))
 	for _, name := range names {
-		onDisk[name] = diskSpelling(name, dirs)
+		onDisk[name] = name
+		if !sharesFold(name, names) {
+			onDisk[name] = diskSpelling(name, dirs)
+		}
 		for _, dir := range dirs {
 			if strings.EqualFold(dir, name) && !slices.Contains(roots, dir) {
 				roots = append(roots, dir)
@@ -169,8 +284,9 @@ func (w *projectWikis) migratedRoots(ctx context.Context) ([]string, error) {
 }
 
 // inPlaceRoot returns the directory under the default wiki directory that
-// holds the pages of the migrated project from workspace name. Call it
-// after migratedRoots.
+// holds the pages of the migrated project from workspace name: the one
+// spelled as name when sharesFold says so, and otherwise the one on disk
+// that matches name without regard to case. Call it after migratedRoots.
 func (w *projectWikis) inPlaceRoot(name string) string {
 	w.mu.Lock()
 	defer w.mu.Unlock()

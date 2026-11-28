@@ -1070,11 +1070,38 @@ Rules:
 
 - Project `X`'s wiki is `<wiki>/X/` until `<projects_dir>/X/wiki/` exists.
   Its pages keep their attachments, revisions, and page metadata.
+- `<wiki>/X/` is the directory whose name matches `X`'s workspace name
+  without regard to case. When another migrated project's workspace name
+  differs from `X`'s only in case, it is the directory spelled exactly as
+  `X`'s workspace name, and `X`'s wiki is empty until that directory
+  exists. The move and the warning below follow the same rule.
 - The default project's wiki leaves `<wiki>/X/` out, compared without regard
   to case. Its lists, search, and reads show no page there, and a write
   there, including a rename into or out of it, is refused as a conflict.
 - Once `<projects_dir>/X/wiki/` exists, `X` uses it alone. The default
   project's wiki still leaves `<wiki>/X/` out.
+- To move `X`'s wiki, an admin moves the pages in `<wiki>/X/` to
+  `<projects_dir>/X/wiki/` with any tool. No other step is needed.
+- While `X` reads `<wiki>/X/`, its pages' attachments, revisions, and page
+  metadata are kept with the default project's, under `X/`. The first time
+  the server opens `X`'s wiki after `<projects_dir>/X/wiki/` exists, it
+  moves them into `X`'s wiki: attachments to `.attachments/` in
+  `<projects_dir>/X/wiki/`, and revisions and page metadata to `wiki/` in
+  `X`'s `state/` directory. Each keeps its page's path under `<wiki>/X/`.
+  - It moves them for every page under `<wiki>/X/`, including pages still
+    there, so a page moved later keeps its history.
+  - An attachment is renamed, or copied when the rename crosses file
+    systems or mounts.
+  - The revisions `X`'s wiki already has for a page stay, and the newest
+    moved ones fill the rest of its 20; the others are dropped. A creation
+    time `X`'s wiki already has for a page stays. An attachment of the same
+    name with other content stays where it is, and the server logs a
+    warning that names it.
+  - When the move fails, `X`'s wiki request fails with the reason, and the
+    next one tries again. An interrupted move finishes then.
+- Pages left in `<wiki>/X/` once `<projects_dir>/X/wiki/` exists show in
+  neither wiki. When the server first opens `X`'s wiki after each start, it
+  logs a warning that names `<wiki>/X/` and the number of pages there.
 
 #### Access After Migration
 

@@ -4,12 +4,18 @@
 package file
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/wiki"
@@ -168,6 +174,128 @@ func TestMigratedProjectUsesItsOwnWikiOnceItExists(t *testing.T) {
 
 	assert.Equal(t, []string{"moved"}, flatIDs(t, f.wiki(t, f.ops)))
 	assert.Equal(t, []string{"home"}, flatIDs(t, f.defaultWiki(t)))
+}
+
+// TestMovedWikiKeepsHistory moves the v2 directory of ops to its own wiki
+// directory, as an admin would. Its page keeps its revision and attachment,
+// which lived outside that directory.
+func TestMovedWikiKeepsHistory(t *testing.T) {
+	f := newWikiFixture(t)
+	ctx := t.Context()
+	inPlace := f.wiki(t, f.ops)
+	require.NoError(t, inPlace.Update(ctx, "runbook", "v2"))
+	_, err := inPlace.PutAttachment(ctx, "runbook", "diagram.png", strings.NewReader("png"))
+	require.NoError(t, err)
+
+	moveOpsWiki(t, f)
+	store := f.wiki(t, f.ops)
+
+	revisions, err := store.ListRevisions(ctx, "runbook")
+	require.NoError(t, err)
+	require.Len(t, revisions, 1)
+	revision, err := store.GetRevision(ctx, "runbook", revisions[0].Rev)
+	require.NoError(t, err)
+	assert.Equal(t, "needle [[home]]", revision.Content)
+	file, _, err := store.OpenAttachment(ctx, "runbook", "diagram.png")
+	require.NoError(t, err)
+	data, err := io.ReadAll(file)
+	require.NoError(t, file.Close())
+	require.NoError(t, err)
+	assert.Equal(t, "png", string(data))
+	assert.NoDirExists(t, filepath.Join(f.cfg.Paths.WikiDir, ".attachments"))
+}
+
+func moveOpsWiki(t *testing.T, f *wikiFixture) {
+	t.Helper()
+	ownDir := filepath.Join(f.cfg.Paths.ProjectsDir, "ops", "wiki")
+	require.NoError(t, os.MkdirAll(filepath.Dir(ownDir), 0o750))
+	require.NoError(t, os.Rename(filepath.Join(f.cfg.Paths.WikiDir, "ops"), ownDir))
+}
+
+// TestWikiPagesLeftBehindAreLogged leaves a page in the v2 directory of ops
+// after its own wiki directory exists. That page shows in no wiki, so the
+// server names the directory in a warning.
+func TestWikiPagesLeftBehindAreLogged(t *testing.T) {
+	f := newWikiFixture(t)
+	moveOpsWiki(t, f)
+	left := filepath.Join(f.cfg.Paths.WikiDir, "ops")
+	require.NoError(t, os.MkdirAll(left, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(left, "old.md"), []byte("x\n"), 0o600))
+
+	var logs bytes.Buffer
+	ctx := logger.WithLogger(t.Context(), logger.NewLogger(
+		logger.WithWriter(&logs), logger.WithQuiet(), logger.WithFormat("json")))
+	store, err := f.wikis.storeOf(ctx, f.ops)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"runbook"}, flatIDs(t, store))
+	assert.Equal(t, []string{"home"}, flatIDs(t, f.defaultWiki(t)))
+	var entry struct {
+		Msg   string `json:"msg"`
+		Dir   string `json:"dir"`
+		Count int    `json:"count"`
+	}
+	require.NoError(t, json.Unmarshal(logs.Bytes(), &entry), logs.String())
+	assert.Contains(t, entry.Msg, "Wiki pages left in the v2 directory")
+	assert.Equal(t, left, entry.Dir)
+	assert.Equal(t, 1, entry.Count)
+}
+
+// TestMovedWikiLeavesProjectOfOtherCase registers project Ops from
+// workspace Ops beside ops. Their v2 names differ only in case, so each
+// has its own directory on a file system that tells case apart. Moving ops
+// leaves the pages and history of Ops where they are, and no warning counts
+// them as pages ops left behind.
+func TestMovedWikiLeavesProjectOfOtherCase(t *testing.T) {
+	f := newWikiFixture(t)
+	if fileutil.IsCaseInsensitiveFS(f.cfg.Paths.WikiDir) {
+		t.Skip("the file system does not tell ops from Ops")
+	}
+	ctx := t.Context()
+	other, err := f.registry.Create(ctx, project.CreateInput{Name: "Ops2", MigratedFrom: "Ops"})
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(f.cfg.Paths.WikiDir, "Ops"), 0o750))
+	otherWiki := f.wiki(t, other)
+	require.NoError(t, otherWiki.Create(ctx, "plan", "v1"))
+	require.NoError(t, otherWiki.Update(ctx, "plan", "v2"))
+	_, err = otherWiki.PutAttachment(ctx, "plan", "diagram.png", strings.NewReader("png"))
+	require.NoError(t, err)
+
+	moveOpsWiki(t, f)
+	var logs bytes.Buffer
+	logCtx := logger.WithLogger(ctx, logger.NewLogger(logger.WithWriter(&logs), logger.WithQuiet()))
+	_, err = f.wikis.storeOf(logCtx, f.ops)
+	require.NoError(t, err)
+
+	revisions, err := otherWiki.ListRevisions(ctx, "plan")
+	require.NoError(t, err)
+	assert.Len(t, revisions, 1)
+	_, _, err = otherWiki.OpenAttachment(ctx, "plan", "diagram.png")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"plan"}, flatIDs(t, otherWiki))
+	assert.NotContains(t, logs.String(), "Wiki pages left")
+}
+
+// TestProjectOfOtherCaseWithoutFolderStartsEmpty registers project Ops2
+// from workspace Ops, which had no wiki directory, beside ops, which has
+// one. The in-place wiki of Ops2 must not adopt ops's directory: it starts
+// empty, and its pages land in a directory of its own.
+func TestProjectOfOtherCaseWithoutFolderStartsEmpty(t *testing.T) {
+	f := newWikiFixture(t)
+	if fileutil.IsCaseInsensitiveFS(f.cfg.Paths.WikiDir) {
+		t.Skip("the file system does not tell ops from Ops")
+	}
+	ctx := t.Context()
+	other, err := f.registry.Create(ctx, project.CreateInput{Name: "Ops2", MigratedFrom: "Ops"})
+	require.NoError(t, err)
+	otherWiki := f.wiki(t, other)
+
+	assert.Empty(t, flatIDs(t, otherWiki))
+	_, err = otherWiki.Get(ctx, "runbook")
+	require.ErrorIs(t, err, wiki.ErrPageNotFound)
+	require.NoError(t, otherWiki.Create(ctx, "plan", "x"))
+	assert.FileExists(t, filepath.Join(f.cfg.Paths.WikiDir, "Ops", "plan.md"))
+	assert.Equal(t, []string{"runbook"}, flatIDs(t, f.wiki(t, f.ops)))
 }
 
 // TestProjectWikiInDAGDirectory proves that a project's pages live in wiki/
