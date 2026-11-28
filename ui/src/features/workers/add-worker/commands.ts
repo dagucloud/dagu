@@ -300,10 +300,10 @@ export function checkCommand(
     '--check',
     `--worker.coordinators=${input.address}`,
   ];
-  // An empty data directory, so the check dials even where the worker
-  // already joined and keeps its certificate.
+  // An empty data directory and no invite, so the check dials on a host
+  // where the worker already joined. A subshell keeps the unset local.
   if (tab === WorkerTab.linux) {
-    return `DAGU_HOME="$(mktemp -d)" ${shellCommand(args)}`;
+    return `(unset DAGU_WORKER_INVITE; DAGU_HOME="$(mktemp -d)" ${shellCommand(args)})`;
   }
   if (!input.image) return undefined;
   return shellCommand(['docker', 'run', '--rm', input.image, ...args]);

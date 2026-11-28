@@ -27,9 +27,10 @@ export const addWorkerMessages = defineMessages({
     'Move to built-in TLS': 'Move to built-in TLS',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.",
+    '{count} workers joined with this invite.':
+      '{count} workers joined with this invite.',
+    '1 worker joined with this invite.': '1 worker joined with this invite.',
     'Looking for the worker...': 'Looking for the worker...',
-    'Label {position} holds a line break, which a label cannot hold. Nothing was pasted.':
-      'Label {position} holds a line break, which a label cannot hold. Nothing was pasted.',
     'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:':
       'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:',
     'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
@@ -67,8 +68,6 @@ export const addWorkerMessages = defineMessages({
       'The address holds an invite. The invite goes only into the commands.',
     'Address and port': 'Address and port',
     'Look for the worker again': 'Look for the worker again',
-    '{count} worker joined with this invite.':
-      '{count} worker joined with this invite.',
     "Run this against the cluster. The worker's log names the cause:":
       "Run this against the cluster. The worker's log names the cause:",
     'Label {position} sets {key}, which a worker sets from its own host.':
@@ -190,9 +189,10 @@ export const addWorkerMessages = defineMessages({
     'Move to built-in TLS': '迁移到内置 TLS',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       '输入 Worker 可访问的协调器 Service 地址：其负载均衡器；如果使用 NodePort，则为节点地址和分配的节点端口。Service 自身的名称只在集群内有效。',
+    '{count} workers joined with this invite.':
+      '已有 {count} 个 Worker 通过此邀请加入。',
+    '1 worker joined with this invite.': '已有 1 个 Worker 通过此邀请加入。',
     'Looking for the worker...': '正在查找 Worker...',
-    'Label {position} holds a line break, which a label cannot hold. Nothing was pasted.':
-      '第 {position} 个标签中包含换行，标签不能包含换行。未粘贴任何内容。',
     'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:':
       '在 Worker 主机上运行以下命令。它在新的容器中显示该主机能否访问该地址以及协调器的响应：',
     'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
@@ -230,8 +230,6 @@ export const addWorkerMessages = defineMessages({
       '地址中包含邀请。邀请只应放在命令中。',
     'Address and port': '地址和端口',
     'Look for the worker again': '再次查找 Worker',
-    '{count} worker joined with this invite.':
-      '已有 {count} 个 Worker 通过此邀请加入。',
     "Run this against the cluster. The worker's log names the cause:":
       '在集群上运行以下命令。Worker 的日志会说明原因：',
     'Label {position} sets {key}, which a worker sets from its own host.':
@@ -351,9 +349,11 @@ export const addWorkerMessages = defineMessages({
     'Move to built-in TLS': '組み込み TLS に移行',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       'ワーカーが到達できるコーディネーター Service のアドレスを入力してください。ロードバランサー、または NodePort ならノードのアドレスと割り当てられたノードポートです。Service 自体の名前はクラスター内でのみ使えます。',
+    '{count} workers joined with this invite.':
+      'この招待で {count} 台のワーカーが参加しました。',
+    '1 worker joined with this invite.':
+      'この招待で 1 台のワーカーが参加しました。',
     'Looking for the worker...': 'ワーカーを探しています...',
-    'Label {position} holds a line break, which a label cannot hold. Nothing was pasted.':
-      'ラベル {position} に改行が含まれています。ラベルに改行は使えません。貼り付けは行われませんでした。',
     'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:':
       'ワーカーのホストでこれを実行してください。新しいコンテナで、ホストがアドレスに届くかとコーディネーターの応答を表示します:',
     'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
@@ -391,8 +391,6 @@ export const addWorkerMessages = defineMessages({
       'アドレスに招待が含まれています。招待はコマンドにだけ入れます。',
     'Address and port': 'アドレスとポート',
     'Look for the worker again': 'ワーカーをもう一度探す',
-    '{count} worker joined with this invite.':
-      'この招待で {count} 台のワーカーが参加しました。',
     "Run this against the cluster. The worker's log names the cause:":
       'クラスターに対してこれを実行してください。ワーカーのログに原因が示されます:',
     'Label {position} sets {key}, which a worker sets from its own host.':
@@ -515,9 +513,11 @@ export const addWorkerMessages = defineMessages({
     'Move to built-in TLS': 'Auf eingebautes TLS umstellen',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       'Geben Sie die Adresse des Koordinator-Service ein, die Worker erreichen: seinen Load Balancer oder bei NodePort die Adresse eines Knotens und den zugewiesenen Knotenport. Der Name des Service selbst funktioniert nur im Cluster.',
+    '{count} workers joined with this invite.':
+      '{count} Worker sind mit dieser Einladung beigetreten.',
+    '1 worker joined with this invite.':
+      '1 Worker ist mit dieser Einladung beigetreten.',
     'Looking for the worker...': 'Suche nach dem Worker...',
-    'Label {position} holds a line break, which a label cannot hold. Nothing was pasted.':
-      'Label {position} enthält einen Zeilenumbruch, den ein Label nicht enthalten kann. Es wurde nichts eingefügt.',
     'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:':
       'Führen Sie dies auf dem Worker-Host aus. In einem frischen Container zeigt es, ob der Host die Adresse erreicht und was der Koordinator antwortet:',
     'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
@@ -555,8 +555,6 @@ export const addWorkerMessages = defineMessages({
       'Die Adresse enthält eine Einladung. Die Einladung gehört nur in die Befehle.',
     'Address and port': 'Adresse und Port',
     'Look for the worker again': 'Erneut nach dem Worker suchen',
-    '{count} worker joined with this invite.':
-      '{count} Worker ist mit dieser Einladung beigetreten.',
     "Run this against the cluster. The worker's log names the cause:":
       'Führen Sie dies gegen den Cluster aus. Das Log des Workers nennt die Ursache:',
     'Label {position} sets {key}, which a worker sets from its own host.':
@@ -685,9 +683,11 @@ export const addWorkerMessages = defineMessages({
     'Move to built-in TLS': 'Passer au TLS intégré',
     "Enter the address of the coordinator Service that workers reach: its load balancer, or for NodePort, a node's address and the assigned node port. The Service's own name works only inside the cluster.":
       'Saisissez l’adresse du Service du coordinateur que les workers atteignent : son équilibreur de charge, ou pour NodePort, l’adresse d’un nœud et le port de nœud attribué. Le nom du Service ne fonctionne qu’à l’intérieur du cluster.',
+    '{count} workers joined with this invite.':
+      '{count} workers ont rejoint avec cette invitation.',
+    '1 worker joined with this invite.':
+      '1 worker a rejoint avec cette invitation.',
     'Looking for the worker...': 'Recherche du worker…',
-    'Label {position} holds a line break, which a label cannot hold. Nothing was pasted.':
-      'Le label {position} contient un saut de ligne, qu’un label ne peut pas contenir. Rien n’a été collé.',
     'Run this on the worker host. From a fresh container, it shows whether the host reaches the address and what the coordinator answers:':
       'Exécutez ceci sur l’hôte du worker. Dans un nouveau conteneur, cela montre si l’hôte joint l’adresse et ce que répond le coordinateur :',
     'Run this on the worker host. From an empty data directory, it dials even after the worker joined, and shows whether the host reaches the address and what the coordinator answers:':
@@ -725,8 +725,6 @@ export const addWorkerMessages = defineMessages({
       'L’adresse contient une invitation. L’invitation va seulement dans les commandes.',
     'Address and port': 'Adresse et port',
     'Look for the worker again': 'Chercher à nouveau le worker',
-    '{count} worker joined with this invite.':
-      '{count} worker a rejoint avec cette invitation.',
     "Run this against the cluster. The worker's log names the cause:":
       'Exécutez ceci sur le cluster. Le journal du worker en donne la cause :',
     'Label {position} sets {key}, which a worker sets from its own host.':

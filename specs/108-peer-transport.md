@@ -1248,7 +1248,10 @@ and prints the message:
 
 #### Add Worker
 
-- **Add worker** is on the Workers page, for admins.
+- **Add worker** is on the Workers page, for admins. It reads join
+  readiness and creates the invite on the server that serves the page.
+  While System status shows a remote node, **Add worker** is disabled and
+  says to switch to the local server.
 - Step 1 shows each coordinator whose join readiness is not ready. `<port>`
   below is the reported `port`:
   - While `loopbackOnly`, the change for how Dagu was started:
@@ -1335,6 +1338,16 @@ and prints the message:
   `POST /api/v1/workers/invites` checks only the form, the same
   `host:port` rule without the reachability checks, since automation may
   reach the coordinator through a tunnel.
+- Step 3 and the MCP action refuse a worker label that a worker would
+  refuse at start, by the worker's own parsing and label rules: each label
+  is one `key` or `key=value`, a key holds only letters, digits, `-`, `_`,
+  and `.`, a value only those and `/`, and each key appears once, compared
+  without case. They also refuse `os` and `arch`, which a worker sets from
+  its own host. A label entry holds no comma. A refusal names the label by
+  its position, the later one for a repeated key, never by its text. A
+  line break inside a label breaks the rules. The commands carry the
+  address and each label without the space and line breaks around them,
+  which the worker drops.
 - Step 3 shows only after steps 1 and 2, and not while a reading of step
   1 runs, as after a restart. Its tab sets the invite kind:
 
@@ -1345,9 +1358,33 @@ and prints the message:
   | Kubernetes | Reusable only | A Secret with the invite, and a Deployment that maps it to `DAGU_WORKER_INVITE` and whose data directory is an `emptyDir` |
 
 - Labels and the address go into the command, not the invite.
+- The commands quote each argument a POSIX shell treats specially, so an
+  IPv6 address keeps its brackets. The manifest's container arguments
+  write each `$` as `$$`, so no argument expands a variable such as
+  `DAGU_WORKER_INVITE`, and only the Secret holds the invite.
+- The manifest names its Secret `dagu-worker-invite-<id>` and its
+  Deployment and pod label `dagu-worker-<id>`, where `<id>` is the first 8
+  lowercase letters and digits of the invite ID, so another invite's
+  manifest in the same namespace adds a worker instead of replacing one.
+- The container commands run `ghcr.io/dagucloud/dagu:<tag>`, where `<tag>`
+  is the server's version without its leading `v`. A release tagged
+  `vX.Y.Z` or `vX.Y.Z-<prerelease>` publishes that image. A version has a
+  published image when it matches `^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9_.-]*)?$`
+  and has at most 128 characters, unless it is a development build:
+  `0.0.0`, or a version ending in a `git describe` suffix such as
+  `-12-g1a2b3c4` or in `-next`, which no release is tagged with. A server
+  without a published image, such as one whose version is `dev`, gets no
+  container command, and step 3 says so.
+- Workers on one Docker host each need their own volume: a second worker
+  on `dagu-worker` finds the first one's lock. Step 3 says to change the
+  volume name for each further worker on the host.
 - The dialog waits on the page's existing `/workers` refresh for a worker
   with the invite's ID, and then shows its ID and labels. Closing the dialog
   keeps the invite.
+- The dialog keeps each invite and its wait until it closes, across tabs
+  and readings. At 60 seconds without a worker it reads `/workers` once
+  itself, since the page's refresh may be paused; a failed or partial read
+  says the list could not be read.
 - When no worker arrives within 60 seconds, it lists the usual causes (a
   firewall or security group closes the port, a container does not
   publish it, the address is not reachable from the worker) and suggests

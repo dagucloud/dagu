@@ -977,7 +977,9 @@ describe('AddWorker', () => {
         'Label 2 holds an invite. The invite goes only into the commands.'
       )
     ).toBeInTheDocument();
-    expect(screen.queryByText(/AAAAAAAAAA/)).toBeNull();
+    expect(
+      screen.queryByText(/AAAAAAAAAA/, { ignore: 'script, style, textarea' })
+    ).toBeNull();
     expect(
       screen.getByRole('button', { name: 'Create invite' })
     ).toBeDisabled();
@@ -1123,6 +1125,13 @@ describe('AddWorker', () => {
 
     // The same status region now says the worker joined.
     expect(status).toHaveTextContent('1 worker joined with this invite.');
+    rerender(
+      view([
+        worker({ inviteId: 'inv-1' }),
+        worker({ id: 'worker-b2', inviteId: 'inv-1' }),
+      ])
+    );
+    expect(status).toHaveTextContent('2 workers joined with this invite.');
     expect(screen.getByText('worker-a1')).toBeInTheDocument();
     expect(screen.getByText('gpu=true')).toBeInTheDocument();
     expect(screen.queryByText('other')).toBeNull();
@@ -1204,7 +1213,7 @@ describe('AddWorker', () => {
     // An empty data directory, so it dials after the worker joined too.
     [
       'Linux',
-      'DAGU_HOME="$(mktemp -d)" dagu worker --check --worker.coordinators=192.168.1.20:50055',
+      '(unset DAGU_WORKER_INVITE; DAGU_HOME="$(mktemp -d)" dagu worker --check --worker.coordinators=192.168.1.20:50055)',
     ],
     [
       'Docker',
@@ -1238,20 +1247,33 @@ describe('AddWorker', () => {
     expect(screen.getByText(check, { selector: 'pre' })).toBeInTheDocument();
   });
 
-  // An input drops line breaks, so a paste is read as MCP reads labels: a
-  // break inside a label is refused, one at its edge is trimmed.
+  // The field keeps line breaks as MCP reads them: one next to = is
+  // trimmed off the key or value and kept in the command, and one inside a
+  // value is refused. vectors.test.ts holds the exact commands.
   it.each([
-    ['zone=a\nb', '', 'Label 1 holds a line break'],
-    ['gpu=true\n', 'gpu=true', undefined],
-  ])('reads a pasted line break in %j', async (pasted, value, problem) => {
+    ['gpu=\ntrue', "'--worker.labels=gpu=\ntrue'"],
+    ['zone=a\nb', undefined],
+  ])('keeps a line break in the labels %j', async (labels, argument) => {
     await open(readiness());
     typeAddress('192.168.1.20:50055');
-    const field = screen.getByLabelText('Labels (optional)');
-    fireEvent.paste(field, { clipboardData: { getData: () => pasted } });
+    fireEvent.change(screen.getByLabelText('Labels (optional)'), {
+      target: { value: labels },
+    });
+    if (!argument) {
+      expect(
+        screen.getByText(/Label 1 breaks the worker label rule/)
+      ).toBeInTheDocument();
+      return;
+    }
+    await createInvite();
+    expect(shownCommand()).toContain(argument);
+  });
 
-    expect(field).toHaveValue(value);
-    if (problem)
-      expect(screen.getByText(new RegExp(problem))).toBeInTheDocument();
+  // A line break inside a pasted address is refused, as MCP refuses it.
+  it('creates no invite for an address with a line break inside', async () => {
+    await open(readiness());
+    typeAddress('worker.example:50\n055');
+    expect(screen.queryByRole('button', { name: 'Create invite' })).toBeNull();
   });
 
   // A second invite for a changed address checks the labels too.
@@ -1300,5 +1322,28 @@ describe('AddWorker', () => {
     const reads = api.GET.mock.calls.filter(([path]) => path === '/workers');
     expect(reads).toHaveLength(1);
     expect(screen.getByText(/The usual causes/)).toBeInTheDocument();
+  });
+
+  it('keeps the focus on Look for the worker again while it reads', async () => {
+    vi.useFakeTimers();
+    await open(readiness());
+    typeAddress('192.168.1.20:50055');
+    await createInvite();
+    api.GET.mockResolvedValue(answer(200, { workers: [], errors: [] }));
+    await act(async () => {
+      vi.advanceTimersByTime(60_000);
+    });
+    const retry = screen.getByRole('button', {
+      name: 'Look for the worker again',
+    });
+    retry.focus();
+    const later = deferred<unknown>();
+    api.GET.mockReturnValue(later.promise);
+    fireEvent.click(retry);
+    await act(async () => {});
+    expect(document.activeElement).toBe(retry);
+    later.resolve(answer(200, { workers: [], errors: [] }));
+    await act(async () => {});
+    expect(document.activeElement).toBe(retry);
   });
 });

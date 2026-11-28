@@ -5,7 +5,7 @@ import { RefreshCw } from 'lucide-react';
 import * as React from 'react';
 import { WorkerInviteKind, type components } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Spinner } from '@/components/ui/spinner';
 import { TabStrip, tabStripTabId } from '@/components/ui/tab-strip';
 import { useConfig } from '@/contexts/ConfigContext';
@@ -20,7 +20,6 @@ import {
   WorkerTab,
   type CommandInput,
 } from './commands';
-import { goTrimSpace } from './address';
 import {
   CommandBlock,
   ProblemText,
@@ -235,54 +234,27 @@ function WorkerCommand({
 }) {
   const labels = normalizeLabels(labelsInput);
   const command = input && workerCommand(tab, input);
-  const [pastedBreak, setPastedBreak] = React.useState<number>();
   return (
     <>
       <div className="space-y-1.5">
         <label className="text-sm" htmlFor="add-worker-labels">
           <I18nText text="Labels (optional)" />
         </label>
-        <Input
+        {/* A one-line text area keeps a pasted line break, which the MCP
+            action reads too: trimmed at a label's edge, refused inside. */}
+        <Textarea
           id="add-worker-labels"
+          rows={1}
+          className="min-h-9"
           value={labelsInput}
           placeholder="gpu=true,region=eu"
           aria-invalid={'problem' in labels || undefined}
           aria-describedby={
             'problem' in labels ? 'add-worker-labels-problem' : undefined
           }
-          onChange={(e) => {
-            setPastedBreak(undefined);
-            onLabelsChange(e.target.value);
-          }}
-          onPaste={(e) => {
-            const text = e.clipboardData.getData('text');
-            if (!/[\r\n]/.test(text)) return;
-            // An input drops line breaks, so the paste is read here.
-            e.preventDefault();
-            const field = e.currentTarget;
-            const next =
-              field.value.slice(0, field.selectionStart ?? field.value.length) +
-              text +
-              field.value.slice(field.selectionEnd ?? field.value.length);
-            const at = next
-              .split(',')
-              .findIndex((entry) => /[\r\n]/.test(goTrimSpace(entry)));
-            if (at >= 0) {
-              setPastedBreak(at + 1);
-              return;
-            }
-            setPastedBreak(undefined);
-            onLabelsChange(next.replace(/[\r\n]/g, ''));
-          }}
+          onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
+          onChange={(e) => onLabelsChange(e.target.value)}
         />
-        {pastedBreak !== undefined && (
-          <p className="text-xs text-destructive">
-            <I18nText
-              text="Label {position} holds a line break, which a label cannot hold. Nothing was pasted."
-              values={{ position: pastedBreak }}
-            />
-          </p>
-        )}
         {'problem' in labels && (
           <p
             id="add-worker-labels-problem"
@@ -534,7 +506,11 @@ function Arrival({
       <p role="status" className="flex items-center gap-2">
         {joined ? (
           <I18nText
-            text="{count} worker joined with this invite."
+            text={
+              seen.length === 1
+                ? '1 worker joined with this invite.'
+                : '{count} workers joined with this invite.'
+            }
             values={{ count: seen.length }}
           />
         ) : outcome === 'waiting' || reading ? (
@@ -572,8 +548,8 @@ function Arrival({
           ))}
         </ul>
       )}
-      {!joined && !reading && outcome === 'unread' && lookAgain}
-      {!joined && !reading && outcome === 'absent' && (
+      {!joined && outcome === 'unread' && lookAgain}
+      {!joined && outcome === 'absent' && (
         <>
           <ul className="list-disc space-y-0.5 pl-5">
             <li>
