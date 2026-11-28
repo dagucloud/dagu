@@ -19,6 +19,7 @@ import {
 } from '@/api/v1/schema';
 import { QueryFeedback } from '@/components/QueryFeedback';
 import { useIsAdmin } from '@/contexts/AuthContext';
+import { clearAuthSession } from '@/lib/authSession';
 import { useQuery } from '@/hooks/api';
 import WorkerInvites, {
   JOIN_REREAD_DELAY_MS,
@@ -603,6 +604,24 @@ describe('WorkerInvites', () => {
     await act(async () => pending[0]!({ status: 204 }));
     expect(await screen.findByText('No invites')).toBeInTheDocument();
     expect(requests('DELETE', '/workers/invites/inv-1')).toHaveLength(1);
+  });
+
+  // A sign-out starts the invites over: the next admin sees nothing of the
+  // previous session's list until the list is read for them.
+  it('forgets the invites on sign-out', async () => {
+    server.invites = invitesAnswer([invite('inv-1')]);
+    const { leave, rerender } = renderInvites();
+    await screen.findByRole('button', { name: /^Delete invite inv-1/ });
+
+    leave();
+    act(() => clearAuthSession('logout'));
+    server.invites = () => new Promise(() => undefined) as never;
+    rerender();
+
+    expect(await screen.findByText('Loading invites...')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: /^Delete invite inv-1/ })
+    ).not.toBeInTheDocument();
   });
 
   // A deleted invite leaves the list at once, before the list is read

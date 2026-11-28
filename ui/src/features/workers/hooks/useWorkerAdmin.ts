@@ -11,6 +11,7 @@ import { useSWRConfig } from 'swr';
 import { WorkerAccessReason, type components } from '@/api/v1/schema';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
+import { addAuthSessionListener } from '@/lib/authSession';
 import type { StaticTranslationValues } from '@/i18n/translateStatic';
 
 type WorkerInvitesList = components['schemas']['WorkerInvitesListResponse'];
@@ -95,7 +96,8 @@ interface NodeInvites {
 /**
  * The invite reads and deletes of the page, which components render from.
  * It lives as long as the page's SWR cache, so it outlives the list, a node
- * switch, and a route change.
+ * switch, and a route change, and starts over with each sign-in or
+ * sign-out, as that cache does.
  */
 class InviteStore {
   private readonly nodes = new Map<string, NodeInvites>();
@@ -104,6 +106,22 @@ class InviteStore {
   private readonly failures = new Map<string, LateFailure>();
   private readonly listeners = new Set<() => void>();
   private version = 0;
+  // Counts the sessions; a delete from an earlier one changes nothing kept.
+  private session = 0;
+
+  constructor() {
+    addAuthSessionListener(() => this.reset());
+  }
+
+  // Forgets what the previous session read and deleted. Its requests still
+  // under way update entries no longer kept.
+  private reset() {
+    this.session += 1;
+    this.nodes.clear();
+    this.deletes.clear();
+    this.failures.clear();
+    this.changedState();
+  }
 
   readonly subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -200,6 +218,7 @@ class InviteStore {
   delete(client: Client, inviteId: string): Promise<void> {
     const running = this.deletes.get(inviteId);
     if (running) return running;
+    const session = this.session;
     const promise = (async () => {
       try {
         const { error, response } = await client.DELETE(
@@ -209,11 +228,13 @@ class InviteStore {
         if (!response.ok && response.status !== 404) {
           throw requestError(response.status, error);
         }
-        this.gone(inviteId);
+        if (this.session === session) this.gone(inviteId);
         if (!response.ok) throw requestError(response.status, error);
       } finally {
-        this.deletes.delete(inviteId);
-        this.changedState();
+        if (this.session === session) {
+          this.deletes.delete(inviteId);
+          this.changedState();
+        }
       }
     })();
     this.deletes.set(inviteId, promise);
