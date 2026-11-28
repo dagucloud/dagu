@@ -128,7 +128,7 @@ func runWorker(ctx *Context, _ []string) error {
 	maxActiveRuns := ctx.Config.Worker.MaxActiveRuns
 	labels := ctx.Config.Worker.Labels
 
-	membership, coordinatorCli, err := joinCoordinators(ctx, signalCtx, workerID)
+	membership, coordinatorCli, err := joinCoordinators(signalCtx, ctx, workerID)
 	if err != nil {
 		return err
 	}
@@ -215,7 +215,7 @@ func workerStopContext(parent context.Context, timeout time.Duration) (context.C
 // joinCoordinators prepares how the worker calls its coordinators, logs its
 // start line, enrolls with worker.invite when the worker holds no
 // certificate, and creates its client. Enrollment ends with signalCtx.
-func joinCoordinators(ctx *Context, signalCtx context.Context, workerID string) (*worker.Membership, coordinator.Client, error) {
+func joinCoordinators(signalCtx context.Context, ctx *Context, workerID string) (*worker.Membership, coordinator.Client, error) {
 	membership, err := worker.OpenMembership(signalCtx, ctx.Config, ctx.serverStores.ServiceRegistry)
 	if err != nil {
 		return nil, nil, err
