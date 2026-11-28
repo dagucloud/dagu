@@ -39,9 +39,9 @@ var refusalReasons = map[refusal]string{
 	{codes.Unauthenticated, requireTLSMessage}:         reasonRequireTLS,
 }
 
-// refusalError returns a refusal with code and message that carries reason,
+// reasonedRefusal returns a refusal with code and message that carries reason,
 // so a caller does not depend on the message.
-func refusalError(code codes.Code, reason, message string) error {
+func reasonedRefusal(code codes.Code, reason, message string) error {
 	st, err := status.New(code, message).WithDetails(&errdetails.ErrorInfo{Reason: reason, Domain: refusalDomain})
 	if err != nil {
 		return status.Error(code, message)

@@ -174,9 +174,9 @@ func (h *Handler) requirePeerCA() error {
 		return nil
 	}
 	if h.joinReadiness.BuiltinTLSReason == coordinatorv1.BuiltinTLSReason_BUILTIN_TLS_REASON_OWN_CERTIFICATES {
-		return refusalError(codes.FailedPrecondition, reasonOwnCertificates, ownCertificatesMessage)
+		return reasonedRefusal(codes.FailedPrecondition, reasonOwnCertificates, ownCertificatesMessage)
 	}
-	return refusalError(codes.FailedPrecondition, reasonCAUnavailable, caUnavailableMessage)
+	return reasonedRefusal(codes.FailedPrecondition, reasonCAUnavailable, caUnavailableMessage)
 }
 
 // newInvite returns a new invite for the CA certificate ca, and what its
