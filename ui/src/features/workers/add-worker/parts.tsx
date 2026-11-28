@@ -33,7 +33,7 @@ const REASON_TEXT: Partial<Record<WorkerAccessReason, string>> = {
   [WorkerAccessReason.peer_token_mismatch]:
     "This server's peer.token is not the coordinator's. Set the same peer.token on both, then restart them.",
   [WorkerAccessReason.require_tls]:
-    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it.",
+    "The coordinator requires TLS. On this server, clear any peer.insecure: true or peer.skip_tls_verify: true, whether a flag, a variable, or the config file sets it. If this server has no usable CA certificate for the coordinator, switch it to built-in TLS: clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate. Then restart it. If these settings are in order, check that the network path to the coordinator passes TLS.",
   [WorkerAccessReason.coordinator_refused]:
     'The coordinator refused this server. Its log names the reason.',
   [WorkerAccessReason.coordinator_conflict]:

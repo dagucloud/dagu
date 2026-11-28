@@ -1288,12 +1288,14 @@ and prints the message:
 - The dialog reads join readiness when it opens, again when the server is
   back after a restart, and when the admin asks to check again. It does not
   poll. The server is back when System status's `/workers` refresh succeeds
-  after it failed. The dialog also reads join readiness when its window
-  regains focus or its page becomes visible, also when ready, since a
-  restart can be quicker than that refresh and change the port. Step 3
-  waits for each reading.
-- Step 2 is a required address field. It starts with `lastInviteAddress`, or
-  with `advertise`, or empty. It suggests `addresses`, and none in a
+  after it failed. The dialog also reads join readiness each time the
+  admin returns to its window, once for the return's focus and visibility
+  events, also when ready, since a restart can be quicker than that
+  refresh and change the port. The newest reading wins over one still
+  running. Step 3 waits for each reading.
+- Step 2 is a required address field. It starts with `lastInviteAddress`,
+  unless a coordinator now reports that host with another port, or with
+  `advertise`, or empty. It suggests `addresses`, and none in a
   container, where it asks for the address of the machine that runs the
   container. It never guesses a host from the machine's name, a container
   ID, or the browser's host; an explicit `advertise` may be a DNS name.

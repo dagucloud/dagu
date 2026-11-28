@@ -99,6 +99,14 @@ async function open(data: Readiness) {
   return result;
 }
 
+// The admin leaves the window and comes back, which fires focus and, for a
+// hidden page, visibilitychange.
+function comeBack(by: 'focus' | 'visibility' | 'both' = 'focus') {
+  fireEvent.blur(window);
+  if (by !== 'focus') fireEvent(document, new Event('visibilitychange'));
+  if (by !== 'visibility') fireEvent.focus(window);
+}
+
 function step(title: string) {
   return within(screen.getByRole('region', { name: title }));
 }
@@ -170,7 +178,7 @@ describe('AddWorker', () => {
     api.GET.mockResolvedValue(
       answer(200, readiness({ advertise: 'coord.example.com', port: 50155 }))
     );
-    fireEvent.focus(window);
+    comeBack();
     await settle();
     expect(screen.getByLabelText(ADDRESS)).toHaveValue(
       'coord.example.com:50155'
@@ -435,7 +443,9 @@ describe('AddWorker', () => {
     await user.tab();
     const field = screen.getByLabelText(ADDRESS);
     expect(document.activeElement).toBe(field);
-    expect(field).toHaveAccessibleDescription(/namespace-qualified Service address/);
+    expect(field).toHaveAccessibleDescription(
+      /namespace-qualified Service address/
+    );
     typeAddress('localhost:50055');
     expect(field).toHaveAccessibleDescription(
       /namespace-qualified Service address.*localhost/
@@ -545,7 +555,7 @@ describe('AddWorker', () => {
     [
       503,
       WorkerAccessReason.require_tls,
-      /clear any peer.insecure: true or peer.skip_tls_verify: true.*clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate/,
+      /clear any peer.insecure: true or peer.skip_tls_verify: true.*clear peer.cert_file, peer.key_file, and peer.client_ca_file, then set peer.ca_cert_file to the coordinator's CA certificate.*If these settings are in order, check that the network path to the coordinator passes TLS\./,
     ],
     [503, WorkerAccessReason.coordinator_refused, /Its log names the reason/],
     [409, WorkerAccessReason.coordinator_conflict, /present state/],
@@ -604,7 +614,7 @@ describe('AddWorker', () => {
     await open(loopback({ environment: HostEnvironment.container }));
     screen.getByRole('button', { name: 'Copy the change' }).focus();
     api.GET.mockResolvedValue(answer(200, readiness()));
-    fireEvent.focus(window);
+    comeBack();
     await settle();
     expect(document.activeElement).toBe(screen.getByLabelText(ADDRESS));
   });
@@ -669,7 +679,7 @@ describe('AddWorker', () => {
 
     api.GET.mockResolvedValue(answer(200, readiness()));
     if (by === 'server') rerender(view(false));
-    else fireEvent.focus(window);
+    else comeBack();
     await settle();
     expect(api.GET).toHaveBeenCalledTimes(2);
     expect(screen.getByText('Ready')).toBeInTheDocument();
@@ -677,7 +687,7 @@ describe('AddWorker', () => {
 
   // A restart can change the port while the dialog shows Ready. Coming back
   // to the window reads again, holds step 3 meanwhile, and takes the port.
-  it.each(['focus', 'visibility'])(
+  it.each(['focus', 'visibility'] as const)(
     'rereads a ready dialog on %s',
     async (by) => {
       const advertise = 'coord.example.com';
@@ -689,8 +699,7 @@ describe('AddWorker', () => {
 
       const later = deferred<unknown>();
       api.GET.mockReturnValue(later.promise);
-      if (by === 'focus') fireEvent.focus(window);
-      else fireEvent(document, new Event('visibilitychange'));
+      comeBack(by);
       await settle();
       expect(locked()).toBeInTheDocument();
       later.resolve(answer(200, readiness({ advertise, port: 50155 })));
@@ -699,6 +708,49 @@ describe('AddWorker', () => {
       expect(locked()).toBeNull();
     }
   );
+
+  // One return reads once for its focus and visibility events, and a
+  // later return wins over a read still running from an earlier one.
+  it('reads once per return, the newest winning', async () => {
+    const advertise = 'coord.example.com';
+    await open(readiness({ advertise }));
+    const older = deferred<unknown>();
+    api.GET.mockReturnValueOnce(older.promise);
+    comeBack('both');
+    await settle();
+    expect(api.GET).toHaveBeenCalledTimes(2);
+
+    api.GET.mockResolvedValueOnce(
+      answer(200, readiness({ advertise, port: 50155 }))
+    );
+    comeBack();
+    await settle();
+    older.resolve(answer(200, readiness({ advertise })));
+    await settle();
+    expect(api.GET).toHaveBeenCalledTimes(3);
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue(`${advertise}:50155`);
+    expect(step('Worker').queryByText('Shown after steps 1 and 2')).toBeNull();
+  });
+
+  // A last invite made for the old port does not hold the field there once
+  // the coordinator reports a new one; a typed address stays.
+  it.each([
+    ['untouched', undefined, 'coord.example.com:50155'],
+    ['typed', '203.0.113.7:50055', '203.0.113.7:50055'],
+  ])('drops a last invite on an old port, %s', async (_, typed, kept) => {
+    const advertise = 'coord.example.com';
+    const last = 'coord.example.com:50055';
+    const { rerender } = await open(readiness({ advertise }, last));
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue(last);
+    if (typed) typeAddress(typed);
+    api.GET.mockResolvedValue(
+      answer(200, readiness({ advertise, port: 50155 }, last))
+    );
+    rerender(view(true));
+    rerender(view(false));
+    await settle();
+    expect(screen.getByLabelText(ADDRESS)).toHaveValue(kept);
+  });
 
   // The shared vectors in vectors.test.ts hold every address case; these
   // show how the dialog reacts to a refused and an accepted one.

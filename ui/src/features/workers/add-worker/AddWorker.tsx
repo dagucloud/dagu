@@ -95,14 +95,14 @@ export function AddWorkerDialog({
   // Only the latest read may change the dialog: an earlier one that ends
   // later must not replace a newer answer.
   const latest = React.useRef(0);
-  const reading = React.useRef(false);
+  // Whether the admin left the window since the last return.
+  const away = React.useRef(false);
   const hostField = React.useRef<HTMLTextAreaElement>(null);
   const checkButton = React.useRef<HTMLButtonElement>(null);
   const placementField = React.useRef<HTMLInputElement>(null);
 
   const load = React.useCallback(async () => {
     const id = ++latest.current;
-    reading.current = true;
     setChecking(true);
     let next: Readiness;
     try {
@@ -138,7 +138,6 @@ export function AddWorkerDialog({
     if (next.state === 'loaded' && !touched.current) {
       setAddress(defaultAddress(next.data, placed.current));
     }
-    reading.current = false;
     setChecking(false);
   }, [client]);
 
@@ -160,19 +159,24 @@ export function AddWorkerDialog({
 
   // A restart quicker than the workers refresh leaves no failed request,
   // and can leave a Ready reading stale, as with a new port. The admin who
-  // restarted Dagu elsewhere comes back to this window, so its return reads
-  // readiness again, once while no read runs.
+  // restarted Dagu elsewhere comes back to this window, so each return
+  // reads readiness again: once for its focus and visibility events, and
+  // newer than any read still running.
   React.useEffect(() => {
-    const reload = () => {
-      if (document.visibilityState !== 'hidden' && !reading.current) {
-        void load();
-      }
+    const leave = () => (away.current = true);
+    const back = () => {
+      if (document.visibilityState === 'hidden') return leave();
+      if (!away.current) return;
+      away.current = false;
+      void load();
     };
-    window.addEventListener('focus', reload);
-    document.addEventListener('visibilitychange', reload);
+    window.addEventListener('blur', leave);
+    window.addEventListener('focus', back);
+    document.addEventListener('visibilitychange', back);
     return () => {
-      window.removeEventListener('focus', reload);
-      document.removeEventListener('visibilitychange', reload);
+      window.removeEventListener('blur', leave);
+      window.removeEventListener('focus', back);
+      document.removeEventListener('visibilitychange', back);
     };
   }, [load]);
 

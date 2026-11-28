@@ -48,11 +48,22 @@ export function joinHostPort(host: string, port: number | string): string {
  * The address step 2 starts with: the last invite's address, else an
  * explicit coordinator.advertise with that coordinator's port, else empty.
  * Only an address that passes addressProblem counts, and nothing here comes
- * from the browser's location.
+ * from the browser's location. A last invite address whose host a
+ * coordinator now reports with another port is stale, as after a restart
+ * on a new port, so the coordinator's own address wins.
  */
 export function initialAddress(readiness: JoinReadiness): string {
+  const last = splitHostPort(readiness.lastInviteAddress ?? '');
+  const stale =
+    last !== undefined &&
+    readiness.coordinators.some(
+      ({ report }) =>
+        report &&
+        String(report.port) !== last[1] &&
+        [report.advertise, ...report.addresses].includes(last[0])
+    );
   const candidates = [
-    readiness.lastInviteAddress ?? '',
+    stale ? '' : (readiness.lastInviteAddress ?? ''),
     ...readiness.coordinators.flatMap(({ report }) =>
       report?.advertise ? [joinHostPort(report.advertise, report.port)] : []
     ),
